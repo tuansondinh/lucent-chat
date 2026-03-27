@@ -15,7 +15,9 @@ import {
   Pencil,
   Trash2,
   MessageSquare,
+  Cpu,
 } from 'lucide-react'
+import { useChatStore } from '../store/chat'
 import { ScrollArea } from './ui/scroll-area'
 import {
   DropdownMenu,
@@ -52,6 +54,7 @@ interface Props {
   onNewSession: () => void
   onSwitchSession: (path: string) => void
   onRefresh: () => void
+  onOpenModelPicker?: () => void
 }
 
 // ============================================================================
@@ -65,7 +68,9 @@ export function Sidebar({
   onNewSession,
   onSwitchSession,
   onRefresh,
+  onOpenModelPicker,
 }: Props) {
+  const { currentModel } = useChatStore()
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = window.bridge
 
@@ -181,6 +186,15 @@ export function Sidebar({
         {/* Spacer */}
         <div className="flex-1" />
 
+        {/* Model picker */}
+        <button
+          onClick={onOpenModelPicker}
+          title="Switch model (⌘M)"
+          className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+        >
+          <Cpu className="w-4 h-4" />
+        </button>
+
         {/* Settings */}
         <button
           title="Settings"
@@ -253,10 +267,24 @@ export function Sidebar({
         </ScrollArea>
 
         {/* Bottom area */}
-        <div className="flex-shrink-0 border-t border-border px-3 py-2 flex items-center justify-between">
+        <div className="flex-shrink-0 border-t border-border px-3 py-2 flex items-center gap-2">
+          {/* Model indicator — clickable to open model picker */}
+          <button
+            onClick={onOpenModelPicker}
+            title="Switch model (⌘M)"
+            className="flex-1 flex items-center gap-1.5 px-2 py-1 rounded-md text-left transition-colors hover:bg-bg-hover group min-w-0"
+          >
+            <Cpu className="w-3 h-3 flex-shrink-0 text-text-tertiary group-hover:text-text-primary transition-colors" />
+            <span className="text-[10px] text-text-tertiary group-hover:text-text-primary transition-colors truncate font-mono">
+              {currentModel
+                ? currentModel.split('/').slice(1).join('/') || currentModel
+                : 'No model'}
+            </span>
+          </button>
+
           <button
             title="Settings (Phase 3E)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
           >
             <Settings className="w-4 h-4" />
           </button>

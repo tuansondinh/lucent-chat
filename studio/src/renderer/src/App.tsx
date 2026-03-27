@@ -12,6 +12,8 @@ import { ChatMessage } from './components/ChatMessage'
 import { ChatInput } from './components/ChatInput'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
+import { ModelPicker } from './components/ModelPicker'
+import { CommandPalette } from './components/CommandPalette'
 
 // ============================================================================
 // App
@@ -38,11 +40,13 @@ export default function App() {
   const bridge = window.bridge
 
   // -------------------------------------------------------------------------
-  // Sidebar state
+  // UI state
   // -------------------------------------------------------------------------
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
 
   // Current session tracking (path + name)
   const [currentSessionPath, setCurrentSessionPath] = useState<string | null>(null)
@@ -135,7 +139,27 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture when focus is in an input/textarea
+      // Cmd+K — open command palette (always works, even in inputs)
+      if (e.metaKey && e.key === 'k') {
+        e.preventDefault()
+        setCommandPaletteOpen((v) => !v)
+        return
+      }
+
+      // Escape — close command palette first; if not open, stop generation
+      if (e.key === 'Escape') {
+        setCommandPaletteOpen((open) => {
+          if (open) {
+            e.preventDefault()
+            return false
+          }
+          return open
+        })
+        // If palette was not open, let Escape propagate to stop generation
+        return
+      }
+
+      // Don't capture remaining shortcuts when focus is in an input/textarea
       const tag = (e.target as HTMLElement).tagName.toLowerCase()
       if (tag === 'input' || tag === 'textarea') return
 
@@ -146,6 +170,15 @@ export default function App() {
       if (e.metaKey && e.key === 'n') {
         e.preventDefault()
         void handleNewSession()
+      }
+      if (e.metaKey && e.key === 'm') {
+        e.preventDefault()
+        setModelPickerOpen((v) => !v)
+      }
+      if (e.metaKey && e.key === ',') {
+        e.preventDefault()
+        // Settings — no-op for now (Phase 3E)
+        console.log('[keyboard] Cmd+, — settings (not yet implemented)')
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -200,6 +233,19 @@ export default function App() {
   }, [bridge])
 
   // -------------------------------------------------------------------------
+  // Model actions
+  // -------------------------------------------------------------------------
+
+  const handleSwitchModel = useCallback(async (provider: string, modelId: string) => {
+    try {
+      await bridge.switchModel(provider, modelId)
+      setModel(`${provider}/${modelId}`)
+    } catch (err) {
+      console.error('[model] switchModel failed:', err)
+    }
+  }, [bridge, setModel])
+
+  // -------------------------------------------------------------------------
   // Chat actions
   // -------------------------------------------------------------------------
 
@@ -243,6 +289,7 @@ export default function App() {
             onNewSession={() => void handleNewSession()}
             onSwitchSession={(path) => void handleSwitchSession(path)}
             onRefresh={handleRefresh}
+            onOpenModelPicker={() => setModelPickerOpen(true)}
           />
         ) : (
           <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
@@ -260,6 +307,7 @@ export default function App() {
                 onNewSession={() => void handleNewSession()}
                 onSwitchSession={(path) => void handleSwitchSession(path)}
                 onRefresh={handleRefresh}
+                onOpenModelPicker={() => setModelPickerOpen(true)}
               />
             </Panel>
 
@@ -306,6 +354,23 @@ export default function App() {
         model={currentModel}
         sessionName={currentSessionName}
         health={agentHealth}
+        onOpenModelPicker={() => setModelPickerOpen(true)}
+      />
+
+      {/* Model picker dialog */}
+      <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />
+
+      {/* Command palette — Cmd+K */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNewSession={() => void handleNewSession()}
+        onSwitchSession={(path) => void handleSwitchSession(path)}
+        onToggleSidebar={handleToggleSidebar}
+        onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
+        onStopGeneration={handleAbort}
+        onSettings={() => console.log('[settings] not yet implemented')}
+        isGenerating={isGenerating}
       />
     </div>
   )
