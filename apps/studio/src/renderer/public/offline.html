@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a192f" />
+    <title>Lucent Chat — Offline</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html, body {
+        height: 100%;
+        background-color: #0a192f;
+        color: #ccd6f6;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 2rem;
+        text-align: center;
+        gap: 1.5rem;
+      }
+
+      .icon {
+        width: 64px;
+        height: 64px;
+        opacity: 0.6;
+      }
+
+      h1 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #64ffda;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        font-size: 0.9375rem;
+        color: #8892b0;
+        max-width: 280px;
+        line-height: 1.5;
+      }
+
+      .retry-btn {
+        margin-top: 0.5rem;
+        padding: 0.625rem 1.5rem;
+        background: transparent;
+        border: 1px solid #64ffda;
+        color: #64ffda;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .retry-btn:hover {
+        background: rgba(100, 255, 218, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#64ffda" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18.364 5.636a9 9 0 0 1 0 12.728M15.536 8.464a5 5 0 0 1 0 7.072M12 11v.01M8.464 8.464a5 5 0 0 0 0 7.072M5.636 5.636a9 9 0 0 0 0 12.728"/>
+      </svg>
+      <h1>Lucent Chat</h1>
+      <p>Connect to your desktop to continue</p>
+      <button class="retry-btn" onclick="window.location.reload()">Retry connection</button>
+    </div>
+  </body>
+</html>
