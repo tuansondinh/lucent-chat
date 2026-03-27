@@ -9,16 +9,18 @@
  * - Large file truncation at ~500 lines with "Show more" toggle
  * - Binary file detection (null bytes / non-UTF-8 characters)
  * - Read-only display with copy-to-clipboard support
+ * - In-file search (Cmd+F) with match highlighting and navigation
+ * - Breadcrumb navigation showing full path segments
  * - Calls onClose() when last tab is closed
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
 import { getPaneStore } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText } from 'lucide-react'
+import { X, Copy, Check, FileText, Search } from 'lucide-react'
 
 // ============================================================================
 // Constants
@@ -103,23 +105,6 @@ function extensionToLanguage(path: string): string {
   return map[ext] ?? 'text'
 }
 
-/**
- * Shorten a long file path for display in the header.
- * Shows the last 2–3 path segments if the full path is long.
- */
-function shortenPath(path: string, maxLength = 60): string {
-  if (path.length <= maxLength) return path
-  const parts = path.replace(/\\/g, '/').split('/')
-  // Always show at least last 2 segments
-  let shortened = parts.slice(-2).join('/')
-  let i = parts.length - 3
-  while (i >= 0 && ('.../' + parts.slice(i).join('/')).length <= maxLength) {
-    shortened = parts.slice(i).join('/')
-    i--
-  }
-  return '.../' + shortened
-}
-
 // ============================================================================
 // CopyButton (reused pattern from ChatMessage)
 // ============================================================================
@@ -170,12 +155,15 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 interface HighlightedCodeProps {
   code: string
   language: string
+  matchLineIndices: Set<number>
+  activeMatchLineIndex: number | null
 }
 
-function HighlightedCode({ code, language }: HighlightedCodeProps) {
+function HighlightedCode({ code, language, matchLineIndices, activeMatchLineIndex }: HighlightedCodeProps) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
   const lines = code.split('\n')
   const isLarge = lines.length >= HIGHLIGHT_LINE_LIMIT
+  const activeLineRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (isLarge) {
@@ -205,6 +193,23 @@ function HighlightedCode({ code, language }: HighlightedCodeProps) {
     return () => { cancelled = true }
   }, [code, language, isLarge])
 
+  // Scroll active match line into view when it changes
+  useEffect(() => {
+    if (activeLineRef.current) {
+      activeLineRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [activeMatchLineIndex])
+
+  /** Returns the ref to attach if this line is the active match. */
+  const getLineRef = (i: number) => (activeMatchLineIndex === i ? activeLineRef : null)
+
+  /** Background class for a line row based on match state. */
+  const lineRowClass = (i: number): string => {
+    if (activeMatchLineIndex === i) return 'bg-yellow-500/30'
+    if (matchLineIndices.has(i)) return 'bg-yellow-500/15'
+    return ''
+  }
+
   return (
     <div className="overflow-x-auto bg-[#0d1117]">
       {/* Large file banner */}
@@ -217,7 +222,11 @@ function HighlightedCode({ code, language }: HighlightedCodeProps) {
       {isLarge
         ? /* Plain text with line numbers for large files */
           lines.map((lineText, i) => (
-            <div key={i} className="flex items-stretch hover:bg-white/5 group/line">
+            <div
+              key={i}
+              ref={getLineRef(i)}
+              className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+            >
               <div
                 className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
                 style={{ lineHeight: '1.6' }}
@@ -232,7 +241,11 @@ function HighlightedCode({ code, language }: HighlightedCodeProps) {
         : tokens !== null
           ? /* Tokenized rendering */
             tokens.map((lineTokens, i) => (
-              <div key={i} className="flex items-stretch hover:bg-white/5 group/line">
+              <div
+                key={i}
+                ref={getLineRef(i)}
+                className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+              >
                 {/* Gutter */}
                 <div
                   className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
@@ -269,6 +282,42 @@ function HighlightedCode({ code, language }: HighlightedCodeProps) {
 }
 
 // ============================================================================
+// FileBreadcrumb — path segments with clickable directory parts
+// ============================================================================
+
+interface FileBreadcrumbProps {
+  relativePath: string
+  onSegmentClick: (dirPath: string) => void
+}
+
+function FileBreadcrumb({ relativePath, onSegmentClick }: FileBreadcrumbProps) {
+  const parts = relativePath.replace(/\\/g, '/').split('/')
+  return (
+    <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+      {parts.map((part, i) => {
+        const isLast = i === parts.length - 1
+        const segmentPath = parts.slice(0, i + 1).join('/')
+        return (
+          <React.Fragment key={i}>
+            {i > 0 && <span className="text-text-tertiary/50 flex-shrink-0">›</span>}
+            {isLast ? (
+              <span className="text-xs font-semibold text-text-primary truncate">{part}</span>
+            ) : (
+              <button
+                onClick={() => onSegmentClick(segmentPath)}
+                className="text-xs text-text-tertiary hover:text-text-secondary transition-colors flex-shrink-0"
+              >
+                {part}
+              </button>
+            )}
+          </React.Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
+// ============================================================================
 // FileViewer
 // ============================================================================
 
@@ -286,12 +335,25 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
 
   const [showAll, setShowAll] = useState(false)
 
+  // ---- Search state ----
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false)
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
   // Track previous openFiles.length to detect transition to 0
   const prevOpenFilesLengthRef = useRef(openFiles.length)
 
   // Reset "show all" when active file changes
   useEffect(() => {
     setShowAll(false)
+  }, [activeFilePath])
+
+  // Reset search when active file changes
+  useEffect(() => {
+    setSearchQuery('')
+    setSearchMatchIndex(0)
   }, [activeFilePath])
 
   // Close FileViewer panel when all tabs are closed
@@ -302,13 +364,39 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     prevOpenFilesLengthRef.current = openFiles.length
   }, [openFiles.length, onClose])
 
+  // Cmd+F — open search within FileViewer container
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'f') {
+        e.preventDefault()
+        setSearchOpen(true)
+        setTimeout(() => searchInputRef.current?.focus(), 0)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  // Focus search input when search opens
+  useEffect(() => {
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 0)
+    }
+  }, [searchOpen])
+
   const activeFile = openFiles.find((f) => f.relativePath === activeFilePath) ?? null
 
   // ---- Empty state ----
   if (!activeFile) {
     return (
       <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
-        <FileViewerHeader path={null} onClose={onClose} fullContent="" />
+        <FileViewerHeader
+          path={null}
+          paneId={paneId}
+          onClose={onClose}
+          onSearchOpen={() => setSearchOpen(true)}
+          fullContent=""
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-6">
           <FileText className="size-8 text-text-tertiary opacity-40" />
           <p className="text-sm text-text-tertiary">
@@ -328,7 +416,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   if (isBinary || isBinaryContent(content)) {
     return (
       <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
-        <FileViewerHeader path={relativePath} onClose={onClose} fullContent="" />
+        <FileViewerHeader
+          path={relativePath}
+          paneId={paneId}
+          onClose={onClose}
+          onSearchOpen={() => setSearchOpen(true)}
+          fullContent=""
+        />
         <TabStrip
           openFiles={openFiles}
           activeFilePath={activeFilePath}
@@ -351,9 +445,47 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   const displayContent = isTruncated ? lines.slice(0, TRUNCATE_LINES).join('\n') : content
   const language = extensionToLanguage(relativePath)
 
+  // ---- Search match computation ----
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const matchLines = useMemo(() => {
+    if (!searchQuery || !activeFile) return []
+    const contentLines = displayContent.split('\n')
+    const q = searchCaseSensitive ? searchQuery : searchQuery.toLowerCase()
+    return contentLines
+      .map((line, i) => {
+        const l = searchCaseSensitive ? line : line.toLowerCase()
+        return l.includes(q) ? i : -1
+      })
+      .filter((i) => i !== -1)
+  }, [searchQuery, searchCaseSensitive, displayContent, activeFile])
+
+  const matchLineIndices = useMemo(() => new Set(matchLines), [matchLines])
+  const activeMatchLineIndex = matchLines.length > 0 ? (matchLines[searchMatchIndex] ?? null) : null
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && matchLines.length > 0) {
+      e.preventDefault()
+      if (e.shiftKey) {
+        setSearchMatchIndex((i) => (i - 1 + matchLines.length) % matchLines.length)
+      } else {
+        setSearchMatchIndex((i) => (i + 1) % matchLines.length)
+      }
+    }
+    if (e.key === 'Escape') {
+      setSearchOpen(false)
+      setSearchQuery('')
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-bg-secondary border-l border-border min-w-0">
-      <FileViewerHeader path={relativePath} onClose={onClose} fullContent={content} />
+      <FileViewerHeader
+        path={relativePath}
+        paneId={paneId}
+        onClose={onClose}
+        onSearchOpen={() => { setSearchOpen(true) }}
+        fullContent={content}
+      />
 
       {/* Tab strip */}
       <TabStrip
@@ -364,9 +496,55 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         setActiveFile={setActiveFile}
       />
 
+      {/* Search bar */}
+      {searchOpen && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40 bg-bg-secondary flex-shrink-0">
+          <Search className="size-3 text-text-tertiary flex-shrink-0" />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSearchMatchIndex(0) }}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search..."
+            className="flex-1 bg-transparent text-[12px] text-text-primary placeholder:text-text-tertiary outline-none"
+          />
+          {/* Match count */}
+          <span className="text-[11px] text-text-tertiary flex-shrink-0">
+            {matchLines.length > 0
+              ? `${searchMatchIndex + 1} / ${matchLines.length}`
+              : searchQuery
+                ? '0 results'
+                : ''}
+          </span>
+          {/* Case sensitive toggle */}
+          <button
+            onClick={() => setSearchCaseSensitive((v) => !v)}
+            className={cn(
+              'text-[11px] px-1 rounded',
+              searchCaseSensitive ? 'text-accent bg-accent/10' : 'text-text-tertiary',
+            )}
+            title="Case sensitive"
+          >
+            Aa
+          </button>
+          {/* Close */}
+          <button
+            onClick={() => { setSearchOpen(false); setSearchQuery('') }}
+            className="text-text-tertiary hover:text-text-primary"
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      )}
+
       {/* Scrollable code area */}
       <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
-        <HighlightedCode code={displayContent} language={language} />
+        <HighlightedCode
+          code={displayContent}
+          language={language}
+          matchLineIndices={matchLineIndices}
+          activeMatchLineIndex={activeMatchLineIndex}
+        />
 
         {/* Truncation notice */}
         {isTruncated && (
@@ -448,36 +626,42 @@ function TabStrip({ openFiles, activeFilePath, modifiedFiles, closeFile, setActi
 
 interface FileViewerHeaderProps {
   path: string | null
+  paneId: string
   onClose: () => void
+  onSearchOpen: () => void
   fullContent: string
 }
 
-function FileViewerHeader({ path, onClose, fullContent }: FileViewerHeaderProps) {
-  const fileName = path ? path.replace(/\\/g, '/').split('/').pop() ?? path : null
-  const shortPath = path ? shortenPath(path) : null
+function FileViewerHeader({ path, paneId, onClose, onSearchOpen, fullContent }: FileViewerHeaderProps) {
+  const handleSegmentClick = useCallback((segmentPath: string) => {
+    void getFileTreeStore(paneId).getState().toggleDir(segmentPath)
+  }, [paneId])
 
   return (
     <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-bg-tertiary flex-shrink-0 min-w-0">
       {/* File icon */}
       <FileText className="size-3.5 text-text-tertiary flex-shrink-0" />
 
-      {/* File path */}
+      {/* Breadcrumb or placeholder */}
       <div className="flex-1 min-w-0 overflow-hidden">
-        {fileName ? (
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-semibold text-text-primary truncate leading-tight">
-              {fileName}
-            </span>
-            {shortPath && shortPath !== fileName && (
-              <span className="text-[10px] text-text-tertiary truncate leading-tight mt-0.5" title={path ?? ''}>
-                {shortPath}
-              </span>
-            )}
-          </div>
+        {path ? (
+          <FileBreadcrumb relativePath={path} onSegmentClick={handleSegmentClick} />
         ) : (
           <span className="text-xs text-text-tertiary">File Viewer</span>
         )}
       </div>
+
+      {/* Search button */}
+      {path && (
+        <button
+          onClick={onSearchOpen}
+          title="Search in file (⌘F)"
+          className="flex items-center justify-center size-5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-primary transition-colors flex-shrink-0"
+          aria-label="Search in file"
+        >
+          <Search className="size-3.5" />
+        </button>
+      )}
 
       {/* Copy button */}
       {fullContent && <CopyButton text={fullContent} />}

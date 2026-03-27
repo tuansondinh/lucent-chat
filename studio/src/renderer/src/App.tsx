@@ -249,6 +249,26 @@ export default function App() {
   }, [activePaneId, syncPaneState])
 
   // -------------------------------------------------------------------------
+  // File open action (used by CommandPalette recent files)
+  // -------------------------------------------------------------------------
+
+  const handleOpenFile = useCallback(async (paneId: string, relativePath: string) => {
+    try {
+      const result = await bridge.fsReadFile(paneId, relativePath)
+      getPaneStore(paneId).getState().openFile({
+        relativePath,
+        content: result.content,
+        source: 'user',
+        truncated: result.truncated,
+        isBinary: result.isBinary,
+      })
+      setFileViewerOpen(true)
+    } catch (err) {
+      console.error('[openFile]', err)
+    }
+  }, [bridge])
+
+  // -------------------------------------------------------------------------
   // Model actions (scoped to active pane)
   // -------------------------------------------------------------------------
 
@@ -535,6 +555,7 @@ export default function App() {
         onSplitPaneVertical={() => void handleSplitPane('vertical')}
         onNavigatePane={(dir) => handleNavigatePane(dir)}
         onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
+        onOpenFile={handleOpenFile}
         isGenerating={activePaneGenerating}
         canSplit={paneCount < 4}
       />

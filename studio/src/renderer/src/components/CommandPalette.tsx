@@ -8,8 +8,9 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
-import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
+import { getPaneStore } from '../store/pane-store'
 
 // ============================================================================
 // Types
@@ -40,6 +41,7 @@ interface CommandPaletteProps {
   onSplitPaneVertical: () => void
   onNavigatePane: (direction: 'up' | 'down' | 'left' | 'right') => void
   onClosePane?: () => void
+  onOpenFile: (paneId: string, relativePath: string) => Promise<void>
   isGenerating: boolean
   canSplit: boolean
 }
@@ -62,12 +64,15 @@ export function CommandPalette({
   onSplitPaneVertical,
   onNavigatePane,
   onClosePane,
+  onOpenFile,
   isGenerating,
   canSplit,
 }: CommandPaletteProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [models, setModels] = useState<Model[]>([])
   const [loadedData, setLoadedData] = useState(false)
+
+  const recentFiles = getPaneStore(activePaneId)((s) => s.recentFiles)
 
   // Load sessions and models when palette opens
   useEffect(() => {
@@ -154,6 +159,30 @@ export function CommandPalette({
           <Command.Empty className="py-8 text-center text-sm text-text-tertiary">
             No commands found.
           </Command.Empty>
+
+          {/* Recent Files group */}
+          {recentFiles.length > 0 && (
+            <Command.Group
+              heading="Recent Files"
+              className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary"
+            >
+              {recentFiles.map((relativePath) => {
+                const fileName = relativePath.split('/').pop() ?? relativePath
+                return (
+                  <CommandItem
+                    key={relativePath}
+                    icon={<FileText className="h-4 w-4" />}
+                    label={fileName}
+                    description={relativePath}
+                    onSelect={() => {
+                      void onOpenFile(activePaneId, relativePath)
+                      onClose()
+                    }}
+                  />
+                )
+              })}
+            </Command.Group>
+          )}
 
           {/* Session group */}
           <Command.Group
@@ -360,15 +389,16 @@ export function CommandPalette({
 interface CommandItemProps {
   icon: React.ReactNode
   label: string
+  description?: string
   shortcut?: React.ReactNode
   disabled?: boolean
   onSelect: () => void
 }
 
-function CommandItem({ icon, label, shortcut, disabled = false, onSelect }: CommandItemProps) {
+function CommandItem({ icon, label, description, shortcut, disabled = false, onSelect }: CommandItemProps) {
   return (
     <Command.Item
-      value={label}
+      value={`${label} ${description ?? ''}`}
       disabled={disabled}
       onSelect={onSelect}
       className={[
@@ -380,7 +410,12 @@ function CommandItem({ icon, label, shortcut, disabled = false, onSelect }: Comm
       ].join(' ')}
     >
       <span className="text-text-tertiary flex-shrink-0">{icon}</span>
-      <span className="flex-1 truncate">{label}</span>
+      <span className="flex-1 min-w-0">
+        <span className="truncate block">{label}</span>
+        {description && (
+          <span className="text-text-tertiary text-xs truncate block">{description}</span>
+        )}
+      </span>
       {shortcut && (
         <span className="flex-shrink-0 ml-auto">{shortcut}</span>
       )}

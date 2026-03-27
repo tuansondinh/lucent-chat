@@ -43,6 +43,8 @@ export interface PaneChatState {
   scrollPositions: Record<string, number>
   currentSessionPath: string | null
   currentSessionName: string
+  /** Last 10 opened file paths (relative), most recent first. */
+  recentFiles: string[]
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -72,6 +74,8 @@ export interface PaneChatState {
   saveScrollPosition: (sessionPath: string, scrollTop: number) => void
   setSessionPath: (path: string | null) => void
   setSessionName: (name: string) => void
+  /** Add a file to the recent files list (most recent first, capped at 10). */
+  addRecentFile: (relativePath: string) => void
 }
 
 // ============================================================================
@@ -133,6 +137,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     scrollPositions: {},
     currentSessionPath: null,
     currentSessionName: '',
+    recentFiles: [],
 
     addUserMessage: (text, turn_id) =>
       set((s) => ({
@@ -405,12 +410,15 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     openFile: (file) =>
       set((s) => {
         const exists = s.openFiles.some((f) => f.relativePath === file.relativePath)
+        const filtered = s.recentFiles.filter((p) => p !== file.relativePath)
+        const newRecent = [file.relativePath, ...filtered].slice(0, 10)
         if (exists) {
-          return { activeFilePath: file.relativePath }
+          return { activeFilePath: file.relativePath, recentFiles: newRecent }
         }
         return {
           openFiles: [file, ...s.openFiles],
           activeFilePath: file.relativePath,
+          recentFiles: newRecent,
         }
       }),
 
@@ -447,6 +455,12 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setSessionPath: (path) => set({ currentSessionPath: path }),
 
     setSessionName: (name) => set({ currentSessionName: name }),
+
+    addRecentFile: (relativePath) =>
+      set((s) => {
+        const filtered = s.recentFiles.filter((p) => p !== relativePath)
+        return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
+      }),
   }))
 }
 
