@@ -35,6 +35,8 @@ interface Props {
   voiceActive?: boolean
   voiceSpeaking?: boolean
   voiceTtsPlaying?: boolean
+  /** When true, hide secondary info and file viewer toggle (mobile compact mode). */
+  isMobile?: boolean
 }
 
 export function StatusBar({
@@ -47,6 +49,7 @@ export function StatusBar({
   voiceActive,
   voiceSpeaking,
   voiceTtsPlaying,
+  isMobile = false,
 }: Props) {
   const APP_VERSION = '0.9.0'
   const healthLabel = health === 'ready' ? `v${APP_VERSION}` : health === 'unknown' ? 'connecting' : health
@@ -56,7 +59,7 @@ export function StatusBar({
       {/* Left: model — clickable to open model picker */}
       <button
         onClick={onOpenModelPicker}
-        title="Switch model (⌘M)"
+        title="Switch model (⌘P)"
         className={`${btn.ghost} truncate max-w-[160px] text-left cursor-pointer disabled:cursor-default`}
         disabled={!onOpenModelPicker}
       >
@@ -73,22 +76,28 @@ export function StatusBar({
             </span>
           </div>
         )}
-        <span className="truncate max-w-[180px] text-center">{sessionName || 'New session'}</span>
-        <button
-          onClick={onToggleFileViewer}
-          title="Toggle file viewer (⌘⇧F)"
-          className={`${btn.ghost} flex items-center gap-1 cursor-pointer disabled:cursor-default`}
-          disabled={!onToggleFileViewer}
-        >
-          <FileText className="w-2.5 h-2.5" />
-          <span>{fileViewerOpen ? 'Files On' : 'Files'}</span>
-        </button>
+        {!isMobile && (
+          <span className="truncate max-w-[180px] text-center">{sessionName || 'New session'}</span>
+        )}
+        {!isMobile && (
+          <button
+            onClick={onToggleFileViewer}
+            title="Toggle file viewer (⌘⇧F)"
+            className={`${btn.ghost} flex items-center gap-1 cursor-pointer disabled:cursor-default mobile-status-bar-file-toggle`}
+            disabled={!onToggleFileViewer}
+          >
+            <FileText className="w-2.5 h-2.5" />
+            <span>{fileViewerOpen ? 'Files On' : 'Files'}</span>
+          </button>
+        )}
       </div>
 
       {/* Right: health */}
       <div className="flex items-center gap-1.5">
         <HealthDot health={health} />
-        <span className={`capitalize ${health === 'ready' ? 'text-accent-gray' : ''}`}>{healthLabel}</span>
+        {!isMobile && (
+          <span className={`capitalize ${health === 'ready' ? 'text-accent-gray' : ''}`}>{healthLabel}</span>
+        )}
       </div>
     </div>
   )

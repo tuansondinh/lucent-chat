@@ -41,25 +41,33 @@
 }
 
 @theme {
-  --color-bg-primary: #1e2028;
-  --color-bg-secondary: #252830;
-  --color-bg-tertiary: #2c2f3a;
-  --color-bg-hover: #333742;
-  --color-border: #353a47;
-  --color-border-active: #454b5c;
-  --color-text-primary: #e8e8e8;
-  --color-text-secondary: #a8a8a8;
-  --color-text-tertiary: #686868;
-  --color-accent: #f97316;
-  --color-accent-hover: #fb923c;
-  --color-accent-muted: rgba(249, 115, 22, 0.15);
+  /* Background colors - more grey, less blue */
+  --color-bg-primary: #0f1419;
+  --color-bg-secondary: #16191f;
+  --color-bg-tertiary: #1d2128;
+  --color-bg-hover: #252930;
+  
+  /* Border colors - neutral grey */
+  --color-border: #2a2e35;
+  --color-border-active: #363b42;
+  
+  /* Text colors */
+  --color-text-primary: #e3e6eb;
+  --color-text-secondary: #9da3ad;
+  --color-text-tertiary: #5a5f69;
+  
+  /* Accent colors */
+  --color-accent: #ff8c42;
+  --color-accent-hover: #ffaa6f;
+  --color-accent-muted: rgba(255, 140, 66, 0.15);
+  --color-accent-gray: #6b7179;
+  --color-accent-gray-muted: rgba(107, 113, 121, 0.15);
 
-  --color-accent-gray: #95a5a6;
-  --color-accent-gray-muted: rgba(149, 165, 166, 0.15);
-
+  /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* Text sizes */
   --text-hero: 4.75rem;
   --text-display: 3.5rem;
   --text-title: 2rem;
@@ -103,13 +111,13 @@ pre,
 }
 
 ::selection {
-  background: rgba(249, 115, 22, 0.30);
+  background: rgba(255, 140, 66, 0.30);
   color: var(--color-text-primary);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #444444 #212121;
+  scrollbar-color: #363b42 #16191f;
 }
 
 *::-webkit-scrollbar {
@@ -118,135 +126,147 @@ pre,
 }
 
 *::-webkit-scrollbar-track {
-  background: #212121;
+  background: #16191f;
 }
 
 *::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: linear-gradient(180deg, #4a4a4a 0%, #383838 100%);
-  border: 2px solid #212121;
+  background: linear-gradient(180deg, #444950 0%, #2a2e35 100%);
+  border: 2px solid #16191f;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #606060 0%, #4a4a4a 100%);
+  background: linear-gradient(180deg, #525761 0%, #363b42 100%);
 }
 
 /* ==========================================================================
    Mobile responsive styles — <768px
+   Left slide-out drawer model (NOT bottom nav).
+   All selectors are scoped to .mobile-touch or specific mobile classes
+   to avoid any impact on the desktop layout (>= 769px).
    ========================================================================== */
 
-/* --- Touch target baseline --- */
+/* --- Touch targets: scoped to .mobile-touch wrapper only --- */
+/* Do NOT apply global min-height to button — use .mobile-touch scope */
+.mobile-touch button,
+.mobile-touch [role="button"],
+.mobile-touch a,
+.mobile-touch input,
+.mobile-touch select,
+.mobile-touch textarea {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* --- Sidebar drawer: fixed left overlay on mobile --- */
+.mobile-sidebar-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  max-width: 85vw;
+  z-index: 300;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* safe area on the left for notched devices */
+  padding-left: env(safe-area-inset-left, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.mobile-sidebar-drawer.mobile-sidebar-drawer--open {
+  transform: translateX(0);
+}
+
+/* Landscape: cap drawer width at 60vw */
+@media (max-width: 768px) and (orientation: landscape) {
+  .mobile-sidebar-drawer {
+    width: min(280px, 60vw);
+    max-width: 60vw;
+  }
+}
+
+/* Semi-transparent backdrop when drawer is open */
+.mobile-sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 299;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.mobile-sidebar-backdrop--visible {
+  display: block;
+}
+
+/* --- Mobile header: no drag region, hamburger left, title center, health right --- */
+.mobile-header {
+  -webkit-app-region: no-drag !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 12px;
+  padding-top: env(safe-area-inset-top, 0);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
+.mobile-header__hamburger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.mobile-header__hamburger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.mobile-header__title {
+  flex: 1;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.mobile-header__health {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+/* --- Status bar: compact on mobile --- */
 @media (max-width: 768px) {
-  /* Ensure all interactive elements have a minimum 44px touch target */
-  button,
-  [role="button"],
-  a,
-  input,
-  select,
-  textarea,
-  [tabindex] {
-    min-height: 44px;
-  }
-
-  /* --- Sidebar becomes bottom nav on mobile --- */
-  .lc-sidebar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    top: auto;
-    width: 100%;
-    height: 56px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-around;
-    border-top: 1px solid var(--color-border);
-    border-right: none;
-    z-index: 100;
-    padding: 0;
-  }
-
-  /* Hide sidebar text labels on mobile — icons only */
-  .lc-sidebar-label {
+  .mobile-status-bar-secondary {
     display: none;
   }
 
-  /* --- Single stacked pane layout on mobile --- */
-  .lc-pane-layout {
-    flex-direction: column;
-  }
-
-  /* Hide additional panes on mobile — show only active pane */
-  .lc-pane:not(.lc-pane--active) {
+  .mobile-status-bar-file-toggle {
     display: none;
   }
 
-  /* --- Main content area: account for bottom nav height --- */
-  .lc-main {
-    padding-bottom: 56px;
-  }
-
-  /* --- Command palette: bottom sheet on mobile --- */
-  .lc-command-palette-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-
-  .lc-command-palette {
-    width: 100%;
-    max-width: 100%;
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-    border-top-left-radius: 12px;
-    border-top-right-radius: 12px;
-    max-height: 80vh;
-  }
-
-  /* --- Status bar: hide non-essential info on narrow screens --- */
-  .lc-status-bar-secondary {
-    display: none;
-  }
-
-  /* --- Panels: disable resize handle on mobile --- */
-  .lc-panel-resize-handle {
-    display: none;
-  }
-
-  /* --- Chat input: comfortable sizing --- */
-  .lc-chat-input {
-    font-size: 16px; /* Prevent iOS zoom on focus */
-  }
-
-  /* --- File viewer: full screen overlay on mobile --- */
-  .lc-file-viewer {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    width: 100%;
-    height: 100%;
-  }
-
-  /* --- Settings dialog: full screen on mobile --- */
-  .lc-settings-dialog {
-    width: 100%;
-    height: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 0;
-  }
-
-  /* --- Model picker: full screen on mobile --- */
-  .lc-model-picker {
-    width: 100%;
-    max-height: 90vh;
-  }
-
-  /* --- Terminal: hidden on mobile by default --- */
-  .lc-terminal {
-    display: none;
-  }
-
-  /* --- Scrollbar: thinner on mobile for more content space --- */
+  /* Scrollbar: thinner on mobile for more content space */
   * {
     scrollbar-width: none;
   }
@@ -256,15 +276,7 @@ pre,
   }
 }
 
-/* --- Container queries for pane-level responsiveness --- */
-@container (max-width: 480px) {
-  .lc-chat-header {
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .lc-chat-header-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
+/* --- Chat input: prevent iOS zoom on focus --- */
+.mobile-chat-input {
+  font-size: 16px !important; /* Prevent iOS zoom on focus */
 }

@@ -38,6 +38,8 @@ interface Props {
   onStopTts?: () => void
   onEditQueuedMessage?: () => void
   onClearQueuedMessage?: () => void
+  /** When true, textarea uses 16px font-size to prevent iOS zoom on focus. */
+  isMobile?: boolean
 }
 
 export interface ChatInputHandle {
@@ -65,6 +67,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onStopTts,
   onEditQueuedMessage,
   onClearQueuedMessage,
+  isMobile = false,
 }: Props, ref) {
   const [value, setValue] = useState('')
   const [pastedImage, setPastedImage] = useState<string | null>(null)
@@ -171,6 +174,42 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     reader.readAsDataURL(imageFile)
   }, [])
 
+  /** Handle drag-and-drop for images */
+  const [isDragging, setIsDragging] = useState(false)
+  
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const files = e.dataTransfer?.files
+    if (!files || files.length === 0) return
+
+    const imageFile = Array.from(files).find((f) => f.type.startsWith('image/'))
+    if (!imageFile) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result
+      if (typeof dataUrl === 'string') {
+        setPastedImage(dataUrl)
+      }
+    }
+    reader.readAsDataURL(imageFile)
+  }, [])
+
   const handleSubmit = () => {
     const text = value.trim()
     if ((!text && !pastedImage) || disabled) return
@@ -197,10 +236,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
     }
     if (voiceActive && isSpeaking) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/25 border border-accent/70 text-accent hover:bg-accent/35 transition-colors animate-pulse'
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-green-500/20 border border-green-500/60 text-green-400 hover:bg-green-500/30 transition-colors animate-pulse'
     }
     if (voiceActive) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-orange-500/20 border border-orange-500/60 text-orange-400 hover:bg-orange-500/30 transition-colors'
     }
     return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors'
   })()
@@ -290,7 +329,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-lg border border-border bg-bg-secondary px-2 py-0.5 focus-within:border-accent/50 transition-colors">
+      <div 
+        className={cn(
+          "flex items-end gap-2 rounded-lg border px-2 py-0.5 focus-within:border-accent/50 transition-colors",
+          isDragging 
+            ? "border-accent bg-accent/10" 
+            : "border-border bg-bg-secondary"
+        )}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         <textarea
           ref={textareaRef}
           value={value}
@@ -312,6 +361,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
             'outline-none leading-4 min-h-[18px] max-h-[100px]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
+            isMobile ? 'mobile-chat-input' : '',
           ].join(' ')}
         />
         {/* Mic / TTS button */}

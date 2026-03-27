@@ -19,12 +19,14 @@
 import { useEffect, useCallback, useState, useRef, type ReactNode } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
+import { Menu, X } from 'lucide-react'
 import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
 import { getFileTreeStore, deleteFileTreeStore } from './store/file-tree-store'
 import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
 import { getBridge } from './lib/bridge'
 import { ChatPane } from './components/ChatPane'
 import { Sidebar, type SidebarView } from './components/Sidebar'
+import { useIsMobile } from './lib/useIsMobile'
 import { VoiceDownloadBanner } from './components/VoiceDownloadBanner'
 import { ModelPicker } from './components/ModelPicker'
 import { useVoiceStore } from './store/voice-store'
@@ -134,6 +136,9 @@ export default function App() {
     autoCompactionEnabled: activePaneAutoCompactionEnabled,
   } = activePaneStore()
 
+  // Mobile detection
+  const isMobile = useIsMobile()
+
   // Voice store (global, not per-pane) — select only needed state to avoid re-renders
   const voiceSidecarState = useVoiceStore((s) => s.sidecarState)
   const voiceError = useVoiceStore((s) => s.error)
@@ -143,6 +148,7 @@ export default function App() {
   // -------------------------------------------------------------------------
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -577,9 +583,14 @@ export default function App() {
   // Keyboard shortcuts
   // -------------------------------------------------------------------------
 
+  // Keep isMobile accessible inside the keydown handler without stale closure
+  const isMobileRef = useRef(isMobile)
+  useEffect(() => { isMobileRef.current = isMobile }, [isMobile])
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isModalOpen = commandPaletteOpenRef.current || settingsOpenRef.current || modelPickerOpenRef.current
+      const mobile = isMobileRef.current
 
       // Cmd+K — open command palette (always works, even in inputs)
       if (e.metaKey && e.key === 'k') {
@@ -588,29 +599,29 @@ export default function App() {
         return
       }
 
-      // Cmd+T — toggle terminal panel
-      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 't') {
+      // Cmd+T — toggle terminal panel (desktop only)
+      if (!mobile && e.metaKey && !e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
         setTerminalOpen((v) => !v)
         return
       }
 
-      // Cmd+E — toggle explorer within the sidebar
-      if (e.metaKey && !e.shiftKey && e.key === 'e') {
+      // Cmd+E — toggle explorer within the sidebar (desktop only)
+      if (!mobile && e.metaKey && !e.shiftKey && e.key === 'e') {
         e.preventDefault()
         handleToggleExplorer()
         return
       }
 
-      // Cmd+Shift+F — toggle file viewer panel
-      if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyF') {
+      // Cmd+Shift+F — toggle file viewer panel (desktop only)
+      if (!mobile && e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyF') {
         e.preventDefault()
         toggleFileViewer()
         return
       }
 
-      // Cmd+Shift+D — split pane vertically (must come before Cmd+D check)
-      if (e.metaKey && e.shiftKey && e.code === 'KeyD') {
+      // Cmd+Shift+D — split pane vertically (desktop only; must come before Cmd+D check)
+      if (!mobile && e.metaKey && e.shiftKey && e.code === 'KeyD') {
         if (!isModalOpen) {
           e.preventDefault()
           void handleSplitPane('vertical')
@@ -618,8 +629,8 @@ export default function App() {
         return
       }
 
-      // Cmd+D — split pane horizontally
-      if (e.metaKey && !e.shiftKey && e.code === 'KeyD') {
+      // Cmd+D — split pane horizontally (desktop only)
+      if (!mobile && e.metaKey && !e.shiftKey && e.code === 'KeyD') {
         if (!isModalOpen) {
           e.preventDefault()
           void handleSplitPane('horizontal')
@@ -643,8 +654,8 @@ export default function App() {
         return
       }
 
-      // Cmd+1-4 — focus pane by index (works even in inputs)
-      if (e.metaKey && ['1', '2', '3', '4'].includes(e.key)) {
+      // Cmd+1-4 — focus pane by index (desktop only)
+      if (!mobile && e.metaKey && ['1', '2', '3', '4'].includes(e.key)) {
         const idx = parseInt(e.key, 10) - 1
         const ids = collectLeafIds(usePanesStore.getState().layout)
         if (idx < ids.length) {
@@ -664,8 +675,8 @@ export default function App() {
         return
       }
 
-      // Cmd+Option+Arrow — spatial pane navigation
-      if (e.metaKey && e.altKey) {
+      // Cmd+Option+Arrow — spatial pane navigation (desktop only)
+      if (!mobile && e.metaKey && e.altKey) {
         if (!isModalOpen) {
           if (e.key === 'ArrowLeft')  { e.preventDefault(); handleNavigatePane('left');  return }
           if (e.key === 'ArrowRight') { e.preventDefault(); handleNavigatePane('right'); return }
@@ -682,7 +693,7 @@ export default function App() {
         e.preventDefault()
         handleToggleSidebar()
       }
-      if (e.metaKey && e.key === 'm') {
+      if (e.metaKey && e.key === 'p') {
         e.preventDefault()
         setModelPickerOpen((v) => !v)
       }
@@ -690,8 +701,8 @@ export default function App() {
         e.preventDefault()
         setSettingsOpen((v) => !v)
       }
-      // Cmd+W — close active pane
-      if (e.metaKey && e.key === 'w') {
+      // Cmd+W — close active pane (desktop only)
+      if (!mobile && e.metaKey && e.key === 'w') {
         e.preventDefault()
         void handleClosePane(usePanesStore.getState().activePaneId)
         return
@@ -735,16 +746,175 @@ export default function App() {
     paneCount,
     voicePttShortcut,
     voiceAudioEnabled,
-    handleVoiceAudioEnabledChange,
     setActivePane,
     handleClosePane,
     handleOpenFile,
   )
 
   // -------------------------------------------------------------------------
+  // Health dot color (reused in header on mobile)
+  // -------------------------------------------------------------------------
+
+  const healthDotColor =
+    activePaneHealth === 'ready'
+      ? 'bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]'
+      : activePaneHealth === 'starting'
+        ? 'bg-accent shadow-[0_0_4px_rgba(249,115,22,0.5)] animate-pulse'
+        : activePaneHealth === 'crashed' || activePaneHealth === 'degraded'
+          ? 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.5)]'
+          : 'bg-bg-tertiary'
+
+  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
+  // Shared dialogs/overlays (used in both mobile and desktop renders)
+  const sharedOverlays = (
+    <>
+      {/* Model picker dialog */}
+      <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />
+
+      {/* Command palette — Cmd+K */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        activePaneId={activePaneId}
+        onNewSession={() => void handleNewSession()}
+        onSwitchSession={(path) => void handleSwitchSession(path)}
+        onToggleSidebar={handleToggleSidebar}
+        onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
+        onStopGeneration={() => bridge.abort(activePaneId).catch(() => {})}
+        onSettings={() => setSettingsOpen(true)}
+        onSplitPane={() => void handleSplitPane('horizontal')}
+        onSplitPaneVertical={() => void handleSplitPane('vertical')}
+        onNavigatePane={(dir) => handleNavigatePane(dir)}
+        onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
+        onOpenFile={handleOpenFile}
+        onRunSkill={(trigger) => {
+          if (bridge.skillExecute) {
+            bridge.skillExecute(activePaneId, trigger, '').catch(() => {})
+          }
+        }}
+        isGenerating={activePaneGenerating}
+        canSplit={paneCount < 4}
+      />
+
+      {/* Settings dialog — Cmd+, */}
+      <Settings
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        voicePttShortcut={voicePttShortcut}
+        onVoicePttShortcutChange={setVoicePttShortcut}
+        voiceAudioEnabled={voiceAudioEnabled}
+        onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+      />
+
+      {/* First-run onboarding overlay */}
+      {showOnboarding && (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      )}
+
+      {/* Toast notifications — bottom-right, dark theme */}
+      <Toaster position="bottom-right" theme="dark" richColors />
+    </>
+  )
+
+  // ── Mobile layout ──────────────────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div className="mobile-touch flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
+        {/* Mobile header: no drag region, hamburger left, title center, health right */}
+        <header className="mobile-header">
+          <button
+            aria-label="Open navigation menu"
+            className="mobile-header__hamburger"
+            onClick={() => setMobileDrawerOpen(true)}
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div className="mobile-header__title">Lucent Chat</div>
+          <div className="mobile-header__health">
+            <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${healthDotColor}`} />
+            <span className="text-xs text-text-tertiary capitalize">
+              {activePaneHealth === 'unknown' ? 'connecting' : activePaneHealth}
+            </span>
+          </div>
+        </header>
+
+        {/* Voice download banner */}
+        <VoiceDownloadBanner
+          show={settingsLoaded && !voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
+          state={voiceSidecarState as 'starting' | 'ready' | 'error'}
+          error={voiceError ?? undefined}
+        />
+
+        {/* Single chat pane — full width */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <ChatPane
+            paneId={activePaneId}
+            isActive
+            sidebarCollapsed
+            voicePttShortcut={voicePttShortcut}
+            voiceAudioEnabled={voiceAudioEnabled}
+            onFocus={() => {}}
+            onOpenFile={handleOpenFile}
+            isMobile
+          />
+        </div>
+
+        {/* Slide-out drawer backdrop */}
+        <div
+          className={`mobile-sidebar-backdrop ${mobileDrawerOpen ? 'mobile-sidebar-backdrop--visible' : ''}`}
+          onClick={() => setMobileDrawerOpen(false)}
+          aria-hidden="true"
+        />
+
+        {/* Slide-out sidebar drawer */}
+        <div className={`mobile-sidebar-drawer ${mobileDrawerOpen ? 'mobile-sidebar-drawer--open' : ''}`}>
+          {/* Drawer close button */}
+          <div className="flex items-center justify-end px-2 pt-2 flex-shrink-0">
+            <button
+              aria-label="Close navigation menu"
+              onClick={() => setMobileDrawerOpen(false)}
+              className="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-bg-hover text-text-secondary"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {/* Sidebar content (reuse existing component, always expanded on mobile) */}
+          <Sidebar
+            collapsed={false}
+            onToggleCollapse={() => setMobileDrawerOpen(false)}
+            currentSessionPath={activePaneSessionPath}
+            activePaneId={activePaneId}
+            view={sidebarView}
+            onViewChange={setSidebarView}
+            onNewSession={async () => {
+              await handleNewSession()
+              setMobileDrawerOpen(false)
+            }}
+            onSwitchSession={(path) => {
+              void handleSwitchSession(path)
+              setMobileDrawerOpen(false)
+            }}
+            onRefresh={handleRefresh}
+            isCompacting={activePaneCompacting}
+            autoCompactionEnabled={activePaneAutoCompactionEnabled}
+            voiceAudioEnabled={voiceAudioEnabled}
+            onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+            onOpenModelPicker={() => { setModelPickerOpen(true); setMobileDrawerOpen(false) }}
+            onOpenSettings={() => { setSettingsOpen(true); setMobileDrawerOpen(false) }}
+            onExplorerFileOpen={() => { openFileViewer(); setMobileDrawerOpen(false) }}
+            onOpenDiff={handleOpenDiff}
+          />
+        </div>
+
+        {sharedOverlays}
+      </div>
+    )
+  }
+
+  // ── Desktop layout ─────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
       {/* Fixed top bar — spans full width */}
@@ -772,8 +942,8 @@ export default function App() {
       {/* Voice download banner — only shows on first startup when models need downloading */}
       <VoiceDownloadBanner
         show={settingsLoaded && !voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
-        state={voiceSidecarState}
-        error={voiceError}
+        state={voiceSidecarState as 'starting' | 'ready' | 'error'}
+        error={voiceError ?? undefined}
       />
 
       {/* Vertical panel group: chat area on top, optional terminal at bottom */}
@@ -826,51 +996,7 @@ export default function App() {
         )}
       </PanelGroup>
 
-      {/* Model picker dialog */}
-      <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />
-
-      {/* Command palette — Cmd+K */}
-      <CommandPalette
-        open={commandPaletteOpen}
-        onClose={() => setCommandPaletteOpen(false)}
-        activePaneId={activePaneId}
-        onNewSession={() => void handleNewSession()}
-        onSwitchSession={(path) => void handleSwitchSession(path)}
-        onToggleSidebar={handleToggleSidebar}
-        onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
-        onStopGeneration={() => bridge.abort(activePaneId).catch(() => {})}
-        onSettings={() => setSettingsOpen(true)}
-        onSplitPane={() => void handleSplitPane('horizontal')}
-        onSplitPaneVertical={() => void handleSplitPane('vertical')}
-        onNavigatePane={(dir) => handleNavigatePane(dir)}
-        onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
-        onOpenFile={handleOpenFile}
-        onRunSkill={(trigger) => {
-          if (bridge.skillExecute) {
-            bridge.skillExecute(activePaneId, trigger, '').catch(() => {})
-          }
-        }}
-        isGenerating={activePaneGenerating}
-        canSplit={paneCount < 4}
-      />
-
-      {/* Settings dialog — Cmd+, */}
-      <Settings
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        voicePttShortcut={voicePttShortcut}
-        onVoicePttShortcutChange={setVoicePttShortcut}
-        voiceAudioEnabled={voiceAudioEnabled}
-        onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
-      />
-
-      {/* First-run onboarding overlay */}
-      {showOnboarding && (
-        <Onboarding onComplete={() => setShowOnboarding(false)} />
-      )}
-
-      {/* Toast notifications — bottom-right, dark theme */}
-      <Toaster position="bottom-right" theme="dark" richColors />
+      {sharedOverlays}
     </div>
   )
 }

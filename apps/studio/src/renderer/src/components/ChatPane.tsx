@@ -18,6 +18,7 @@ import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
 import { Kbd, KbdGroup } from './ui/kbd'
 import { getBridge } from '../lib/bridge'
+import { getCapabilities } from '../lib/capabilities'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -206,6 +207,8 @@ interface ChatPaneProps {
   onClose?: () => void
   /** Open a file in the file viewer for this pane. */
   onOpenFile?: (paneId: string, relativePath: string) => Promise<void>
+  /** When true, hides terminal/file viewer/split-pane controls and fills full viewport width. */
+  isMobile?: boolean
 }
 
 const SPACE_HOLD_TO_TALK_DELAY_MS = 220
@@ -237,7 +240,9 @@ export function ChatPane({
   onFocus,
   onClose,
   onOpenFile,
+  isMobile = false,
 }: ChatPaneProps) {
+  const capabilities = getCapabilities()
   const store = getPaneStore(paneId)
   const {
     messages,
@@ -246,6 +251,7 @@ export function ChatPane({
     pendingMessageCount,
     isCompacting,
     autoCompactionEnabled,
+    sessionEpoch,
     appendChunk,
     finalizeMessage,
     addUserMessage,
@@ -436,49 +442,52 @@ export function ChatPane({
     }
   }, [beginVoiceCapture, finishVoiceCapture, isActive, paneId, voicePttShortcut])
 
-  // Register bridge event listeners filtered to THIS pane
+  // Register bridge event listeners filtered to THIS pane.
+  // Capture sessionEpoch so stale events from a prior session are dropped.
   useEffect(() => {
+    const epochAtMount = store.getState().sessionEpoch
+    const isStale = () => store.getState().sessionEpoch !== epochAtMount
     const unsubs = [
       bridge.onAgentChunk(({ paneId: pid, turn_id, text }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().appendChunk(turn_id, text)
         // Forward chunk to TTS sentence accumulator when voice is active on this pane
         const voiceState = useVoiceStore.getState()
         if (isActive && voiceState.active && voiceState.activePaneId === paneId) feedAgentChunk(text, turn_id)
       }),
       bridge.onAgentDone(({ paneId: pid, turn_id, full_text }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().finalizeMessage(turn_id, full_text)
         // Flush remaining TTS buffer at end of turn
         const voiceState = useVoiceStore.getState()
         if (isActive && voiceState.active && voiceState.activePaneId === paneId) flushTts(turn_id)
       }),
       bridge.onToolStart(({ paneId: pid, turn_id, tool, input }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().addToolCall(turn_id, tool, input)
       }),
       bridge.onToolEnd(({ paneId: pid, turn_id, tool, output, isError }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().finalizeToolCall(turn_id, tool, output, isError)
       }),
       bridge.onThinkingStart(({ paneId: pid, turn_id }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().addThinking(turn_id)
       }),
       bridge.onThinkingChunk(({ paneId: pid, turn_id, text }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().appendThinkingChunk(turn_id, text)
       }),
       bridge.onThinkingEnd(({ paneId: pid, turn_id, text }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().finalizeThinking(turn_id, text)
       }),
       bridge.onTextBlockStart(({ paneId: pid, turn_id }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().startTextBlock(turn_id)
       }),
       bridge.onTextBlockEnd(({ paneId: pid, turn_id }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().finalizeTextBlock(turn_id)
       }),
       bridge.onHealth(({ paneId: pid, states }) => {
@@ -486,7 +495,7 @@ export function ChatPane({
         store.getState().setHealth(states)
       }),
       bridge.onTurnState(({ paneId: pid, state }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         if (state === 'aborted' || state === 'idle') {
           store.getState().setGenerating(false)
         }
@@ -501,7 +510,7 @@ export function ChatPane({
           .catch(() => {})
       }),
       bridge.onError(({ paneId: pid, message }) => {
-        if (pid !== paneId) return
+        if (pid !== paneId || isStale()) return
         store.getState().addErrorMessage(message)
         toast.error(message)
       }),
@@ -703,6 +712,7 @@ export function ChatPane({
         ref={rootRef}
         className={[
           'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden',
+          isMobile ? 'w-full' : '',
           isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
         ].join(' ')}
         onClick={!isActive ? onFocus : undefined}
@@ -724,9 +734,20 @@ export function ChatPane({
                     ? 'Agent crashed. Restarting automatically...'
                     : 'Connecting to agent...'}
             </p>
-            {agentHealth === 'ready' && (
+            {/* Keyboard shortcut hints — desktop only (not useful on mobile) */}
+            {agentHealth === 'ready' && !isMobile && capabilities.multiPane && (
               <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 max-w-md w-full">
                 {keyboardShortcuts.map((shortcut) => (
+                  <div key={shortcut.label} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-text-secondary">{shortcut.label}</span>
+                    <KbdGroup>{shortcut.key}</KbdGroup>
+                  </div>
+                ))}
+              </div>
+            )}
+            {agentHealth === 'ready' && !isMobile && !capabilities.multiPane && (
+              <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 max-w-md w-full">
+                {keyboardShortcuts.filter(s => !['Split pane', 'Navigate panes', 'File explorer', 'File viewer'].includes(s.label)).map((shortcut) => (
                   <div key={shortcut.label} className="flex items-center justify-between gap-3 text-xs">
                     <span className="text-text-secondary">{shortcut.label}</span>
                     <KbdGroup>{shortcut.key}</KbdGroup>
@@ -748,7 +769,15 @@ export function ChatPane({
             {isGenerating && (() => {
               const last = messages[messages.length - 1]
               const showThinking = !last || last.role === 'user' || (last.role === 'assistant' && last.contentBlocks.length === 0)
-              return showThinking ? <ThinkingBubble /> : null
+              return showThinking ? <ThinkingBubble /> : (
+                // Show subtle streaming indicator when assistant has content
+                <div className="flex w-full mb-4 justify-start">
+                  <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-accent/10 border border-accent/30">
+                    <Loader2 className="size-3 animate-spin text-accent" />
+                    <span className="text-xs text-accent font-medium">Streaming...</span>
+                  </div>
+                </div>
+              )
             })()}
             <div ref={messagesEndRef} />
           </div>
@@ -778,6 +807,7 @@ export function ChatPane({
             onStopTts={stopTts}
             onEditQueuedMessage={handleEditQueuedMessage}
             onClearQueuedMessage={handleClearQueuedMessage}
+            isMobile={isMobile}
           />
         </div>
 
