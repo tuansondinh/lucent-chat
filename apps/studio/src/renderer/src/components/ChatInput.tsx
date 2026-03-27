@@ -6,9 +6,15 @@
  */
 
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type KeyboardEvent, type ClipboardEvent } from 'react'
-import { Mic, MicOff, Volume2 } from 'lucide-react'
+import { Mic, MicOff, Volume2, Zap } from 'lucide-react'
 import { btn } from '../lib/theme'
 import { cn } from '../lib/utils'
+
+export interface SkillSuggestion {
+  trigger: string
+  name: string
+  description: string
+}
 
 interface Props {
   onSubmit: (text: string, imageDataUrl?: string) => void
@@ -18,6 +24,8 @@ interface Props {
   hasQueuedMessage?: boolean
   queuedMessageLabel?: string | null
   disabled?: boolean
+  /** Available skills for autocomplete on `/` keystroke. */
+  skills?: SkillSuggestion[]
   // Voice props
   voiceAvailable?: boolean
   voiceActive?: boolean
@@ -45,6 +53,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   hasQueuedMessage = false,
   queuedMessageLabel = null,
   disabled,
+  skills = [],
   voiceAvailable = false,
   voiceActive = false,
   voiceSidecarState = 'stopped',
@@ -59,6 +68,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 }: Props, ref) {
   const [value, setValue] = useState('')
   const [pastedImage, setPastedImage] = useState<string | null>(null)
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false)
+  const [selectedSkillIndex, setSelectedSkillIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useImperativeHandle(ref, () => ({
@@ -84,7 +95,55 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     el.style.height = Math.min(el.scrollHeight, 128) + 'px'
   }, [value])
 
+  // Skill autocomplete: filter by text after `/`
+  const filteredSkills = (() => {
+    if (!value.startsWith('/') || !skills.length) return []
+    const typed = value.slice(1).split(/\s/)[0].toLowerCase()
+    if (!typed && value === '/') return skills
+    return skills.filter((s) => s.trigger.toLowerCase().startsWith(typed))
+  })()
+
+  // Open dropdown when value starts with `/`
+  useEffect(() => {
+    if (value.startsWith('/') && filteredSkills.length > 0) {
+      setSkillDropdownOpen(true)
+      setSelectedSkillIndex(0)
+    } else {
+      setSkillDropdownOpen(false)
+    }
+  }, [value, filteredSkills.length])
+
+  const selectSkill = useCallback((skill: SkillSuggestion) => {
+    setValue(`/${skill.trigger} `)
+    setSkillDropdownOpen(false)
+    textareaRef.current?.focus()
+  }, [])
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Skill dropdown navigation
+    if (skillDropdownOpen && filteredSkills.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSkillIndex((i) => (i + 1) % filteredSkills.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSkillIndex((i) => (i - 1 + filteredSkills.length) % filteredSkills.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        const skill = filteredSkills[selectedSkillIndex]
+        if (skill) selectSkill(skill)
+        return
+      }
+      if (e.key === 'Escape') {
+        setSkillDropdownOpen(false)
+        return
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -183,6 +242,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           >
             Clear
           </button>
+        </div>
+      )}
+
+      {/* Skill autocomplete dropdown */}
+      {skillDropdownOpen && filteredSkills.length > 0 && (
+        <div className="mb-1.5 rounded-lg border border-border bg-bg-secondary shadow-lg overflow-hidden">
+          {filteredSkills.map((skill, i) => (
+            <button
+              key={skill.trigger}
+              type="button"
+              onClick={() => selectSkill(skill)}
+              className={cn(
+                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                i === selectedSkillIndex
+                  ? 'bg-accent/15 text-text-primary'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+              )}
+            >
+              <Zap className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
+              <span className="font-medium text-text-primary">/{skill.trigger}</span>
+              <span className="text-xs text-text-tertiary truncate">{skill.description}</span>
+            </button>
+          ))}
         </div>
       )}
 

@@ -15,11 +15,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
-import type { ChatMessage as ChatMsg, ContentBlock, SubagentBlock as SubagentBlockType } from '../store/chat'
+import type { ChatMessage as ChatMsg, ContentBlock, SubagentBlock as SubagentBlockType, SkillBlock as SkillBlockType } from '../store/chat'
 import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
 import { SubagentBlock, UnknownBlockFallback } from './SubagentBlock'
+import { SkillProgressBlock } from './SkillProgressBlock'
 import {
   ChevronRight,
   ChevronDown,
@@ -707,6 +708,10 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
                 case 'subagent':
                   return (
                     <SubagentBlock key={block.id} block={block as SubagentBlockType} />
+                  )
+                case 'skill':
+                  return (
+                    <SkillProgressBlock key={block.id} block={block as SkillBlockType} />
                   )
                 default:
                   // Forward-compat: render unknown block types as collapsed info blocks

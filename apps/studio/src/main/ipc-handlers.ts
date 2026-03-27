@@ -19,6 +19,8 @@ import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
 import type { SubagentManager } from './subagent-manager.js'
+import type { SkillRegistry } from './skill-registry.js'
+import type { SkillExecutor } from './skill-executor.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -39,6 +41,8 @@ export function registerIpcHandlers(
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
   subagentManager?: SubagentManager,
+  skillRegistry?: SkillRegistry,
+  skillExecutor?: SkillExecutor,
 ): void {
   const approvedPaneRoots = new Set<string>()
 
@@ -393,6 +397,68 @@ export function registerIpcHandlers(
     subagentManager.on('subagent-aborted', (data) => {
       const win = getMainWindow()
       pushEvent(win, 'event:subagent-state', { ...data, status: 'aborted' })
+    })
+  }
+
+  // --------------------------------------------------------------------------
+  // Skill commands — not pane-specific
+  // --------------------------------------------------------------------------
+
+  ipcMain.handle('cmd:skill-list', async () => {
+    if (!skillRegistry) return []
+    const skills = skillRegistry.listAll()
+    return skills.map((s) => ({
+      name: s.name,
+      description: s.description,
+      trigger: s.trigger,
+      stepCount: s.steps.length,
+    }))
+  })
+
+  ipcMain.handle('cmd:skill-execute', async (_event, paneId: string, trigger: string, input: string) => {
+    if (!skillRegistry || !skillExecutor) throw new Error('Skill system not initialized')
+    if (!skillRegistry.isLoaded) throw new Error('SkillRegistry not loaded')
+
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+
+    // Step runner: delegates to pane orchestrator
+    const runStep = async (step: import('./skill-registry.js').SkillStep, context: string): Promise<string> => {
+      const prompt = context ? `${step.prompt}\n\nContext:\n${context}` : step.prompt
+      return new Promise<string>((resolve) => {
+        const turnId = pane.orchestrator.submitTurn(prompt, 'text')
+        // Collect agent output for chaining
+        let accumulated = ''
+        const unsub1 = pane.orchestrator.on('chunk', (data: { turn_id: string; text: string }) => {
+          if (data.turn_id === turnId) accumulated += data.text
+        })
+        const unsub2 = pane.orchestrator.once('done', (data: { turn_id: string }) => {
+          if (data.turn_id === turnId) {
+            pane.orchestrator.removeListener('chunk', unsub1 as any)
+            resolve(accumulated)
+          }
+        })
+        void unsub2
+      })
+    }
+
+    const skillId = await skillExecutor.execute(trigger, input, runStep)
+    return skillId
+  })
+
+  ipcMain.handle('cmd:skill-abort', (_event, skillId: string) => {
+    skillExecutor?.abort(skillId)
+  })
+
+  // Forward skill events to renderer
+  if (skillExecutor) {
+    skillExecutor.on('skill-progress', (data) => {
+      const win = getMainWindow()
+      pushEvent(win, 'event:skill-progress', data)
+    })
+    skillExecutor.on('skill-complete', (data) => {
+      const win = getMainWindow()
+      pushEvent(win, 'event:skill-complete', data)
     })
   }
 

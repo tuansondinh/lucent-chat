@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
-import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText } from 'lucide-react'
+import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText, Zap } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
 import { getPaneStore } from '../store/pane-store'
 
@@ -42,6 +42,7 @@ interface CommandPaletteProps {
   onNavigatePane: (direction: 'up' | 'down' | 'left' | 'right') => void
   onClosePane?: () => void
   onOpenFile: (paneId: string, relativePath: string) => Promise<void>
+  onRunSkill?: (trigger: string) => void
   isGenerating: boolean
   canSplit: boolean
 }
@@ -65,16 +66,18 @@ export function CommandPalette({
   onNavigatePane,
   onClosePane,
   onOpenFile,
+  onRunSkill,
   isGenerating,
   canSplit,
 }: CommandPaletteProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [models, setModels] = useState<Model[]>([])
+  const [skills, setSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [loadedData, setLoadedData] = useState(false)
 
   const recentFiles = getPaneStore(activePaneId)((s) => s.recentFiles)
 
-  // Load sessions and models when palette opens
+  // Load sessions, models, and skills when palette opens
   useEffect(() => {
     if (!open || loadedData) return
 
@@ -83,6 +86,7 @@ export function CommandPalette({
     Promise.allSettled([
       bridge.getSessions(activePaneId).then((list) => setSessions(list as Session[])),
       bridge.getModels(activePaneId).then((list) => setModels(list as Model[])),
+      bridge.skillList ? bridge.skillList().then((list) => setSkills(list)) : Promise.resolve(),
     ]).then(() => setLoadedData(true))
   }, [open, loadedData, activePaneId])
 
@@ -362,6 +366,29 @@ export function CommandPalette({
               onSelect={handleSettings}
             />
           </Command.Group>
+
+          {/* Skills group */}
+          {skills.length > 0 && (
+            <Command.Group
+              heading="Skills"
+              className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary"
+            >
+              {skills.map((skill) => (
+                <CommandItem
+                  key={skill.trigger}
+                  icon={<Zap className="h-4 w-4" />}
+                  label={`/${skill.trigger}`}
+                  description={skill.description}
+                  onSelect={() => {
+                    if (onRunSkill) {
+                      onRunSkill(skill.trigger)
+                    }
+                    onClose()
+                  }}
+                />
+              ))}
+            </Command.Group>
+          )}
 
           {/* Action group */}
           <Command.Group

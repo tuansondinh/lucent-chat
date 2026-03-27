@@ -838,6 +838,11 @@ export default function App() {
         onNavigatePane={(dir) => handleNavigatePane(dir)}
         onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
         onOpenFile={handleOpenFile}
+        onRunSkill={(trigger) => {
+          if (bridge.skillExecute) {
+            bridge.skillExecute(activePaneId, trigger, '').catch(() => {})
+          }
+        }}
         isGenerating={activePaneGenerating}
         canSplit={paneCount < 4}
       />

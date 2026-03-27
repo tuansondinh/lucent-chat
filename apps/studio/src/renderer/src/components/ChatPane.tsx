@@ -281,6 +281,16 @@ export function ChatPane({
   const pttShortcutHeldRef = useRef(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
+  const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
+
+  // Load skills for autocomplete
+  useEffect(() => {
+    if (bridge.skillList) {
+      bridge.skillList().then((skills) => {
+        setAvailableSkills(skills.map((s) => ({ trigger: s.trigger, name: s.name, description: s.description })))
+      }).catch(() => {})
+    }
+  }, [bridge])
 
   // Voice integration — app-global store, but forwarding is scoped to this pane
   const voiceStore = useVoiceStore()
@@ -513,6 +523,25 @@ export function ChatPane({
           store.getState().updateSubagentStatus(turn_id, subagentId, 'done', Date.now())
         }),
       ] : []),
+      // Skill events — optional (bridge may not have these in older preloads)
+      ...(bridge.onSkillProgress ? [
+        bridge.onSkillProgress(({ skillId, skillName, trigger, stepIndex, totalSteps, status, output, error }) => {
+          const s = store.getState()
+          // Create skill block on first step event
+          if (stepIndex === 0 && status === 'running') {
+            const currentTurnId = s.currentTurnId
+            if (currentTurnId) {
+              s.addSkillBlock(currentTurnId, skillId, skillName, trigger, totalSteps)
+            }
+          }
+          s.updateSkillStep(skillId, stepIndex, status, output, error)
+        }),
+      ] : []),
+      ...(bridge.onSkillComplete ? [
+        bridge.onSkillComplete(({ skillId, status }) => {
+          store.getState().finalizeSkillBlock(skillId, status)
+        }),
+      ] : []),
     ]
 
     // Fetch initial state for this pane
@@ -600,6 +629,27 @@ export function ChatPane({
       if (queuedPrompt) return
       setQueuedPrompt({ label: displayText, text, imageDataUrl })
       return
+    }
+
+    // /command detection — check if text starts with a /trigger
+    if (text.startsWith('/') && !imageDataUrl) {
+      const parts = text.slice(1).split(/\s+/)
+      const trigger = parts[0]
+      const skillInput = parts.slice(1).join(' ')
+
+      if (trigger && bridge.skillExecute) {
+        try {
+          // First add the user message to chat
+          const fakeTurnId = `skill-${Date.now()}`
+          store.getState().addUserMessage(displayText, fakeTurnId)
+          await bridge.skillExecute(paneId, trigger, skillInput)
+          return
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : `Skill "${trigger}" failed`
+          store.getState().addErrorMessage(msg)
+          return
+        }
+      }
     }
 
     try {
@@ -734,6 +784,7 @@ export function ChatPane({
             hasQueuedMessage={Boolean(queuedPrompt)}
             queuedMessageLabel={queuedMessageLabel}
             disabled={inputDisabled}
+            skills={availableSkills}
             voiceAvailable={voiceStore.available}
             voiceActive={voiceOwnedByThisPane}
             voiceSidecarState={voiceStore.sidecarState}

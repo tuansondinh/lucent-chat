@@ -25,6 +25,28 @@ export interface SubagentBlock {
   children: unknown[]
 }
 
+/** Skill step progress. */
+export interface SkillStepState {
+  index: number
+  status: 'pending' | 'running' | 'done' | 'error' | 'aborted'
+  output?: string
+  error?: string
+}
+
+/** Skill content block — a multi-step skill execution visible in chat. */
+export interface SkillBlock {
+  type: 'skill'
+  id: string
+  skillId: string
+  skillName: string
+  trigger: string
+  steps: SkillStepState[]
+  totalSteps: number
+  status: 'running' | 'done' | 'error' | 'aborted'
+  startedAt: number
+  endedAt?: number
+}
+
 /** Unknown future block type — render as a collapsed info block (forward compat). */
 export interface UnknownBlock {
   type: string
@@ -38,6 +60,7 @@ export type ContentBlock =
   | { type: 'text'; id: string; text: string; isStreaming: boolean }
   | { type: 'tool_use'; id: string; tool: string; input: unknown; output?: unknown; isError?: boolean; done: boolean }
   | SubagentBlock
+  | SkillBlock
   | UnknownBlock
 
 /** @deprecated Use ContentBlock instead. Kept for type compatibility in ToolCallItem. */
