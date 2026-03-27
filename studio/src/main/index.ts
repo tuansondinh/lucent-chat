@@ -135,8 +135,12 @@ app.whenReady().then(async () => {
       })
   }
 
-  // 6. Spawn agent and attach
-  processManager.spawnAgent()
+  // 6. Spawn agent and attach — pass TAVILY_API_KEY if configured in settings
+  const agentEnv: Record<string, string> = {}
+  if (settings.tavilyApiKey) {
+    agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
+  }
+  processManager.spawnAgent(agentEnv)
   attachAgentBridge()
 
   // Re-attach whenever the agent restarts (brief delay for new proc to be set)
