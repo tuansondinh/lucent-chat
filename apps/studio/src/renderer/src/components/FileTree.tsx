@@ -29,6 +29,7 @@ import {
 import { toast } from 'sonner'
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getPaneStore } from '../store/pane-store'
+import { getBridge } from '../lib/bridge'
 import type { GitChangeStatus } from '../../../preload'
 
 // ============================================================================
@@ -212,7 +213,7 @@ function FileTreeNode({
             ].join(' ')}
             style={{ paddingLeft: `${indentPx + 4}px`, paddingRight: '8px' }}
             onClick={() => {
-              window.bridge.fsReadFile(paneId, childPath)
+              getBridge().fsReadFile(paneId, childPath)
                 .then((result) => {
                   getPaneStore(paneId).getState().openFile({
                     relativePath: childPath,
@@ -272,7 +273,7 @@ export function FileTree({ paneId, onFileOpen, onClose, embedded = false }: File
     treeStore.getState().refreshModifiedFiles().catch(() => {})
 
     // Fetch pane info to get project root
-    window.bridge.getPaneInfo(paneId)
+    getBridge().getPaneInfo(paneId)
       .then((info) => {
         paneStore.getState().setProjectRoot(info.projectRoot)
       })

@@ -398,6 +398,10 @@ const bridge = {
   subagentAbort: (paneId: string, subagentId: string): Promise<void> =>
     ipcRenderer.invoke('cmd:subagent-abort', paneId, subagentId),
 
+  /** Return all currently-tracked worker entries (for UI visibility). */
+  subagentWorkers: (): Promise<Array<{ id: string; parentTurnId: string; agentType: string; label: string; status: string; startedAt: number; endedAt?: number; totalCost: number }>> =>
+    ipcRenderer.invoke('cmd:subagent-workers'),
+
   // -------------------------------------------------------------------------
   // Subagent events (main → renderer)
   // -------------------------------------------------------------------------
@@ -528,5 +532,7 @@ const bridge = {
 
 console.log('[studio] preload loaded')
 contextBridge.exposeInMainWorld('bridge', bridge)
+// Signal to renderer that it is running inside Electron (not a PWA)
+contextBridge.exposeInMainWorld('__ELECTRON__', true)
 
 export type Bridge = typeof bridge

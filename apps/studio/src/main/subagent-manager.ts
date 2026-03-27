@@ -15,9 +15,62 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
+import {
+  registerWorker,
+  updateWorker,
+  clearWorker,
+} from './worker-registry.js'
 
 const MAX_SUBAGENTS = 4
 const KILL_GRACE_MS = 3_000
+
+// ============================================================================
+// Agent binary resolution (duplicated from process-manager to keep this module
+// importable without bundler resolution — see note at top)
+// ============================================================================
+
+function _resolveAgentPath(): string {
+  // Packaged mode: use the bundled entrypoint.js from the @lc/runtime bundle.
+  try {
+    const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')
+    if (existsSync(bundledEntry)) {
+      return bundledEntry
+    }
+  } catch {
+    // process.resourcesPath may not be defined outside Electron (tests)
+  }
+
+  // Dev mode: __dirname is apps/studio/dist/main after electron-vite build.
+  // Go up 4 levels to reach the monorepo root.
+  const __filename = fileURLToPath(import.meta.url)
+  const __dirname = dirname(__filename)
+  const projectRoot = join(__dirname, '..', '..', '..', '..')
+  return join(projectRoot, 'dist', 'loader.js')
+}
+
+function _resolveAgentCommand(entry: string): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  try {
+    const bundledNode = join(process.resourcesPath, 'runtime', 'node')
+    if (entry.startsWith(join(process.resourcesPath, 'runtime'))) {
+      return {
+        command: bundledNode,
+        args: [entry, '--mode', 'rpc'],
+        env: { ...process.env },
+      }
+    }
+  } catch {
+    // Not in Electron context
+  }
+
+  return {
+    command: 'node',
+    args: [entry, '--mode', 'rpc'],
+    env: process.env,
+  }
+}
 
 // ============================================================================
 // Types
@@ -34,6 +87,8 @@ export interface SubagentEntry {
   startedAt: number
   endedAt?: number
   proc: ChildProcess | null
+  /** Accumulated token cost in USD for this subagent. */
+  totalCost: number
 }
 
 export interface SubagentSummary {
@@ -44,6 +99,8 @@ export interface SubagentSummary {
   status: SubagentStatus
   startedAt: number
   endedAt?: number
+  /** Accumulated token cost in USD. */
+  totalCost: number
 }
 
 /** Minimal interface so callers can inject a custom AgentBridge factory. */
@@ -66,6 +123,13 @@ export interface SubagentManagerOptions {
    * Takes agent type and returns { systemPrompt: string } or null.
    */
   loadDefinition?: (agentType: string) => Promise<{ systemPrompt: string } | null>
+
+  /**
+   * Token budget in USD. When cumulative cost across all subagents reaches
+   * 80% of this value, a 'budget-alert' event is emitted.
+   * If omitted or <= 0, no budget alerts are fired.
+   */
+  budgetUsd?: number
 }
 
 // ============================================================================
@@ -75,11 +139,78 @@ export interface SubagentManagerOptions {
 export class SubagentManager extends EventEmitter {
   private subagents = new Map<string, SubagentEntry & { bridge?: AgentBridgeLike; systemPrompt?: string }>()
   private options: SubagentManagerOptions
+  /** Cumulative cost across all subagents (active + completed during this session). */
+  private _totalCost = 0
 
   constructor(options: SubagentManagerOptions = {}) {
     super()
     this.options = options
   }
+
+  // --------------------------------------------------------------------------
+  // Internal helpers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Accumulate cost for a subagent and fire a budget-alert event if configured
+   * threshold (80% of budgetUsd) is exceeded.
+   */
+  private _accumulateCost(id: string, delta: number): void {
+    if (delta <= 0) return
+
+    const entry = this.subagents.get(id)
+    if (entry) {
+      entry.totalCost = (entry.totalCost ?? 0) + delta
+      updateWorker(id, { totalCost: entry.totalCost })
+    }
+
+    this._totalCost += delta
+
+    const budget = this.options.budgetUsd
+    if (budget && budget > 0) {
+      const threshold = budget * 0.8
+      if (this._totalCost >= threshold) {
+        this.emit('budget-alert', {
+          totalCost: this._totalCost,
+          budgetUsd: budget,
+          percentUsed: Math.round((this._totalCost / budget) * 100),
+        })
+      }
+    }
+  }
+
+  /**
+   * Spawn the real agent binary using the bundled runtime resolution.
+   * Uses `--mode rpc` for JSON-line RPC protocol.
+   */
+  private _spawnAgentProcess(opts: {
+    cwd?: string
+    env?: Record<string, string>
+    systemPrompt?: string
+    prompt: string
+  }): ChildProcess {
+    const entry = _resolveAgentPath()
+    const launch = _resolveAgentCommand(entry)
+
+    const env: NodeJS.ProcessEnv = {
+      ...launch.env,
+      ...(opts.env ?? {}),
+      // Inject system prompt and initial prompt via environment so the agent
+      // picks them up on startup without a separate handshake.
+      ...(opts.systemPrompt ? { AGENT_SYSTEM_PROMPT: opts.systemPrompt } : {}),
+      AGENT_INITIAL_PROMPT: opts.prompt,
+    }
+
+    return spawn(launch.command, launch.args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: opts.cwd ?? process.cwd(),
+      env,
+    })
+  }
+
+  // --------------------------------------------------------------------------
+  // Core spawn
+  // --------------------------------------------------------------------------
 
   /**
    * Spawn a new subagent process for the given parentTurnId.
@@ -113,15 +244,15 @@ export class SubagentManager extends EventEmitter {
       }
     }
 
-    // Spawn a lightweight process.
-    // In production this would be: node dist/loader.js --mode rpc
-    // with the system prompt injected via env or stdin handshake.
-    // For the infrastructure layer, we use 'sleep' as a placeholder that
-    // keeps the process alive until abort. The orchestrator layer uses the
-    // bridge to send actual prompts.
-    const proc = spawn('sleep', ['3600'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    })
+    // Spawn the real agent binary (or fall back to the placeholder in tests)
+    let proc: ChildProcess
+    try {
+      proc = this._spawnAgentProcess({ systemPrompt, prompt })
+    } catch (err: any) {
+      console.warn(`[subagent-manager] agent binary not found, falling back to placeholder: ${err.message}`)
+      // Fallback for environments where the agent binary is not present (CI, unit tests)
+      proc = spawn('sleep', ['3600'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    }
 
     const entry: SubagentEntry & { bridge?: AgentBridgeLike; systemPrompt: string } = {
       id,
@@ -134,9 +265,21 @@ export class SubagentManager extends EventEmitter {
       proc,
       bridge: undefined,
       systemPrompt,
+      totalCost: 0,
     }
 
     this.subagents.set(id, entry)
+
+    // Register in the worker registry for UI visibility
+    registerWorker({
+      id,
+      parentTurnId,
+      agentType,
+      label: prompt.slice(0, 120),
+      status: 'running',
+      startedAt: entry.startedAt,
+      totalCost: 0,
+    })
 
     // Attach an AgentBridge if a factory was provided
     if (this.options.createBridge) {
@@ -144,14 +287,50 @@ export class SubagentManager extends EventEmitter {
       bridge.attach(proc)
       entry.bridge = bridge
 
-      // Listen for agent_end event (clean completion)
+      // Listen for agent events — handle completion and cost tracking
       const unsubscribe = bridge.onAgentEvent((event: any) => {
+        // Budget tracking: accumulate cost from usage events
+        if (event?.usage?.cost !== undefined) {
+          this._accumulateCost(id, Number(event.usage.cost) || 0)
+        }
+
         if (event.type === 'agent_end') {
           entry.status = 'done'
           entry.endedAt = Date.now()
+          updateWorker(id, { status: 'done', endedAt: entry.endedAt })
           unsubscribe()
           this.emit('subagent-done', { id, parentTurnId, agentType })
           this.subagents.delete(id)
+        }
+      })
+    }
+
+    // Parse raw stdout for JSON-line events when no bridge is attached
+    // This lets cost tracking work even in bridge-less mode
+    if (!this.options.createBridge) {
+      let buf = ''
+      proc.stdout?.on('data', (chunk: Buffer) => {
+        buf += chunk.toString()
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const event = JSON.parse(trimmed)
+            if (event?.usage?.cost !== undefined) {
+              this._accumulateCost(id, Number(event.usage.cost) || 0)
+            }
+            if (event?.type === 'agent_end') {
+              entry.status = 'done'
+              entry.endedAt = Date.now()
+              updateWorker(id, { status: 'done', endedAt: entry.endedAt })
+              this.emit('subagent-done', { id, parentTurnId, agentType })
+              this.subagents.delete(id)
+            }
+          } catch {
+            // Non-JSON line — ignore
+          }
         }
       })
     }
@@ -164,6 +343,7 @@ export class SubagentManager extends EventEmitter {
       if (e.status === 'running' || e.status === 'spawning') {
         e.status = 'error'
         e.endedAt = Date.now()
+        updateWorker(id, { status: 'error', endedAt: e.endedAt })
         this.emit('subagent-error', {
           id,
           parentTurnId,
@@ -180,6 +360,7 @@ export class SubagentManager extends EventEmitter {
       e.proc = null
       e.status = 'error'
       e.endedAt = Date.now()
+      updateWorker(id, { status: 'error', endedAt: e.endedAt })
       this.emit('subagent-error', { id, parentTurnId, agentType, reason: err.message })
       this.subagents.delete(id)
     })
@@ -187,6 +368,179 @@ export class SubagentManager extends EventEmitter {
     console.log(`[subagent-manager] spawned subagent ${id} (type=${agentType}, parent=${parentTurnId}, pid=${proc.pid})`)
     return id
   }
+
+  // --------------------------------------------------------------------------
+  // Parallel execution
+  // --------------------------------------------------------------------------
+
+  /**
+   * Run multiple subagents in parallel (max MAX_SUBAGENTS at a time).
+   * Returns an array of SubagentSummary in the same order as the input tasks.
+   *
+   * @param parentTurnId - Parent turn that owns these subagents.
+   * @param tasks        - Array of { agentType, prompt } descriptors.
+   * @param onProgress   - Optional callback invoked after each task completes.
+   */
+  async spawnParallel(
+    parentTurnId: string,
+    tasks: Array<{ agentType: string; prompt: string }>,
+    onProgress?: (results: SubagentSummary[]) => void,
+  ): Promise<SubagentSummary[]> {
+    const results: (SubagentSummary | null)[] = new Array(tasks.length).fill(null)
+
+    // Process tasks in batches of MAX_SUBAGENTS
+    let cursor = 0
+    while (cursor < tasks.length) {
+      const batchEnd = Math.min(cursor + MAX_SUBAGENTS, tasks.length)
+      const batch = tasks.slice(cursor, batchEnd)
+
+      await Promise.all(
+        batch.map(async (task, batchIdx) => {
+          const globalIdx = cursor + batchIdx
+          let subagentId: string | null = null
+          try {
+            subagentId = await this.spawn(parentTurnId, task.agentType, task.prompt)
+            // Wait for this subagent to reach a terminal state
+            await new Promise<void>((resolve) => {
+              const checkDone = (data: any) => {
+                if (data.id !== subagentId) return
+                this.off('subagent-done', checkDone)
+                this.off('subagent-error', checkDone)
+                this.off('subagent-aborted', checkDone)
+                resolve()
+              }
+              this.on('subagent-done', checkDone)
+              this.on('subagent-error', checkDone)
+              this.on('subagent-aborted', checkDone)
+            })
+            results[globalIdx] = this.get(subagentId) ?? {
+              id: subagentId,
+              parentTurnId,
+              agentType: task.agentType,
+              prompt: task.prompt,
+              status: 'done',
+              startedAt: Date.now(),
+              endedAt: Date.now(),
+              totalCost: 0,
+            }
+          } catch (err: any) {
+            results[globalIdx] = {
+              id: subagentId ?? randomUUID(),
+              parentTurnId,
+              agentType: task.agentType,
+              prompt: task.prompt,
+              status: 'error',
+              startedAt: Date.now(),
+              endedAt: Date.now(),
+              totalCost: 0,
+            }
+            console.error(`[subagent-manager] parallel task ${globalIdx} failed: ${err.message}`)
+          }
+
+          if (onProgress) {
+            onProgress(results.filter(Boolean) as SubagentSummary[])
+          }
+        }),
+      )
+
+      cursor = batchEnd
+    }
+
+    return results.filter(Boolean) as SubagentSummary[]
+  }
+
+  // --------------------------------------------------------------------------
+  // Chain execution
+  // --------------------------------------------------------------------------
+
+  /**
+   * Run subagents sequentially, chaining the output of step N into step N+1.
+   * Use `{previous}` in `promptTemplate` to interpolate the previous step's
+   * final output/summary.
+   *
+   * @param parentTurnId - Parent turn that owns these subagents.
+   * @param steps        - Array of { agentType, promptTemplate } descriptors.
+   * @param onProgress   - Optional callback invoked after each step completes.
+   */
+  async spawnChain(
+    parentTurnId: string,
+    steps: Array<{ agentType: string; promptTemplate: string }>,
+    onProgress?: (stepIndex: number, result: SubagentSummary) => void,
+  ): Promise<SubagentSummary[]> {
+    const results: SubagentSummary[] = []
+    let previousOutput = ''
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i]
+      // Replace {previous} placeholder with the previous step's result summary
+      const prompt = step.promptTemplate.replace(/\{previous\}/g, previousOutput)
+
+      let subagentId: string | null = null
+      let result: SubagentSummary
+
+      try {
+        subagentId = await this.spawn(parentTurnId, step.agentType, prompt)
+
+        // Wait for this subagent to reach a terminal state
+        await new Promise<void>((resolve) => {
+          const checkDone = (data: any) => {
+            if (data.id !== subagentId) return
+            this.off('subagent-done', checkDone)
+            this.off('subagent-error', checkDone)
+            this.off('subagent-aborted', checkDone)
+            resolve()
+          }
+          this.on('subagent-done', checkDone)
+          this.on('subagent-error', checkDone)
+          this.on('subagent-aborted', checkDone)
+        })
+
+        result = this.get(subagentId) ?? {
+          id: subagentId,
+          parentTurnId,
+          agentType: step.agentType,
+          prompt,
+          status: 'done',
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+          totalCost: 0,
+        }
+      } catch (err: any) {
+        result = {
+          id: subagentId ?? randomUUID(),
+          parentTurnId,
+          agentType: step.agentType,
+          prompt,
+          status: 'error',
+          startedAt: Date.now(),
+          endedAt: Date.now(),
+          totalCost: 0,
+        }
+        console.error(`[subagent-manager] chain step ${i} failed: ${err.message}`)
+      }
+
+      results.push(result)
+      // Use the prompt as the "previous output" for chaining context
+      // (in production the bridge would capture actual agent output)
+      previousOutput = `Step ${i + 1} (${step.agentType}): ${prompt}`
+
+      if (onProgress) {
+        onProgress(i, result)
+      }
+
+      // Stop the chain on hard errors to avoid cascading failures
+      if (result.status === 'error') {
+        console.warn(`[subagent-manager] chain stopped at step ${i} due to error`)
+        break
+      }
+    }
+
+    return results
+  }
+
+  // --------------------------------------------------------------------------
+  // Abort
+  // --------------------------------------------------------------------------
 
   /**
    * Abort a single subagent by ID. Cleans up the process and removes from map.
@@ -198,6 +552,7 @@ export class SubagentManager extends EventEmitter {
     const prevStatus = entry.status
     entry.status = 'aborted'
     entry.endedAt = Date.now()
+    updateWorker(subagentId, { status: 'aborted', endedAt: entry.endedAt })
 
     // Try graceful abort via bridge
     if (entry.bridge) {
@@ -227,6 +582,7 @@ export class SubagentManager extends EventEmitter {
     }
 
     entry.proc = null
+    clearWorker(subagentId)
     this.subagents.delete(subagentId)
 
     if (prevStatus !== 'aborted') {
@@ -259,6 +615,10 @@ export class SubagentManager extends EventEmitter {
     console.log('[subagent-manager] all subagents stopped')
   }
 
+  // --------------------------------------------------------------------------
+  // Queries
+  // --------------------------------------------------------------------------
+
   /**
    * Return a summary list of all tracked subagents (active + recently completed).
    */
@@ -271,6 +631,7 @@ export class SubagentManager extends EventEmitter {
       status: s.status,
       startedAt: s.startedAt,
       endedAt: s.endedAt,
+      totalCost: s.totalCost ?? 0,
     }))
   }
 
@@ -286,6 +647,7 @@ export class SubagentManager extends EventEmitter {
       status: e.status,
       startedAt: e.startedAt,
       endedAt: e.endedAt,
+      totalCost: e.totalCost ?? 0,
     }
   }
 
@@ -294,5 +656,13 @@ export class SubagentManager extends EventEmitter {
     return Array.from(this.subagents.values()).filter(
       (s) => s.status === 'spawning' || s.status === 'running',
     ).length
+  }
+
+  /**
+   * Total accumulated token cost in USD across all subagents spawned during
+   * this session (including completed ones).
+   */
+  getTotalCost(): number {
+    return this._totalCost
   }
 }

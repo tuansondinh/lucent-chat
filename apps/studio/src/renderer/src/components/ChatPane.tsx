@@ -17,6 +17,7 @@ import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
 import { Kbd, KbdGroup } from './ui/kbd'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -52,7 +53,7 @@ function PaneFooter({
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
   const currentModel = getPaneStore(paneId)((s) => s.currentModel)
-  const bridge = window.bridge
+  const bridge = getBridge()
   const [branchListLoading, setBranchListLoading] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
   const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null)
@@ -271,7 +272,7 @@ export function ChatPane({
     activeSubagentCount,
   } = store()
 
-  const bridge = window.bridge
+  const bridge = getBridge()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement>(null)
   const inputRef = useRef<ChatInputHandle>(null)

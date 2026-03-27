@@ -14,6 +14,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { getBridge } from '../lib/bridge'
 
 // Colour theme matching the dark UI (background #1a1a1a)
 const XTERM_THEME = {
@@ -49,7 +50,7 @@ export function Terminal() {
   useEffect(() => {
     if (!containerRef.current) return
 
-    const bridge = window.bridge
+    const bridge = getBridge()
 
     // -------------------------------------------------------------------------
     // Initialise xterm

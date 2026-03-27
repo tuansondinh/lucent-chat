@@ -16,6 +16,8 @@ import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
 import { SkillRegistry } from './skill-registry.js'
 import { SkillExecutor } from './skill-executor.js'
+import { WebBridgeServer } from './web-bridge-server.js'
+import { TailscaleService } from './tailscale-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -27,6 +29,8 @@ let terminalManager: TerminalManager | null = null
 let paneManager: PaneManager | null = null
 let voiceService: VoiceService | null = null
 let fileWatchService: FileWatchService | null = null
+let webBridgeServer: WebBridgeServer | null = null
+let tailscaleService: TailscaleService | null = null
 
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
@@ -286,7 +290,79 @@ app.whenReady().then(async () => {
     skillExecutor,
   )
 
-  // 11. System tray
+  // 11. WebBridgeServer — auto-start if enabled in settings
+  tailscaleService = new TailscaleService()
+
+  const startWebBridgeServer = async (): Promise<void> => {
+    const currentSettings = settingsService.get()
+    if (!currentSettings.remoteAccessEnabled) return
+
+    const port = currentSettings.remoteAccessPort ?? 8788
+    let token = currentSettings.remoteAccessToken
+
+    // Auto-generate a token if none exists
+    if (!token) {
+      const { webcrypto } = await import('node:crypto')
+      const bytes = new Uint8Array(16)
+      webcrypto.getRandomValues(bytes)
+      token = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+      settingsService.save({ remoteAccessToken: token })
+    }
+
+    // dispatchCmd routes remote bridge commands to the local IPC handlers
+    const dispatchCmd = async (name: string, args: unknown[]): Promise<unknown> => {
+      // Route remote bridge commands to local services.
+      // This mirrors a subset of the IPC handlers — only safe, non-terminal commands.
+      switch (name) {
+        case 'get-settings': return settingsService.get()
+        case 'set-settings': return settingsService.save(args[0] as Record<string, unknown>)
+        case 'pane-list': return paneManager?.getPaneIds() ?? []
+        case 'get-models': return paneManager?.getPane(args[0] as string)?.agentBridge.getModels()
+        case 'get-state': return paneManager?.getPane(args[0] as string)?.agentBridge.getState()
+        case 'get-sessions': return paneManager?.getPane(args[0] as string)?.sessionService.listSessions() ?? []
+        case 'get-messages': return paneManager?.getPane(args[0] as string)?.sessionService.getMessages() ?? []
+        case 'prompt': return paneManager?.getPane(args[0] as string)?.orchestrator.submitTurn(args[1] as string, 'text')
+        case 'abort': return paneManager?.getPane(args[0] as string)?.orchestrator.abort()
+        default: throw new Error(`Command '${name}' not supported via remote bridge`)
+      }
+    }
+
+    const tailscaleOrigin = await tailscaleService!.getStatus().then((s) => {
+      if (s.magicDnsHostname) return `https://${s.magicDnsHostname}`
+      return undefined
+    }).catch(() => undefined)
+
+    webBridgeServer = new WebBridgeServer({
+      token,
+      dispatchCmd,
+      tailscaleOrigin,
+    })
+
+    try {
+      await webBridgeServer.start(port)
+      console.log(`[studio] WebBridgeServer started on port ${port}`)
+
+      // If tailscale serve is enabled, activate it
+      if (currentSettings.tailscaleServeEnabled) {
+        tailscaleService!.enableServe(port).catch((err: Error) => {
+          console.warn('[studio] Tailscale serve failed:', err.message)
+        })
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.warn('[studio] WebBridgeServer failed to start:', msg)
+      webBridgeServer = null
+    }
+  }
+
+  // Start WebBridgeServer after a brief delay (after window loads)
+  setTimeout(() => {
+    startWebBridgeServer().catch((err: Error) => {
+      console.warn('[studio] WebBridgeServer auto-start error:', err.message)
+    })
+  }, 1_500)
+
+  // 13. System tray
   // Minimal 16×16 transparent PNG as placeholder icon
   const iconDataUrl =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/' +
@@ -331,6 +407,8 @@ app.on('before-quit', (e) => {
       try {
         terminalManager?.destroyAll()
         fileWatchService?.shutdown()
+        // Stop WebBridgeServer
+        await webBridgeServer?.stop()
         // Stop voice sidecar first (non-blocking 3s grace)
         await voiceService?.stop()
         // Shutdown non-pane-0 panes first

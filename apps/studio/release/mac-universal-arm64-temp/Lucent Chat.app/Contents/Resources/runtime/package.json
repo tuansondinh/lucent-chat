@@ -1,0 +1,7 @@
+{
+  "name": "@lc/runtime-bundle",
+  "version": "2.42.0",
+  "description": "Self-contained @lc/runtime bundle for Lucent Chat Studio",
+  "type": "module",
+  "main": "./entrypoint.js"
+}

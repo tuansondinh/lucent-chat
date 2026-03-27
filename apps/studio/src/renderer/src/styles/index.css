@@ -130,3 +130,141 @@ pre,
 *::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(180deg, #606060 0%, #4a4a4a 100%);
 }
+
+/* ==========================================================================
+   Mobile responsive styles — <768px
+   ========================================================================== */
+
+/* --- Touch target baseline --- */
+@media (max-width: 768px) {
+  /* Ensure all interactive elements have a minimum 44px touch target */
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea,
+  [tabindex] {
+    min-height: 44px;
+  }
+
+  /* --- Sidebar becomes bottom nav on mobile --- */
+  .lc-sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
+    height: 56px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+    border-top: 1px solid var(--color-border);
+    border-right: none;
+    z-index: 100;
+    padding: 0;
+  }
+
+  /* Hide sidebar text labels on mobile — icons only */
+  .lc-sidebar-label {
+    display: none;
+  }
+
+  /* --- Single stacked pane layout on mobile --- */
+  .lc-pane-layout {
+    flex-direction: column;
+  }
+
+  /* Hide additional panes on mobile — show only active pane */
+  .lc-pane:not(.lc-pane--active) {
+    display: none;
+  }
+
+  /* --- Main content area: account for bottom nav height --- */
+  .lc-main {
+    padding-bottom: 56px;
+  }
+
+  /* --- Command palette: bottom sheet on mobile --- */
+  .lc-command-palette-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .lc-command-palette {
+    width: 100%;
+    max-width: 100%;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    max-height: 80vh;
+  }
+
+  /* --- Status bar: hide non-essential info on narrow screens --- */
+  .lc-status-bar-secondary {
+    display: none;
+  }
+
+  /* --- Panels: disable resize handle on mobile --- */
+  .lc-panel-resize-handle {
+    display: none;
+  }
+
+  /* --- Chat input: comfortable sizing --- */
+  .lc-chat-input {
+    font-size: 16px; /* Prevent iOS zoom on focus */
+  }
+
+  /* --- File viewer: full screen overlay on mobile --- */
+  .lc-file-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* --- Settings dialog: full screen on mobile --- */
+  .lc-settings-dialog {
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+
+  /* --- Model picker: full screen on mobile --- */
+  .lc-model-picker {
+    width: 100%;
+    max-height: 90vh;
+  }
+
+  /* --- Terminal: hidden on mobile by default --- */
+  .lc-terminal {
+    display: none;
+  }
+
+  /* --- Scrollbar: thinner on mobile for more content space --- */
+  * {
+    scrollbar-width: none;
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* --- Container queries for pane-level responsiveness --- */
+@container (max-width: 480px) {
+  .lc-chat-header {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .lc-chat-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

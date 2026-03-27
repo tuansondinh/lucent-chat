@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // Types
@@ -62,7 +63,7 @@ type OAuthFlowState =
 // ============================================================================
 
 export function Onboarding({ onComplete }: OnboardingProps) {
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   const [step, setStep] = useState<Step>(1)
   const [catalog, setCatalog] = useState<ProviderCatalogEntry[]>([])
@@ -209,7 +210,7 @@ interface ProviderSetupStepProps {
 function ProviderSetupStep({
   catalog, providerStatuses, restarting, onStatusUpdate, onContinue,
 }: ProviderSetupStepProps) {
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})

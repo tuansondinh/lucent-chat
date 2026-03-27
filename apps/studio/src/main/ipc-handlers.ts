@@ -19,6 +19,7 @@ import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
 import type { SubagentManager } from './subagent-manager.js'
+import { getActiveWorkers } from './worker-registry.js'
 import type { SkillRegistry } from './skill-registry.js'
 import type { SkillExecutor } from './skill-executor.js'
 
@@ -383,6 +384,8 @@ export function registerIpcHandlers(
     if (!subagentManager) return
     return subagentManager.abort(subagentId)
   })
+
+  ipcMain.handle('cmd:subagent-workers', () => getActiveWorkers())
 
   // Forward subagent events to renderer
   if (subagentManager) {

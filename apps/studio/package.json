@@ -13,6 +13,8 @@
     "test:all": "npm run test:main && npm run test:renderer",
     "test:coverage": "vitest --coverage",
     "test:smoke": "node --import tsx/esm --test test/**/*.smoke.test.ts",
+    "build:pwa": "vite build --config vite.pwa.config.ts",
+    "serve:pwa": "vite preview --config vite.pwa.config.ts",
     "prebundle-runtime": "npm run build -w @lc/runtime",
     "bundle-runtime": "npm run bundle -w @lc/runtime",
     "pack": "npm run bundle-runtime && electron-builder --dir",
@@ -25,6 +27,8 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "qrcode.react": "^4.2.0",
+    "ws": "^8.18.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-popover": "^1.1.15",
