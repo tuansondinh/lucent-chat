@@ -33,7 +33,7 @@ const KILL_GRACE_MS = 3_000
 // ============================================================================
 
 function _resolveAgentPath(): string {
-  // Packaged mode: use the bundled entrypoint.js from the @lc/runtime bundle.
+  // Packaged mode: use the bundled entrypoint.js from the @gsd/pi-coding-agent bundle.
   try {
     const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')
     if (existsSync(bundledEntry)) {

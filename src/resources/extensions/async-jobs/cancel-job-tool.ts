@@ -2,7 +2,7 @@
  * cancel_job tool — cancel a running background job.
  */
 
-import type { ToolDefinition } from "@lc/runtime";
+import type { ToolDefinition } from "@gsd/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import type { AsyncJobManager } from "./job-manager.js";
 

@@ -14,7 +14,7 @@
  *   /jobs — show running and recent background jobs
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@lc/runtime";
+import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
 import { AsyncJobManager, type Job } from "./job-manager.js";
 import { createAsyncBashTool } from "./async-bash-tool.js";
 import { createAwaitTool } from "./await-tool.js";

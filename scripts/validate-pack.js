@@ -65,8 +65,8 @@ try {
 
   const requiredFiles = [
     'dist/loader.js',
-    'packages/runtime/bundle/entrypoint.js',
-    'packages/runtime/bundle/node',
+    'packages/pi-coding-agent/bundle/entrypoint.js',
+    'packages/pi-coding-agent/bundle/node',
   ];
 
   let missing = false;
@@ -109,8 +109,8 @@ try {
   console.log('==> Verifying runtime bundle is present...');
   const installedRoot = join(installDir, 'node_modules', 'voice-bridge-desktop');
   const bundlePaths = [
-    'packages/runtime/bundle/entrypoint.js',
-    'packages/runtime/bundle/node',
+    'packages/pi-coding-agent/bundle/entrypoint.js',
+    'packages/pi-coding-agent/bundle/node',
   ];
   let bundleCheckFailed = false;
   for (const bundlePath of bundlePaths) {

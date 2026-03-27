@@ -1,6 +1,6 @@
 /**
  * Minimal tool interface matching GSD's AgentTool shape.
- * Avoids a direct dependency on @lc/agent-core from this compiled module.
+ * Avoids a direct dependency on @gsd/pi-agent-core from this compiled module.
  */
 export interface McpToolDef {
   name: string

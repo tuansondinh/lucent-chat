@@ -12,7 +12,7 @@ import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	truncateHead,
-} from "@lc/runtime";
+} from "@gsd/pi-coding-agent";
 import {
 	beginAction,
 	finishAction,

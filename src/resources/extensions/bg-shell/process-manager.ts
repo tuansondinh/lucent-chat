@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { getShellConfig, sanitizeCommand } from "@lc/runtime";
+import { getShellConfig, sanitizeCommand } from "@gsd/pi-coding-agent";
 import type {
 	BgProcess,
 	BgProcessInfo,

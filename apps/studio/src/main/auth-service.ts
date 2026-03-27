@@ -14,7 +14,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import * as https from 'node:https'
-import { getOAuthProvider, type OAuthLoginCallbacks } from '@lc/ai/oauth'
+import { getOAuthProvider, type OAuthLoginCallbacks } from '@gsd/pi-ai/oauth'
 
 // ============================================================================
 // Types

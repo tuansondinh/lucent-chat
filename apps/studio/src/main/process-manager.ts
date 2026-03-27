@@ -33,7 +33,7 @@ const KILL_GRACE_MS = 3_000
 
 /** Path to the agent entry point (built dist). */
 function resolveAgentPath(): string {
-  // Packaged mode: use the bundled entrypoint.js from the @lc/runtime bundle.
+  // Packaged mode: use the bundled entrypoint.js from the @gsd/pi-coding-agent bundle.
   // The bundle places entrypoint.js at runtime/dist/entrypoint.js (alongside all
   // compiled JS) so relative imports resolve correctly.
   const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')

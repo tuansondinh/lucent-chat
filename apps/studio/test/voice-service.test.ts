@@ -16,10 +16,6 @@ test('VoiceService: probe detects audio_service.py availability', async () => {
   const mockRoot = createMockRoot(true)
   const service = new VoiceService(mockRoot)
 
-  // Mock fs.existsSync
-  const originalExistsSync = require('node:fs').existsSync
-  const fs = require('node:fs')
-
   // We'll test the logic by checking the return value structure
   // Full probing requires actual Python runtime, which we can't easily mock
   const result = await service.probe()
@@ -92,7 +88,7 @@ test('VoiceService: handles startup timeout', async () => {
   // We're testing that the timeout logic exists
   await assert.rejects(
     async () => await service.start(),
-    /Voice sidecar unavailable|Voice sidecar startup timeout|not found/
+    /Voice sidecar unavailable|Voice sidecar startup timeout|not found|exited unexpectedly/
   )
 })
 

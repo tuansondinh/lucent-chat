@@ -1,5 +1,5 @@
 {
-  "name": "@lc/studio",
+  "name": "@gsd/studio",
   "private": true,
   "version": "0.9.0",
   "type": "module",
@@ -15,8 +15,8 @@
     "test:smoke": "node --import tsx/esm --test test/**/*.smoke.test.ts",
     "build:pwa": "vite build --config vite.pwa.config.ts",
     "serve:pwa": "vite preview --config vite.pwa.config.ts",
-    "prebundle-runtime": "npm run build -w @lc/runtime",
-    "bundle-runtime": "npm run bundle -w @lc/runtime",
+    "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
+    "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
     "pack": "npm run bundle-runtime && electron-builder --dir",
     "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
     "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
@@ -90,7 +90,7 @@
     ],
     "extraResources": [
       {
-        "from": "../../packages/runtime/bundle",
+        "from": "../../packages/pi-coding-agent/bundle",
         "to": "runtime"
       }
     ],

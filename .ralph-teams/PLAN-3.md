@@ -38,7 +38,7 @@ Status: approved
 5. Add `skill` content block type to chat store — `{ type: 'skill'; id; skillName; steps: SkillStep[]; status }`. Create `SkillProgressBlock` — shows step N/M progress, nested subagent blocks for delegating steps.
 6. Wire skill events in `ChatPane`, integrate skills into `CommandPalette` (Cmd+K), add skills list section in Settings.
 
-### Phase 3: PWA + Mobile + Tailscale — complexity: standard
+### Phase 3: PWA + Mobile + Tailscale — complexity: standard ✅
 1. **Bridge abstraction (do first):** Create `getBridge()` adapter — checks `window.__ELECTRON__` flag. Electron path: returns existing `window.bridge` (IPC). PWA path: returns `WebBridge` class (fetch for commands, WebSocket for events, same `Bridge` interface). Refactor all 21 `window.bridge` call sites to `getBridge()`. Set `window.__ELECTRON__ = true` in preload script.
 2. Create `WebBridgeServer` (main process, Node `http` + `ws`) — mirrors preload bridge RPC: `POST /api/cmd/:name` for commands, WebSocket for bidirectional events. Bearer token auth on all requests. **Capability scoping for remote clients:** no `cmd:terminal-*`, no `cmd:fs-*` write ops, no `cmd:pick-folder`. CORS: Tailscale origins + localhost only.
 3. Add PWA vite config (`vite.pwa.config.ts`), `manifest.webmanifest` (Lucent Chat, icons 192+512, standalone, dark theme), service worker (app shell cache, versioned). npm scripts: `build:pwa`, `serve:pwa`. Output: `dist/pwa/`.

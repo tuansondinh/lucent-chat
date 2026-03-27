@@ -1,4 +1,4 @@
-import type { AuthStorage } from '@lc/runtime'
+import type { AuthStorage } from '@gsd/pi-coding-agent'
 
 // ─── Env hydration ────────────────────────────────────────────────────────────
 

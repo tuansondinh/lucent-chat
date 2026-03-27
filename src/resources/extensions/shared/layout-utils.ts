@@ -1,13 +1,13 @@
 /**
- * ANSI-aware TUI layout utilities that depend on @lc/tui.
+ * ANSI-aware TUI layout utilities that depend on @gsd/pi-tui.
  *
  * Separated from format-utils.ts so that modules needing only pure
  * formatting (e.g. HTML report generation) can import format-utils
- * without pulling in the @lc/tui dependency — which fails when
+ * without pulling in the @gsd/pi-tui dependency — which fails when
  * loaded outside jiti's alias resolution context.
  */
 
-import { truncateToWidth, visibleWidth } from "@lc/tui";
+import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
 
 // ─── Layout Helpers ───────────────────────────────────────────────────────────
 

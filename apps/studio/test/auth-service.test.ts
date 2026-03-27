@@ -257,7 +257,7 @@ test('AuthService: startOAuthLogin handles concurrent flows', async () => {
     }
 
     // Import and mock getOAuthProvider
-    const piAi = await import('@lc/ai/oauth')
+    const piAi = await import('@gsd/pi-ai/oauth')
     const originalGet = piAi.getOAuthProvider
     piAi.getOAuthProvider = () => mockProvider
 

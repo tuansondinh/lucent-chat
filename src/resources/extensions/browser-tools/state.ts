@@ -10,7 +10,7 @@
  */
 
 import type { Browser, BrowserContext, Frame, Page } from "playwright";
-import type { ExtensionAPI } from "@lc/runtime";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import path from "node:path";
 import {
 	createActionTimeline,

@@ -6,13 +6,13 @@
  * with await_job.
  */
 
-import type { ToolDefinition } from "@lc/runtime";
+import type { ToolDefinition } from "@gsd/pi-coding-agent";
 import {
 	getShellConfig,
 	sanitizeCommand,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
-} from "@lc/runtime";
+} from "@gsd/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";

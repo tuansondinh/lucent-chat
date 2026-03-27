@@ -9,9 +9,9 @@
  * Based on: https://github.com/openai/codex (codex-rs/core/src/tools/handlers/ask_user_questions.rs)
  */
 
-import type { ExtensionAPI } from "@lc/runtime";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import { sanitizeError } from "./shared/sanitize.js";
-import { Text } from "@lc/tui";
+import { Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import {
 	showInterviewRound,

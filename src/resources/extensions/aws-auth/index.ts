@@ -47,7 +47,7 @@ import { exec } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import type { ExtensionAPI } from "@lc/runtime";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 
 /** Matches AWS SDK / Bedrock / SSO credential and token errors. */
 const AWS_AUTH_ERROR_RE =

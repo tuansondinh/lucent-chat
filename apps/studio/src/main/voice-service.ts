@@ -175,6 +175,7 @@ export class VoiceService extends EventEmitter {
         this.emitStatus()
         proc.kill('SIGKILL')
       }, this.startupTimeoutMs)
+      timeout.unref()
 
       proc.stdout?.on('data', (chunk: Buffer) => {
         stdoutBuf += chunk.toString('utf8')
@@ -205,6 +206,7 @@ export class VoiceService extends EventEmitter {
       proc.once('exit', (code, signal) => {
         clearTimeout(timeout)
         const wasReady = this.state === 'ready'
+        const wasStarting = this.state === 'starting'
         this.port = null
         this.authToken = null
         this.proc = null
@@ -217,6 +219,10 @@ export class VoiceService extends EventEmitter {
           }
           this.state = 'error'
           this.emitStatus()
+          // Reject startup promise if process exits before becoming ready
+          if (wasStarting) {
+            reject(new Error(this.reason))
+          }
           if (wasReady) {
             // Schedule restart after 2s backoff
             this.restartTimer = setTimeout(() => {
@@ -224,10 +230,12 @@ export class VoiceService extends EventEmitter {
                 console.error('[voice-service] restart failed:', err.message)
               })
             }, 2_000)
+            this.restartTimer.unref()
           }
         } else {
           this.state = 'stopped'
           this.emitStatus()
+          resolve({ port: 0, token: '' })
         }
       })
     })

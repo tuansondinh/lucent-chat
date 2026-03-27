@@ -36,8 +36,8 @@ The GSD CLI is a terminal-based coding agent. It is composed of a thin CLI entry
 │             │ imports                          │ extraResources  │
 │             ▼                                  ▼                 │
 │   ┌─────────────────────────────────────────────────────────┐   │
-│   │                   @lc/runtime                           │   │
-│   │           packages/runtime/  →  bundle/                 │   │
+│   │               @gsd/pi-coding-agent                      │   │
+│   │        packages/pi-coding-agent/  →  bundle/            │   │
 │   └─────────────────────────────────────────────────────────┘   │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -66,14 +66,14 @@ voice-bridge-desktop/
 │   └── resources/              # Bundled skills, extensions, assets
 │
 ├── packages/
-│   ├── runtime/                # @lc/runtime — agent glue layer
-│   ├── agent-core/             # @lc/agent-core — agent loop + tool calling
-│   ├── ai/                     # @lc/ai — LLM provider abstraction
-│   ├── tui/                    # @lc/tui — terminal UI components
-│   └── native/                 # @lc/native — Rust N-API bindings
+│   ├── pi-coding-agent/        # @gsd/pi-coding-agent — agent glue layer
+│   ├── pi-agent-core/          # @gsd/pi-agent-core — agent loop + tool calling
+│   ├── pi-ai/                  # @gsd/pi-ai — LLM provider abstraction
+│   ├── pi-tui/                 # @gsd/pi-tui — terminal UI components
+│   └── native/                 # @gsd/native — Rust N-API bindings
 │
 ├── apps/
-│   └── studio/                 # @lc/studio — Electron desktop app
+│   └── studio/                 # @gsd/studio — Electron desktop app
 │
 ├── pkg/                        # piConfig shim (name, configDir identity)
 ├── dist/                       # Compiled CLI output (gitignored ideally)
@@ -88,28 +88,28 @@ voice-bridge-desktop/
 ```
 src/ (CLI)
     │
-    └── @lc/runtime
+    └── @gsd/pi-coding-agent
             │
-            ├── @lc/agent-core
+            ├── @gsd/pi-agent-core
             │       │
-            │       └── @lc/ai
+            │       └── @gsd/pi-ai
             │               │
             │               └── (OpenAI / Anthropic / Bedrock SDKs)
             │
-            ├── @lc/tui
+            ├── @gsd/pi-tui
             │
-            └── @lc/native
+            └── @gsd/native
                     │
                     └── (Rust N-API — grep, glob, fs)
 ```
 
-Each layer only imports from layers below it. `src/` sits at the top and delegates all heavy lifting to `@lc/runtime`.
+Each layer only imports from layers below it. `src/` sits at the top and delegates all heavy lifting to `@gsd/pi-coding-agent`.
 
 ---
 
 ## Package Reference
 
-### `@lc/native` — `packages/native/`
+### `@gsd/native` — `packages/native/`
 
 Rust N-API bindings for performance-critical operations. Compiled via `node-gyp` + `cargo`.
 
@@ -118,7 +118,7 @@ Rust N-API bindings for performance-critical operations. Compiled via `node-gyp`
 - `crates/grep/` — fast text search
 - Exposed to Node via `packages/native/src/`
 
-### `@lc/ai` — `packages/ai/`
+### `@gsd/pi-ai` — `packages/pi-ai/`
 
 Unified LLM provider abstraction. Adds a consistent streaming interface over provider SDKs.
 
@@ -131,7 +131,7 @@ Unified LLM provider abstraction. Adds a consistent streaming interface over pro
 | `stream.ts` | Unified streaming response handler |
 | `bedrock-provider.ts` | AWS Bedrock implementation |
 
-### `@lc/tui` — `packages/tui/`
+### `@gsd/pi-tui` — `packages/pi-tui/`
 
 Terminal UI primitives. Used by interactive and headless modes.
 
@@ -140,7 +140,7 @@ Terminal UI primitives. Used by interactive and headless modes.
 - `overlay-layout.ts` — overlay manager (model picker, sessions list)
 - `keybindings.ts` / `keys.ts` — key event handling
 
-### `@lc/agent-core` — `packages/agent-core/`
+### `@gsd/pi-agent-core` — `packages/pi-agent-core/`
 
 The reasoning and tool-calling loop, decoupled from any UI.
 
@@ -151,7 +151,7 @@ The reasoning and tool-calling loop, decoupled from any UI.
 | `proxy.ts` | Tool call proxying and result handling |
 | `types.ts` | Core types (Message, ToolCall, AgentState) |
 
-### `@lc/runtime` — `packages/runtime/`
+### `@gsd/pi-coding-agent` — `packages/pi-coding-agent/`
 
 Glue layer that assembles all packages into a usable runtime. This is the only package the CLI and Electron app need to import.
 
@@ -189,7 +189,7 @@ Glue layer that assembles all packages into a usable runtime. This is the only p
 2. Checks if onboarding is needed (`onboarding.ts`)
 3. Selects execution mode: interactive, print, RPC, MCP, or subcommand
 4. Bootstraps tools and extensions via `tool-bootstrap.ts`
-5. Creates an agent session via `@lc/runtime`
+5. Creates an agent session via `@gsd/pi-coding-agent`
 
 ---
 
@@ -210,16 +210,16 @@ npm run build
 For the Electron app specifically:
 
 ```
-npm run dist:mac:arm64 -w @lc/studio
+npm run dist:mac:arm64 -w @gsd/studio
     │
-    ├── 1. npm run build -w @lc/runtime   (compile + copy-assets)
-    ├── 2. npm run bundle -w @lc/runtime  (bundle.cjs → packages/runtime/bundle/)
+    ├── 1. npm run build -w @gsd/pi-coding-agent   (compile + copy-assets)
+    ├── 2. npm run bundle -w @gsd/pi-coding-agent  (bundle.cjs → packages/pi-coding-agent/bundle/)
     │         • entrypoint.js + resources
     │         • production deps
     │         • pkg/ config shim
     │         • standalone Node binary (arm64)
     └── 3. electron-builder -m --arm64
-              extraResources: packages/runtime/bundle → <app>/Contents/Resources/runtime/
+              extraResources: packages/pi-coding-agent/bundle → <app>/Contents/Resources/runtime/
 ```
 
 ---
@@ -240,13 +240,13 @@ src/cli.ts              ← parse args, check onboarding
       ├─ first run? ──► src/onboarding.ts / wizard.ts
       │
       ▼
-@lc/runtime             ← SettingsManager, AuthStorage, ModelRegistry
+@gsd/pi-coding-agent             ← SettingsManager, AuthStorage, ModelRegistry
       │
       ▼
 mode selection
-  ├── interactive  ──► packages/runtime/src/modes/interactive/
-  ├── print (-p)   ──► packages/runtime/src/modes/print-mode.ts
-  ├── rpc          ──► packages/runtime/src/modes/rpc/
+  ├── interactive  ──► packages/pi-coding-agent/src/modes/interactive/
+  ├── print (-p)   ──► packages/pi-coding-agent/src/modes/print-mode.ts
+  ├── rpc          ──► packages/pi-coding-agent/src/modes/rpc/
   └── mcp          ──► src/mcp-server.ts
 ```
 
@@ -256,16 +256,16 @@ mode selection
 User input (tui)
       │
       ▼
-@lc/agent-core: agent-loop.ts
+@gsd/pi-agent-core: agent-loop.ts
       │
       ├── append to session context
       │
       ▼
-@lc/ai: stream.ts          ← call LLM provider, stream tokens
+@gsd/pi-ai: stream.ts          ← call LLM provider, stream tokens
       │
       ├── text token ──► render to tui
       │
-      └── tool_call  ──► execute tool (@lc/native for fs/grep ops)
+      └── tool_call  ──► execute tool (@gsd/native for fs/grep ops)
                 │
                 └── result ──► append to context, loop back
 ```
@@ -273,7 +273,7 @@ User input (tui)
 ### Session Persistence
 
 ```
-@lc/runtime: session-manager.ts
+@gsd/pi-coding-agent: session-manager.ts
       │
       ├── create    ──► write JSONL to ~/.lucent/sessions/<id>/
       ├── resume    ──► read JSONL, hydrate message history

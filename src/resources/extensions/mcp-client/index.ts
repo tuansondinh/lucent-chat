@@ -11,14 +11,14 @@
  *   mcp_call      — Call a tool on an MCP server (lazy connect)
  */
 
-import type { ExtensionAPI } from "@lc/runtime";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import {
 	truncateHead,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	formatSize,
-} from "@lc/runtime";
-import { Text } from "@lc/tui";
+} from "@gsd/pi-coding-agent";
+import { Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { Client } from "@modelcontextprotocol/sdk/client";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";

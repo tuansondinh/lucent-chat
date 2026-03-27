@@ -25,7 +25,7 @@ pkg.version = newVersion;
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 console.log(`[bump-version] package.json: ${oldVersion} → ${newVersion}`);
 
-// 2. Update packages/runtime/package.json (sync-pkg-version reads from here)
+// 2. Update packages/pi-coding-agent/package.json (sync-pkg-version reads from here)
 const piPkgPath = resolve(root, "packages", "pi-coding-agent", "package.json");
 const piPkg = JSON.parse(readFileSync(piPkgPath, "utf-8"));
 piPkg.version = newVersion;

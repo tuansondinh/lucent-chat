@@ -14,7 +14,7 @@ const onboarding = await import("../web/onboarding-service.ts")
 const browserRoute = await import("../../web/app/api/session/browser/route.ts")
 const manageRoute = await import("../../web/app/api/session/manage/route.ts")
 const gitRoute = await import("../../web/app/api/git/route.ts")
-const { AuthStorage } = await import("@lc/runtime")
+const { AuthStorage } = await import("@gsd/pi-coding-agent")
 
 class FakeRpcChild extends EventEmitter {
   stdin = new PassThrough()

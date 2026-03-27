@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@lc/runtime";
+import type { ExtensionAPI } from "@gsd/pi-coding-agent";
 import createSlashCommand from "./create-slash-command.js";
 import createExtension from "./create-extension.js";
 import auditCommand from "./audit.js";
