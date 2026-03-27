@@ -14,6 +14,21 @@ import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { ModelPicker } from './components/ModelPicker'
 import { CommandPalette } from './components/CommandPalette'
+import { Settings } from './components/Settings'
+import { Onboarding } from './components/Onboarding'
+import { Terminal } from './components/Terminal'
+
+function ThinkingBubble() {
+  return (
+    <div className="flex w-full mb-4 justify-start">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-4 py-3 bg-bg-secondary border border-border">
+        <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:0ms]" />
+        <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:150ms]" />
+        <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:300ms]" />
+      </div>
+    </div>
+  )
+}
 
 // ============================================================================
 // App
@@ -43,10 +58,13 @@ export default function App() {
   // UI state
   // -------------------------------------------------------------------------
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
 
   // Current session tracking (path + name)
   const [currentSessionPath, setCurrentSessionPath] = useState<string | null>(null)
@@ -62,6 +80,10 @@ export default function App() {
       .then((s) => {
         if (typeof s.sidebarCollapsed === 'boolean') {
           setSidebarCollapsed(s.sidebarCollapsed)
+        }
+        // Show onboarding if not yet completed
+        if (!s.onboardingComplete) {
+          setShowOnboarding(true)
         }
       })
       .catch(() => {})
@@ -113,8 +135,8 @@ export default function App() {
           setModel(`${model.provider ?? ''}/${model.id}`)
         }
         // Capture initial session path if available
-        if (typeof state.sessionPath === 'string' && state.sessionPath) {
-          setCurrentSessionPath(state.sessionPath)
+        if (typeof state.sessionFile === 'string' && state.sessionFile) {
+          setCurrentSessionPath(state.sessionFile)
         }
         if (typeof state.sessionName === 'string' && state.sessionName) {
           setCurrentSessionName(state.sessionName)
@@ -143,6 +165,13 @@ export default function App() {
       if (e.metaKey && e.key === 'k') {
         e.preventDefault()
         setCommandPaletteOpen((v) => !v)
+        return
+      }
+
+      // Cmd+` — toggle terminal panel (always works, even in inputs)
+      if (e.metaKey && e.key === '`') {
+        e.preventDefault()
+        setTerminalOpen((v) => !v)
         return
       }
 
@@ -177,8 +206,7 @@ export default function App() {
       }
       if (e.metaKey && e.key === ',') {
         e.preventDefault()
-        // Settings — no-op for now (Phase 3E)
-        console.log('[keyboard] Cmd+, — settings (not yet implemented)')
+        setSettingsOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -201,7 +229,7 @@ export default function App() {
     bridge
       .getState()
       .then((state) => {
-        if (typeof state.sessionPath === 'string') setCurrentSessionPath(state.sessionPath)
+        if (typeof state.sessionFile === 'string') setCurrentSessionPath(state.sessionFile)
         if (typeof state.sessionName === 'string') setCurrentSessionName(state.sessionName)
       })
       .catch(() => {})
@@ -226,7 +254,7 @@ export default function App() {
     bridge
       .getState()
       .then((state) => {
-        if (typeof state.sessionPath === 'string') setCurrentSessionPath(state.sessionPath)
+        if (typeof state.sessionFile === 'string') setCurrentSessionPath(state.sessionFile)
         if (typeof state.sessionName === 'string') setCurrentSessionName(state.sessionName)
       })
       .catch(() => {})
@@ -278,76 +306,87 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-bg-primary text-text-primary select-none overflow-hidden">
-      {/* Main content: sidebar + chat */}
-      <div className="flex flex-1 min-h-0">
-        {sidebarCollapsed ? (
-          // Collapsed sidebar — thin icon strip
-          <Sidebar
-            collapsed={true}
-            onToggleCollapse={handleToggleSidebar}
-            currentSessionPath={currentSessionPath}
-            onNewSession={() => void handleNewSession()}
-            onSwitchSession={(path) => void handleSwitchSession(path)}
-            onRefresh={handleRefresh}
-            onOpenModelPicker={() => setModelPickerOpen(true)}
-          />
-        ) : (
-          <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-            {/* Sidebar panel */}
-            <Panel
-              defaultSize={22}
-              minSize={15}
-              maxSize={35}
-              className="flex flex-col"
-            >
-              <Sidebar
-                collapsed={false}
-                onToggleCollapse={handleToggleSidebar}
-                currentSessionPath={currentSessionPath}
-                onNewSession={() => void handleNewSession()}
-                onSwitchSession={(path) => void handleSwitchSession(path)}
-                onRefresh={handleRefresh}
-                onOpenModelPicker={() => setModelPickerOpen(true)}
-              />
-            </Panel>
+      {/* Vertical panel group: chat area on top, optional terminal at bottom */}
+      <PanelGroup orientation="vertical" className="flex-1 min-h-0">
+        {/* Top panel: sidebar + chat */}
+        <Panel className="flex min-h-0">
+          {/* Main content: sidebar + chat */}
+          <div className="flex flex-1 min-h-0">
+            {/* Collapsed sidebar — fixed-width icon strip, outside PanelGroup */}
+            {sidebarCollapsed && (
+              <>
+                <Sidebar
+                  collapsed={true}
+                  onToggleCollapse={handleToggleSidebar}
+                  currentSessionPath={currentSessionPath}
+                  onNewSession={() => void handleNewSession()}
+                  onSwitchSession={(path) => void handleSwitchSession(path)}
+                  onRefresh={handleRefresh}
+                  onOpenModelPicker={() => setModelPickerOpen(true)}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                />
+                <div className="flex-1 flex flex-col min-h-0 min-w-0">
+                  <ChatColumn
+                    messages={messages}
+                    agentHealth={agentHealth}
+                    isGenerating={isGenerating}
+                    currentModel={currentModel}
+                    sidebarCollapsed={true}
+                    inputDisabled={inputDisabled}
+                    suggestions={suggestions}
+                    messagesEndRef={messagesEndRef}
+                    onSubmit={(t) => void handleSubmit(t)}
+                    onAbort={handleAbort}
+                  />
+                </div>
+              </>
+            )}
 
-            {/* Resize handle */}
-            <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
-
-            {/* Chat panel */}
-            <Panel className="flex flex-col min-h-0">
-              <ChatColumn
-                messages={messages}
-                agentHealth={agentHealth}
-                isGenerating={isGenerating}
-                currentModel={currentModel}
-                inputDisabled={inputDisabled}
-                suggestions={suggestions}
-                messagesEndRef={messagesEndRef}
-                onSubmit={(t) => void handleSubmit(t)}
-                onAbort={handleAbort}
-              />
-            </Panel>
-          </PanelGroup>
-        )}
-
-        {/* When collapsed, chat fills remaining space */}
-        {sidebarCollapsed && (
-          <div className="flex-1 flex flex-col min-h-0 min-w-0">
-            <ChatColumn
-              messages={messages}
-              agentHealth={agentHealth}
-              isGenerating={isGenerating}
-              currentModel={currentModel}
-              inputDisabled={inputDisabled}
-              suggestions={suggestions}
-              messagesEndRef={messagesEndRef}
-              onSubmit={(t) => void handleSubmit(t)}
-              onAbort={handleAbort}
-            />
+            {/* Expanded sidebar — resizable via PanelGroup */}
+            {!sidebarCollapsed && (
+              <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
+                <Panel defaultSize="28%" minSize="24%" className="flex flex-col overflow-hidden">
+                  <Sidebar
+                    collapsed={false}
+                    onToggleCollapse={handleToggleSidebar}
+                    currentSessionPath={currentSessionPath}
+                    onNewSession={() => void handleNewSession()}
+                    onSwitchSession={(path) => void handleSwitchSession(path)}
+                    onRefresh={handleRefresh}
+                    onOpenModelPicker={() => setModelPickerOpen(true)}
+                    onOpenSettings={() => setSettingsOpen(true)}
+                  />
+                </Panel>
+                <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                <Panel className="flex flex-col min-h-0">
+                  <ChatColumn
+                    messages={messages}
+                    agentHealth={agentHealth}
+                    isGenerating={isGenerating}
+                    currentModel={currentModel}
+                    sidebarCollapsed={false}
+                    inputDisabled={inputDisabled}
+                    suggestions={suggestions}
+                    messagesEndRef={messagesEndRef}
+                    onSubmit={(t) => void handleSubmit(t)}
+                    onAbort={handleAbort}
+                  />
+                </Panel>
+              </PanelGroup>
+            )}
           </div>
+        </Panel>
+
+        {/* Terminal panel — toggled with Cmd+` */}
+        {terminalOpen && (
+          <>
+            <PanelResizeHandle className="h-px bg-border hover:bg-accent/40 transition-colors cursor-row-resize" />
+            <Panel defaultSize="30%" minSize="10%" className="flex flex-col min-h-0">
+              <Terminal />
+            </Panel>
+          </>
         )}
-      </div>
+      </PanelGroup>
 
       {/* Status bar */}
       <StatusBar
@@ -369,9 +408,17 @@ export default function App() {
         onToggleSidebar={handleToggleSidebar}
         onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
         onStopGeneration={handleAbort}
-        onSettings={() => console.log('[settings] not yet implemented')}
+        onSettings={() => setSettingsOpen(true)}
         isGenerating={isGenerating}
       />
+
+      {/* Settings dialog — Cmd+, */}
+      <Settings open={settingsOpen} onOpenChange={setSettingsOpen} />
+
+      {/* First-run onboarding overlay */}
+      {showOnboarding && (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      )}
     </div>
   )
 }
@@ -385,6 +432,7 @@ interface ChatColumnProps {
   agentHealth: string
   isGenerating: boolean
   currentModel: string
+  sidebarCollapsed: boolean
   inputDisabled: boolean
   suggestions: string[]
   messagesEndRef: React.RefObject<HTMLDivElement>
@@ -396,6 +444,7 @@ function ChatColumn({
   messages,
   agentHealth,
   isGenerating,
+  sidebarCollapsed,
   inputDisabled,
   suggestions,
   messagesEndRef,
@@ -406,11 +455,11 @@ function ChatColumn({
     <>
       {/* Header */}
       <header
-        className="flex items-center justify-between border-b border-border px-5 py-3 flex-shrink-0"
+        className={`flex items-center justify-between border-b border-border py-3 pr-5 flex-shrink-0 ${sidebarCollapsed ? 'pl-14' : 'px-5'}`}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
-          <span>Voice Bridge</span>
+          <span>Lucent Chat</span>
         </div>
 
         <div
@@ -427,7 +476,7 @@ function ChatColumn({
       <main className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="text-2xl font-semibold text-text-primary">Voice Bridge</div>
+            <div className="text-2xl font-semibold text-text-primary">Lucent Chat</div>
             <p className="text-sm text-text-secondary max-w-xs">
               {agentHealth === 'ready'
                 ? 'Ask anything to get started.'
@@ -457,6 +506,11 @@ function ChatColumn({
             {messages.map((msg) => (
               <ChatMessage key={msg.id} message={msg} />
             ))}
+            {isGenerating && (() => {
+              const last = messages[messages.length - 1]
+              const showThinking = !last || last.role === 'user' || (last.role === 'assistant' && !last.text && last.toolCalls.length === 0)
+              return showThinking ? <ThinkingBubble /> : null
+            })()}
             <div ref={messagesEndRef} />
           </div>
         )}

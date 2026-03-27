@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { toast } from 'sonner'
 import type { ChatMessage as ChatMsg } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
@@ -57,6 +58,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
       await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
+      toast.success('Copied to clipboard')
     } catch {
       // clipboard unavailable — silently ignore
     }
@@ -307,23 +309,23 @@ function MarkdownContent({ text, isStreaming }: MarkdownContentProps) {
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         components={{
-          // ---- Code blocks ----
-          code({ node: _node, className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '')
-            const language = match ? match[1] : ''
-            const isBlock = !!(props as any).inline === false || className?.startsWith('language-')
-
-            if (isBlock || language) {
-              const codeText = String(children).replace(/\n$/, '')
-              return (
-                <CodeBlock
-                  code={codeText}
-                  language={language}
-                  isStreaming={isStreaming}
-                />
-              )
+          // ---- Code blocks (fenced) — handled via pre ----
+          pre({ children }) {
+            const child = React.Children.toArray(children).find(
+              (c) => React.isValidElement(c) && (c as React.ReactElement).type === 'code',
+            ) as React.ReactElement | undefined
+            if (child) {
+              const { className, children: codeChildren } = child.props as { className?: string; children?: React.ReactNode }
+              const match = /language-(\w+)/.exec(className || '')
+              const language = match ? match[1] : ''
+              const codeText = String(codeChildren).replace(/\n$/, '')
+              return <CodeBlock code={codeText} language={language} isStreaming={isStreaming} />
             }
-            // Inline code
+            return <pre>{children}</pre>
+          },
+
+          // ---- Inline code ----
+          code({ children, ...props }) {
             return (
               <code
                 className="bg-bg-tertiary text-accent rounded px-1.5 py-0.5 text-[0.85em] font-mono"
@@ -542,8 +544,8 @@ export function ChatMessage({ message }: Props) {
           </p>
         )}
 
-        {/* Assistant messages: rich markdown */}
-        {!isUser && !isError && (
+        {/* Assistant messages: rich markdown (hide when empty — tool spinner suffices) */}
+        {!isUser && !isError && message.text && (
           <div className="pr-6">
             <MarkdownContent text={message.text} isStreaming={isStreaming} />
           </div>

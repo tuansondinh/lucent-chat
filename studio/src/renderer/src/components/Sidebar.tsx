@@ -55,6 +55,7 @@ interface Props {
   onSwitchSession: (path: string) => void
   onRefresh: () => void
   onOpenModelPicker?: () => void
+  onOpenSettings?: () => void
 }
 
 // ============================================================================
@@ -69,6 +70,7 @@ export function Sidebar({
   onSwitchSession,
   onRefresh,
   onOpenModelPicker,
+  onOpenSettings,
 }: Props) {
   const { currentModel } = useChatStore()
   const [sessions, setSessions] = useState<Session[]>([])
@@ -80,6 +82,7 @@ export function Sidebar({
 
   // -- Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // -------------------------------------------------------------------------
   // Load sessions
@@ -144,14 +147,14 @@ export function Sidebar({
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return
+    setDeleteError(null)
     try {
       await bridge.deleteSession(deleteTarget.path)
+      setDeleteTarget(null)
       await loadSessions()
       onRefresh()
-    } catch {
-      // ignore
-    } finally {
-      setDeleteTarget(null)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete session')
     }
   }
 
@@ -161,54 +164,54 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col items-center py-3 gap-2 h-full border-r border-border bg-bg-secondary">
-        {/* Traffic-light spacer */}
-        <div className="h-7 flex-shrink-0" />
+      <div className="flex h-full w-10 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary">
+        <div
+          className="h-12 flex-shrink-0 border-b border-border/70"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        />
 
-        {/* Expand button */}
-        <button
-          onClick={onToggleCollapse}
-          title="Expand sidebar (⌘B)"
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-        >
-          <PanelLeft className="w-4 h-4" />
-        </button>
+        <div className="flex flex-1 flex-col items-center gap-1.5 px-1 py-2">
+          <button
+            onClick={onToggleCollapse}
+            title="Expand sidebar (⌘B)"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <PanelLeft className="w-3.5 h-3.5" />
+          </button>
 
-        {/* New session */}
-        <button
-          onClick={() => void handleNewSession()}
-          title="New session (⌘N)"
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+          <button
+            onClick={() => void handleNewSession()}
+            title="New session (⌘N)"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
 
-        {/* Spacer */}
-        <div className="flex-1" />
+          <div className="flex-1" />
 
-        {/* Model picker */}
-        <button
-          onClick={onOpenModelPicker}
-          title="Switch model (⌘M)"
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-        >
-          <Cpu className="w-4 h-4" />
-        </button>
+          <button
+            onClick={onOpenModelPicker}
+            title="Switch model (⌘M)"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+          </button>
 
-        {/* Settings */}
-        <button
-          title="Settings"
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors mb-2"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+          <button
+            onClick={onOpenSettings}
+            title="Settings (⌘,)"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     )
   }
 
   return (
     <>
-      <div className="flex flex-col h-full border-r border-border bg-bg-secondary">
+      <div className="flex flex-col h-full w-full min-w-0 border-r border-border bg-bg-secondary overflow-hidden">
         {/* Header */}
         <div
           className="flex items-center justify-between px-3 py-3 flex-shrink-0"
@@ -218,7 +221,7 @@ export function Sidebar({
           <div className="w-20 flex-shrink-0" />
 
           <span className="text-sm font-semibold text-text-primary tracking-tight">
-            Voice Bridge
+            Lucent Chat
           </span>
 
           <button
@@ -283,7 +286,8 @@ export function Sidebar({
           </button>
 
           <button
-            title="Settings (Phase 3E)"
+            onClick={onOpenSettings}
+            title="Settings (⌘,)"
             className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
           >
             <Settings className="w-4 h-4" />
@@ -326,8 +330,8 @@ export function Sidebar({
       </Dialog>
 
       {/* Delete confirmation dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null) } }}>
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Delete Session</DialogTitle>
           </DialogHeader>
@@ -338,9 +342,12 @@ export function Sidebar({
             </span>
             ? This cannot be undone.
           </p>
+          {deleteError && (
+            <p className="text-xs text-red-400 bg-red-900/20 rounded px-3 py-2">{deleteError}</p>
+          )}
           <DialogFooter>
             <button
-              onClick={() => setDeleteTarget(null)}
+              onClick={() => { setDeleteTarget(null); setDeleteError(null) }}
               className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:text-text-primary hover:border-border-active transition-colors"
             >
               Cancel

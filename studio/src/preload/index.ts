@@ -71,6 +71,26 @@ const bridge = {
     ipcRenderer.invoke('cmd:open-external', url),
 
   // -------------------------------------------------------------------------
+  // Terminal commands
+  // -------------------------------------------------------------------------
+
+  /** Spawn (or re-spawn) the main terminal process. */
+  terminalCreate: (): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-create'),
+
+  /** Send raw input data to the terminal. */
+  terminalInput: (data: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-input', { data }),
+
+  /** Notify the pty of a terminal resize. */
+  terminalResize: (cols: number, rows: number): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-resize', { cols, rows }),
+
+  /** Kill the main terminal process. */
+  terminalDestroy: (): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-destroy'),
+
+  // -------------------------------------------------------------------------
   // Events (main → renderer)
   // -------------------------------------------------------------------------
 
@@ -123,6 +143,13 @@ const bridge = {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:error', handler)
     return () => ipcRenderer.removeListener('event:error', handler)
+  },
+
+  /** Terminal output data from the pty. Returns unsubscribe function. */
+  onTerminalData: (cb: (data: string) => void): (() => void) => {
+    const handler = (_e: any, payload: { data: string }) => cb(payload.data)
+    ipcRenderer.on('event:terminal-data', handler)
+    return () => ipcRenderer.removeListener('event:terminal-data', handler)
   },
 }
 

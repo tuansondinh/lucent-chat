@@ -7,7 +7,12 @@
 
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import type { AgentBridge } from './agent-bridge.js'
+
+function debugLog(msg: string) {
+  try { appendFileSync('/tmp/vb-events.log', msg + '\n') } catch {}
+}
 
 // ============================================================================
 // Types
@@ -147,6 +152,14 @@ export class Orchestrator extends EventEmitter {
     const unsubscribe = this.agentBridge.onAgentEvent((event: any) => {
       if (turn.state === 'aborted') return
 
+      // Debug: log ALL events to file
+      if (event.type === 'message_update' && event.assistantMessageEvent) {
+        const ame = event.assistantMessageEvent
+        debugLog(`[msg_update] ${ame.type} ${JSON.stringify(ame).slice(0, 400)}`)
+      } else {
+        debugLog(`[event] ${event.type} ${JSON.stringify(event).slice(0, 400)}`)
+      }
+
       if (event.type === 'message_update') {
         // Extract text delta from the assistantMessageEvent
         const amEvent = event.assistantMessageEvent
@@ -160,6 +173,25 @@ export class Orchestrator extends EventEmitter {
             const chunk = amEvent.delta.text
             fullText += chunk
             this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
+          }
+
+          // Native Anthropic web search — server_tool_use start
+          if (amEvent.type === 'server_tool_use') {
+            this.callbacks.onToolStart({
+              turn_id: turn.turn_id,
+              tool: 'web_search',
+              input: {},
+            })
+          }
+
+          // Native Anthropic web search — result
+          if (amEvent.type === 'web_search_result') {
+            this.callbacks.onToolEnd({
+              turn_id: turn.turn_id,
+              tool: 'web_search',
+              output: 'Search completed',
+              isError: false,
+            })
           }
         }
       } else if (event.type === 'tool_execution_start') {

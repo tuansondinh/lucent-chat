@@ -3,8 +3,8 @@
  * renaming, and tracking the active session.
  */
 
-import { readdir, stat, unlink, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readdir, stat, unlink, readFile, writeFile, mkdir } from 'node:fs/promises'
+import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBridge } from './agent-bridge.js'
 import type { Orchestrator } from './orchestrator.js'
@@ -31,7 +31,7 @@ export interface FormattedMessage {
 
 export class SessionService {
   /** Path to the file that persists the active session ID across launches. */
-  private readonly activeSessionFile = join(homedir(), '.voice-bridge-desktop', 'active-session')
+  private readonly activeSessionFile = join(homedir(), '.lucent', 'active-session')
 
   /** In-memory cache of the current active session path. */
   private activeSessionId: string | null = null
@@ -47,7 +47,7 @@ export class SessionService {
    * Reads from ~/.pi/agent/sessions/ (and subdirectories).
    */
   async listSessions(): Promise<SessionInfo[]> {
-    const sessionsBase = join(homedir(), '.pi', 'agent', 'sessions')
+    const sessionsBase = join(homedir(), '.gsd', 'agent', 'sessions')
     const results: SessionInfo[] = []
 
     async function walk(dir: string): Promise<void> {
@@ -61,19 +61,25 @@ export class SessionService {
         const fullPath = join(dir, entry.name)
         if (entry.isDirectory()) {
           await walk(fullPath)
-        } else if (entry.isFile() && entry.name.endsWith('.json')) {
+        } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
           try {
             const info = await stat(fullPath)
-            // Try to read session name from the JSON file
-            let name = entry.name.replace(/\.json$/, '')
+            // Read session name from first line of JSONL (the session header record)
+            let name = basename(entry.name, '.jsonl')
             try {
               const raw = await readFile(fullPath, 'utf8')
-              const parsed = JSON.parse(raw)
-              if (parsed?.name && typeof parsed.name === 'string') {
-                name = parsed.name
+              const firstLine = raw.slice(0, raw.indexOf('\n')).trim()
+              if (firstLine) {
+                const header = JSON.parse(firstLine)
+                if (header?.name && typeof header.name === 'string') {
+                  name = header.name
+                } else if (header?.timestamp && typeof header.timestamp === 'string') {
+                  // Fall back to a human-readable timestamp
+                  name = new Date(header.timestamp).toLocaleString()
+                }
               }
             } catch {
-              // Use filename stem if JSON parse fails
+              // Use filename stem if parsing fails
             }
             results.push({ path: fullPath, name, modified: info.mtimeMs })
           } catch {
@@ -165,9 +171,12 @@ export class SessionService {
   setActiveSessionId(id: string): void {
     this.activeSessionId = id
     // Persist asynchronously — best-effort, no throw on failure
-    writeFile(this.activeSessionFile, id, 'utf8').catch((err: Error) => {
-      console.warn('[session-service] failed to persist active session:', err.message)
-    })
+    const dir = join(homedir(), '.lucent')
+    mkdir(dir, { recursive: true })
+      .then(() => writeFile(this.activeSessionFile, id, 'utf8'))
+      .catch((err: Error) => {
+        console.warn('[session-service] failed to persist active session:', err.message)
+      })
   }
 
   /**

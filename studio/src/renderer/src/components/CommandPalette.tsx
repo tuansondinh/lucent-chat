@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { Search, Plus, Cpu, PanelLeft, Settings, Square } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
 
@@ -113,6 +114,10 @@ export function CommandPalette({
       // Overlay backdrop
       style={{}}
     >
+      <VisuallyHidden.Root>
+        <h2>Command palette</h2>
+      </VisuallyHidden.Root>
+
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"

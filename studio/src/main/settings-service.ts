@@ -26,6 +26,8 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   /** Last window bounds for position/size restore. */
   windowBounds?: { x: number; y: number; width: number; height: number }
+  /** Whether the user has completed first-run onboarding. */
+  onboardingComplete?: boolean
 }
 
 // ============================================================================
@@ -35,7 +37,7 @@ export interface AppSettings {
 const DEFAULTS: AppSettings = {
   theme: 'dark',
   fontSize: 14,
-  sidebarCollapsed: false,
+  sidebarCollapsed: true,
 }
 
 // ============================================================================

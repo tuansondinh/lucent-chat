@@ -7,6 +7,7 @@ import { Orchestrator } from './orchestrator.js'
 import { registerIpcHandlers, pushEvent } from './ipc-handlers.js'
 import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
+import { TerminalManager } from './terminal-manager.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -14,6 +15,7 @@ const __dirname = dirname(__filename)
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let processManager: ProcessManager | null = null
+let terminalManager: TerminalManager | null = null
 
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
@@ -31,11 +33,11 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     height: savedBounds?.height ?? 900,
     x: savedBounds?.x,
     y: savedBounds?.y,
-    minWidth: 1100,
-    minHeight: 720,
-    backgroundColor: '#0a0a0a',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: process.platform === 'darwin' ? { x: 16, y: 16 } : undefined,
+    minWidth: 500,
+    minHeight: 500,
+    backgroundColor: '#1a1a1a',
+    titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
+    titleBarOverlay: process.platform === 'darwin' ? { height: 52 } : undefined,
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -126,8 +128,12 @@ app.whenReady().then(async () => {
     // Probe readiness — mark 'ready' once agent responds to get_state
     agentBridge
       .getState()
-      .then(() => {
+      .then((state) => {
         processManager!.setState('agent', 'ready')
+        // Sync active session ID from agent state so delete guard is accurate
+        if (state.sessionFile) {
+          sessionService.setActiveSessionId(state.sessionFile)
+        }
       })
       .catch((err: Error) => {
         console.warn('[studio] agent readiness probe failed:', err.message)
@@ -158,35 +164,41 @@ app.whenReady().then(async () => {
     onError: (d) => pushEvent(mainWindow, 'event:error', d),
   })
 
-  // 8. IPC handlers
+  // 8. Terminal Manager — forwards pty output to renderer
+  terminalManager = new TerminalManager((_id, data) => {
+    pushEvent(mainWindow, 'event:terminal-data', { data })
+  })
+
+  // 9. IPC handlers
   registerIpcHandlers(
     orchestrator,
     agentBridge,
     processManager,
     () => mainWindow,
     sessionService,
-    settingsService
+    settingsService,
+    terminalManager
   )
 
-  // 9. Forward health events to renderer
+  // 10. Forward health events to renderer
   processManager.on('health', (states: Record<string, string>) => {
     pushEvent(mainWindow, 'event:health', states)
   })
 
-  // 10. System tray
+  // 11. System tray
   // Minimal 16×16 transparent PNG as placeholder icon
   const iconDataUrl =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/' +
     '9hAAAAFElEQVQ4T2NkYGD4z8BQDwAEgAF/AAAyxgF/AAAAAElFTkSuQmCC'
   const trayIcon = nativeImage.createFromDataURL(iconDataUrl)
   tray = new Tray(trayIcon)
-  tray.setToolTip('Voice Bridge')
+  tray.setToolTip('Lucent Chat')
 
   const updateTray = () => {
     const states = processManager!.getStates()
     const agentState = states.agent ?? 'stopped'
     tray!.setContextMenu(buildTrayMenu(agentState))
-    tray!.setToolTip(`Voice Bridge — agent: ${agentState}`)
+    tray!.setToolTip(`Lucent Chat — agent: ${agentState}`)
   }
 
   updateTray()
@@ -216,6 +228,7 @@ app.on('before-quit', (e) => {
     app.isQuitting = true
     void (async () => {
       try {
+        terminalManager?.destroyAll()
         await processManager?.shutdownAll()
       } finally {
         app.exit(0)

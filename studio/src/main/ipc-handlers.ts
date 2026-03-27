@@ -11,6 +11,7 @@ import type { AgentBridge } from './agent-bridge.js'
 import type { ProcessManager } from './process-manager.js'
 import type { SessionService } from './session-service.js'
 import type { SettingsService } from './settings-service.js'
+import type { TerminalManager } from './terminal-manager.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -25,7 +26,8 @@ export function registerIpcHandlers(
   processManager: ProcessManager,
   getMainWindow: () => BrowserWindow | null,
   sessionService: SessionService,
-  settingsService: SettingsService
+  settingsService: SettingsService,
+  terminalManager: TerminalManager
 ): void {
   // --- Commands (renderer → main) ---
 
@@ -41,8 +43,15 @@ export function registerIpcHandlers(
     return agentBridge.setModel(provider, modelId)
   })
 
-  ipcMain.handle('cmd:new-session', () => {
-    return agentBridge.newSession()
+  ipcMain.handle('cmd:new-session', async () => {
+    const result = await agentBridge.newSession()
+    if (!result.cancelled) {
+      // Sync active session ID so the delete guard stays accurate
+      agentBridge.getState().then((state) => {
+        if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
+      }).catch(() => {})
+    }
+    return result
   })
 
   ipcMain.handle('cmd:switch-session', (_event, sessionPath: string) => {
@@ -92,6 +101,24 @@ export function registerIpcHandlers(
       const { shell } = await import('electron')
       await shell.openExternal(url)
     }
+  })
+
+  // --- Terminal handlers ---
+
+  ipcMain.handle('cmd:terminal-create', () => {
+    terminalManager.create('main')
+  })
+
+  ipcMain.handle('cmd:terminal-input', (_event, data: { data: string }) => {
+    terminalManager.write('main', data.data)
+  })
+
+  ipcMain.handle('cmd:terminal-resize', (_event, data: { cols: number; rows: number }) => {
+    terminalManager.resize('main', data.cols, data.rows)
+  })
+
+  ipcMain.handle('cmd:terminal-destroy', () => {
+    terminalManager.destroy('main')
   })
 
   void getMainWindow // used by pushEvent callers in index.ts
