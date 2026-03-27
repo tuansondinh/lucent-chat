@@ -12,6 +12,7 @@ import { ipcMain, type BrowserWindow } from 'electron'
 import type { PaneManager } from './pane-manager.js'
 import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
+import type { AuthService } from './auth-service.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -24,6 +25,8 @@ export function registerIpcHandlers(
   paneManager: PaneManager,
   settingsService: SettingsService,
   terminalManager: TerminalManager,
+  authService: AuthService,
+  restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
 ): void {
 
@@ -122,6 +125,32 @@ export function registerIpcHandlers(
   ipcMain.handle('cmd:set-settings', (_event, partial: Record<string, unknown>) => {
     settingsService.save(partial)
     return settingsService.get()
+  })
+
+  // --------------------------------------------------------------------------
+  // Provider auth — not pane-specific
+  // --------------------------------------------------------------------------
+
+  ipcMain.handle('cmd:validate-and-save-provider-key', async (_event, providerId: string, apiKey: string) => {
+    const result = await authService.validateAndSaveApiKey(providerId, apiKey)
+    if (result.ok) {
+      void restartAllAgents()
+    }
+    return result
+  })
+
+  ipcMain.handle('cmd:remove-provider-key', (_event, providerId: string) => {
+    const statuses = authService.removeApiKey(providerId)
+    void restartAllAgents()
+    return statuses
+  })
+
+  ipcMain.handle('cmd:get-provider-auth-status', () => {
+    return authService.getProviderStatuses()
+  })
+
+  ipcMain.handle('cmd:get-provider-catalog', () => {
+    return authService.getProviderCatalog()
   })
 
   // --------------------------------------------------------------------------

@@ -5,11 +5,14 @@
  * submit/abort handlers, session state, and the full chat column UI.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
+import { ChevronDown, Cpu } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput } from './ChatInput'
+import { ModelPicker } from './ModelPicker'
 import { getPaneStore } from '../store/pane-store'
+import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -76,11 +79,13 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
     setSessionPath,
     setSessionName,
     viewedFile,
+    currentModel,
   } = store()
 
   const bridge = window.bridge
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement>(null)
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
 
   // Auto-scroll when messages change
   useEffect(() => {
@@ -142,9 +147,9 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
     bridge
       .getState(paneId)
       .then((state) => {
-        const model = state.model as { provider?: string; id?: string } | undefined
-        if (model?.id) {
-          store.getState().setModel(`${model.provider ?? ''}/${model.id}`)
+        const modelRef = getModelRefFromState(state)
+        if (modelRef) {
+          store.getState().setModel(modelRef)
         }
         if (typeof state.sessionFile === 'string' && state.sessionFile) {
           store.getState().setSessionPath(state.sessionFile)
@@ -179,56 +184,76 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
   const inputDisabled = agentHealth === 'crashed' || agentHealth === 'degraded'
 
   const isOnlyPane = !onClose
+  const modelLabel = formatModelDisplay(currentModel, { fallback: 'Select model' })
+  const modelTooltip = formatModelDisplay(currentModel, {
+    includeProvider: true,
+    fallback: 'Select model for this pane',
+  })
 
   return (
-    <div
-      className={[
-        'flex flex-col h-full overflow-hidden',
-        isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
-      ].join(' ')}
-      onClick={!isActive ? onFocus : undefined}
-    >
-      {/* Header */}
-      <header
+    <>
+      <div
         className={[
-          'flex items-center justify-between border-b border-border py-3 pr-5 flex-shrink-0',
-          sidebarCollapsed && isOnlyPane ? 'pl-14' : 'px-5',
+          'flex flex-col h-full overflow-hidden',
+          isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
         ].join(' ')}
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        onClick={!isActive ? onFocus : undefined}
       >
-        <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
-          <span>Lucent Chat</span>
-        </div>
-
-        <div
-          className="flex items-center gap-1.5 text-xs text-text-tertiary"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+      {/* Header */}
+        <header
+          className={[
+            'flex items-center justify-between gap-3 border-b border-border py-3 pr-5 flex-shrink-0',
+            sidebarCollapsed && isOnlyPane ? 'pl-14' : 'px-5',
+          ].join(' ')}
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
-          <span className="capitalize">
-            {agentHealth === 'unknown' ? 'connecting' : agentHealth}
-          </span>
-          {onClose && (
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-text-primary">
+            <span className="flex-shrink-0">Lucent Chat</span>
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                onClose()
+                if (!isActive) onFocus()
+                setModelPickerOpen(true)
               }}
-              title="Close pane"
-              className="ml-1 flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              title={modelTooltip}
+              className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-full border border-border bg-bg-secondary/70 px-2.5 py-1 text-[11px] text-text-secondary transition-colors hover:border-border-active hover:text-text-primary"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              <Cpu className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate font-mono">{modelLabel}</span>
+              <ChevronDown className="h-3 w-3 flex-shrink-0 opacity-70" />
             </button>
-          )}
-        </div>
-      </header>
+          </div>
 
-      {/* Messages area */}
-      <main
-        ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
-        className="flex-1 overflow-y-auto px-4 py-4 min-h-0"
-      >
+          <div
+            className="flex items-center gap-1.5 text-xs text-text-tertiary"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <span className="capitalize">
+              {agentHealth === 'unknown' ? 'connecting' : agentHealth}
+            </span>
+            {onClose && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClose()
+                }}
+                title="Close pane"
+                className="ml-1 flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* Messages area */}
+        <main
+          ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
+          className="flex-1 overflow-y-auto px-4 py-4 min-h-0"
+        >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="text-2xl font-semibold text-text-primary">Lucent Chat</div>
@@ -269,17 +294,19 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
             <div ref={messagesEndRef} />
           </div>
         )}
-      </main>
+        </main>
 
-      {/* Input bar */}
-      <div className="flex-shrink-0 mx-auto w-full max-w-3xl">
-        <ChatInput
-          onSubmit={(t, img) => void handleSubmit(t, img)}
-          onAbort={handleAbort}
-          isGenerating={isGenerating}
-          disabled={inputDisabled}
-        />
+        {/* Input bar */}
+        <div className="flex-shrink-0 mx-auto w-full max-w-3xl">
+          <ChatInput
+            onSubmit={(t, img) => void handleSubmit(t, img)}
+            onAbort={handleAbort}
+            isGenerating={isGenerating}
+            disabled={inputDisabled}
+          />
+        </div>
       </div>
-    </div>
+      <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} paneId={paneId} />
+    </>
   )
 }

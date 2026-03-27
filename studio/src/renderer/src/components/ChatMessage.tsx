@@ -7,12 +7,15 @@
  * - Copy button per message and per code block
  * - Streaming cursor animation
  * - Tool call display with collapsible details
+ * - Thinking block (collapsible, collapsed when done)
  * - Error message styling
+ * - Chronological content blocks (thinking → tool → text order preserved)
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import type { ChatMessage as ChatMsg } from '../store/chat'
+import type { ChatMessage as ChatMsg, ContentBlock } from '../store/chat'
+import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
 import {
@@ -23,6 +26,7 @@ import {
   Loader2,
   Copy,
   AlertCircle,
+  Brain,
 } from 'lucide-react'
 
 // ============================================================================
@@ -157,10 +161,66 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
 }
 
 // ============================================================================
-// Tool call item
+// Thinking block — collapsible, collapsed by default when done
 // ============================================================================
 
-function ToolCallItem({ tc }: { tc: ChatMsg['toolCalls'][number] }) {
+type ThinkingBlockData = Extract<ContentBlock, { type: 'thinking' }>
+
+function ThinkingBlock({ block }: { block: ThinkingBlockData }) {
+  // Expanded while streaming, collapsed once done
+  const [expanded, setExpanded] = useState(block.isStreaming)
+
+  // Collapse when streaming ends
+  useEffect(() => {
+    if (!block.isStreaming) {
+      setExpanded(false)
+    }
+  }, [block.isStreaming])
+
+  return (
+    <div className="mb-2 rounded-md overflow-hidden border border-border/40">
+      <button
+        className={cn(
+          'flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-left transition-colors',
+          'bg-bg-tertiary/60 hover:bg-bg-tertiary',
+          'text-text-tertiary',
+        )}
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+      >
+        <Brain className="size-3 flex-shrink-0 text-accent/60" />
+        <span className="flex-1 font-mono">
+          {block.isStreaming ? 'Thinking...' : 'Thought'}
+        </span>
+        {block.isStreaming && (
+          <Loader2 className="size-3 animate-spin text-accent/60 flex-shrink-0" />
+        )}
+        {!block.isStreaming && (
+          expanded
+            ? <ChevronDown className="size-3 flex-shrink-0" />
+            : <ChevronRight className="size-3 flex-shrink-0" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border/30 px-3 py-2 bg-bg-primary/40 max-h-60 overflow-y-auto">
+          <pre className="whitespace-pre-wrap break-words text-[11px] leading-5 text-text-tertiary font-mono">
+            {block.text}
+            {block.isStreaming && <StreamingCursor />}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
+// Tool call item — now accepts a tool_use ContentBlock
+// ============================================================================
+
+type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
+
+function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
   const [expanded, setExpanded] = useState(false)
 
   const statusIcon = tc.done
@@ -498,6 +558,13 @@ export function ChatMessage({ message }: Props) {
   const isStreaming = message.isStreaming
   const [hovered, setHovered] = useState(false)
 
+  // Get the text content for copy (only text blocks, not thinking or tool output)
+  const copyText = getMessageText(message)
+
+  // For user and error messages, get plain text from the first text block
+  const firstTextBlock = message.contentBlocks.find((b) => b.type === 'text') as Extract<ContentBlock, { type: 'text' }> | undefined
+  const plainText = firstTextBlock?.text ?? ''
+
   return (
     <div
       className={cn('flex w-full mb-4', isUser ? 'justify-end' : 'justify-start')}
@@ -514,15 +581,15 @@ export function ChatMessage({ message }: Props) {
               : 'bg-bg-secondary border border-border text-text-primary rounded-bl-sm',
         )}
       >
-        {/* Copy message button — top-right, on hover */}
-        {!isError && message.text && (
+        {/* Copy message button — top-right, on hover (only when there's text to copy) */}
+        {!isError && copyText && (
           <div
             className={cn(
               'absolute top-2 right-2 transition-opacity',
               hovered ? 'opacity-100' : 'opacity-0',
             )}
           >
-            <CopyButton text={message.text} />
+            <CopyButton text={copyText} />
           </div>
         )}
 
@@ -531,7 +598,7 @@ export function ChatMessage({ message }: Props) {
           <div className="flex items-start gap-2">
             <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-400" />
             <p className="whitespace-pre-wrap break-words text-sm leading-7">
-              {message.text}
+              {plainText}
             </p>
           </div>
         )}
@@ -539,24 +606,32 @@ export function ChatMessage({ message }: Props) {
         {/* User messages: plain text */}
         {isUser && (
           <p className="whitespace-pre-wrap break-words text-sm leading-7 pr-6">
-            {message.text}
+            {plainText}
             {isStreaming && <StreamingCursor />}
           </p>
         )}
 
-        {/* Assistant messages: rich markdown (hide when empty — tool spinner suffices) */}
-        {!isUser && !isError && message.text && (
-          <div className="pr-6">
-            <MarkdownContent text={message.text} isStreaming={isStreaming} />
-          </div>
-        )}
-
-        {/* Tool calls */}
-        {message.toolCalls.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {message.toolCalls.map((tc, i) => (
-              <ToolCallItem key={i} tc={tc} />
-            ))}
+        {/* Assistant messages: ordered content blocks */}
+        {!isUser && !isError && (
+          <div className={cn(copyText ? 'pr-6' : '')}>
+            {message.contentBlocks.map((block) => {
+              switch (block.type) {
+                case 'thinking':
+                  return <ThinkingBlock key={block.id} block={block} />
+                case 'text':
+                  return block.text ? (
+                    <MarkdownContent key={block.id} text={block.text} isStreaming={block.isStreaming} />
+                  ) : null
+                case 'tool_use':
+                  return (
+                    <div key={block.id} className="mt-2 mb-1">
+                      <ToolCallItem tc={block} />
+                    </div>
+                  )
+                default:
+                  return null
+              }
+            })}
           </div>
         )}
       </div>

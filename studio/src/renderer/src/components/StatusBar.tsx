@@ -4,6 +4,8 @@
  * Shows: current model name | current session name | health dot + status
  */
 
+import { formatModelDisplay } from '../lib/models'
+
 interface HealthDotProps {
   health: string
 }
@@ -39,7 +41,7 @@ export function StatusBar({ model, sessionName, health, onOpenModelPicker }: Pro
         className="truncate max-w-[180px] text-left hover:text-text-primary transition-colors cursor-pointer disabled:cursor-default"
         disabled={!onOpenModelPicker}
       >
-        {model || 'No model'}
+        {formatModelDisplay(model, { includeProvider: true })}
       </button>
 
       {/* Center: session name */}

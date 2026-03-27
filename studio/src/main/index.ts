@@ -9,6 +9,7 @@ import { registerIpcHandlers, pushEvent } from './ipc-handlers.js'
 import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
 import { TerminalManager } from './terminal-manager.js'
+import { AuthService } from './auth-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -185,11 +186,25 @@ app.whenReady().then(async () => {
     pushEvent(mainWindow, 'event:terminal-data', { data })
   })
 
-  // 9. IPC handlers
+  // 9. Auth service + IPC handlers
+  const authService = new AuthService()
+
+  const restartAllAgents = async () => {
+    for (const paneId of paneManager!.getPaneIds()) {
+      const pane = paneManager!.getPane(paneId)
+      if (!pane) continue
+      await pane.processManager.killProcess('agent')
+      pane.processManager.spawnAgent()
+      pane.processManager.emit('agent-restarting')
+    }
+  }
+
   registerIpcHandlers(
     paneManager,
     settingsService,
     terminalManager,
+    authService,
+    restartAllAgents,
     () => mainWindow
   )
 

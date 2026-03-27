@@ -36,6 +36,7 @@ import {
 import { Input } from './ui/input'
 import { cn } from '../lib/utils'
 import { relativeTime } from '../lib/time'
+import { formatModelDisplay } from '../lib/models'
 
 // ============================================================================
 // Types
@@ -282,9 +283,7 @@ export function Sidebar({
           >
             <Cpu className="w-3 h-3 flex-shrink-0 text-text-tertiary group-hover:text-text-primary transition-colors" />
             <span className="text-[10px] text-text-tertiary group-hover:text-text-primary transition-colors truncate font-mono">
-              {currentModel
-                ? currentModel.split('/').slice(1).join('/') || currentModel
-                : 'No model'}
+              {formatModelDisplay(currentModel)}
             </span>
           </button>
 

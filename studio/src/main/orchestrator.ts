@@ -7,12 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync } from 'node:fs'
 import type { AgentBridge } from './agent-bridge.js'
-
-function debugLog(msg: string) {
-  try { appendFileSync('/tmp/vb-events.log', msg + '\n') } catch {}
-}
 
 // ============================================================================
 // Types
@@ -44,6 +39,11 @@ export interface OrchestratorCallbacks {
   onToolEnd: (data: { turn_id: string; tool: string; output: any; isError: boolean }) => void
   onTurnState: (data: { turn_id: string; state: TurnState }) => void
   onError: (data: { source: string; message: string }) => void
+  onThinkingStart: (data: { turn_id: string }) => void
+  onThinkingChunk: (data: { turn_id: string; text: string }) => void
+  onThinkingEnd: (data: { turn_id: string; text: string }) => void
+  onTextBlockStart: (data: { turn_id: string }) => void
+  onTextBlockEnd: (data: { turn_id: string }) => void
 }
 
 // ============================================================================
@@ -152,19 +152,49 @@ export class Orchestrator extends EventEmitter {
     const unsubscribe = this.agentBridge.onAgentEvent((event: any) => {
       if (turn.state === 'aborted') return
 
-      // Debug: log ALL events to file
-      if (event.type === 'message_update' && event.assistantMessageEvent) {
-        const ame = event.assistantMessageEvent
-        debugLog(`[msg_update] ${ame.type} ${JSON.stringify(ame).slice(0, 400)}`)
-      } else {
-        debugLog(`[event] ${event.type} ${JSON.stringify(event).slice(0, 400)}`)
-      }
-
       if (event.type === 'message_update') {
-        // Extract text delta from the assistantMessageEvent
+        // Extract events from the assistantMessageEvent
         const amEvent = event.assistantMessageEvent
         if (amEvent) {
-          // Handle content_block_delta with text_delta
+          // thinking_start
+          if (amEvent.type === 'thinking_start') {
+            this.callbacks.onThinkingStart({ turn_id: turn.turn_id })
+          }
+
+          // thinking_delta
+          if (
+            amEvent.type === 'thinking_delta' &&
+            typeof amEvent.delta === 'string'
+          ) {
+            this.callbacks.onThinkingChunk({ turn_id: turn.turn_id, text: amEvent.delta })
+          }
+          // Also handle delta object with thinking property
+          if (
+            amEvent.type === 'thinking_delta' &&
+            amEvent.delta &&
+            typeof amEvent.delta.thinking === 'string'
+          ) {
+            this.callbacks.onThinkingChunk({ turn_id: turn.turn_id, text: amEvent.delta.thinking })
+          }
+
+          // thinking_end
+          if (amEvent.type === 'thinking_end') {
+            const text = typeof amEvent.content === 'string' ? amEvent.content : ''
+            this.callbacks.onThinkingEnd({ turn_id: turn.turn_id, text })
+          }
+
+          // text_start
+          if (amEvent.type === 'text_start') {
+            this.callbacks.onTextBlockStart({ turn_id: turn.turn_id })
+          }
+
+          // text_delta — direct string delta (current Pi SDK format)
+          if (amEvent.type === 'text_delta' && typeof amEvent.delta === 'string') {
+            const chunk = amEvent.delta
+            fullText += chunk
+            this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
+          }
+          // text_delta via content_block_delta (legacy format fallback)
           if (
             amEvent.type === 'content_block_delta' &&
             amEvent.delta?.type === 'text_delta' &&
@@ -173,6 +203,11 @@ export class Orchestrator extends EventEmitter {
             const chunk = amEvent.delta.text
             fullText += chunk
             this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
+          }
+
+          // text_end
+          if (amEvent.type === 'text_end') {
+            this.callbacks.onTextBlockEnd({ turn_id: turn.turn_id })
           }
 
           // Native Anthropic web search — server_tool_use start

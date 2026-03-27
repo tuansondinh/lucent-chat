@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+// Provider auth status shape — mirrored from auth-service.ts
+interface ProviderAuthStatus {
+  id: string
+  label: string
+  configured: boolean
+  configuredVia: 'auth_file' | 'environment' | null
+  removeAllowed: boolean
+  recommended?: boolean
+}
+
 /**
  * Bridge API exposed to the renderer via contextBridge.
  * Commands are invoked via ipcRenderer.invoke (returns Promise).
@@ -96,6 +106,25 @@ const bridge = {
   /** Set the native window title bar text. */
   setWindowTitle: (title: string): Promise<void> =>
     ipcRenderer.invoke('cmd:set-window-title', title),
+
+  /** Validate an API key via HTTP and save it atomically. Returns ok, message, updated statuses. */
+  validateAndSaveProviderKey: (
+    providerId: string,
+    apiKey: string,
+  ): Promise<{ ok: boolean; message: string; providerStatuses: ProviderAuthStatus[] }> =>
+    ipcRenderer.invoke('cmd:validate-and-save-provider-key', providerId, apiKey),
+
+  /** Remove all API key credentials for a provider. Returns updated statuses. */
+  removeProviderKey: (providerId: string): Promise<ProviderAuthStatus[]> =>
+    ipcRenderer.invoke('cmd:remove-provider-key', providerId),
+
+  /** Get rich auth status for all providers. */
+  getProviderAuthStatus: (): Promise<ProviderAuthStatus[]> =>
+    ipcRenderer.invoke('cmd:get-provider-auth-status'),
+
+  /** Get the static provider catalog (id, label, keyPlaceholder, recommended). */
+  getProviderCatalog: (): Promise<Array<{ id: string; label: string; keyPlaceholder: string; recommended?: boolean }>> =>
+    ipcRenderer.invoke('cmd:get-provider-catalog'),
 
   // -------------------------------------------------------------------------
   // Terminal commands — not pane-specific

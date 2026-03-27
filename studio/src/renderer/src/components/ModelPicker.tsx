@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Check, Cpu, Search } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +19,7 @@ import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
 import { usePanesStore, getPaneStore } from '../store/pane-store'
 import { cn } from '../lib/utils'
+import { formatModelDisplay, formatProviderName, getModelRefFromState } from '../lib/models'
 
 // ============================================================================
 // Types
@@ -31,43 +33,17 @@ interface Model {
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
+  paneId?: string
 }
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-/** Capitalise the first letter of a provider name for display. */
-function formatProvider(provider: string): string {
-  if (!provider) return 'Unknown'
-  // Handle common casing: openai → OpenAI, anthropic → Anthropic, google → Google
-  const map: Record<string, string> = {
-    openai: 'OpenAI',
-    anthropic: 'Anthropic',
-    google: 'Google',
-    groq: 'Groq',
-    mistral: 'Mistral',
-    cohere: 'Cohere',
-    perplexity: 'Perplexity',
-    together: 'Together AI',
-    fireworks: 'Fireworks AI',
-    deepseek: 'DeepSeek',
-    ollama: 'Ollama',
-    lmstudio: 'LM Studio',
-    bedrock: 'Amazon Bedrock',
-    azure: 'Azure OpenAI',
-    vertex: 'Vertex AI',
-  }
-  return map[provider.toLowerCase()] ?? provider.charAt(0).toUpperCase() + provider.slice(1)
-}
-
-// ============================================================================
-// ModelPicker
-// ============================================================================
-
-export function ModelPicker({ open, onOpenChange }: Props) {
+export function ModelPicker({ open, onOpenChange, paneId }: Props) {
   const { activePaneId } = usePanesStore()
-  const { currentModel } = getPaneStore(activePaneId)()
+  const targetPaneId = paneId ?? activePaneId
+  const { currentModel } = getPaneStore(targetPaneId)()
   const bridge = window.bridge
 
   const [models, setModels] = useState<Model[]>([])
@@ -87,7 +63,7 @@ export function ModelPicker({ open, onOpenChange }: Props) {
     }
     setLoading(true)
     bridge
-      .getModels(activePaneId)
+      .getModels(targetPaneId)
       .then((list: Model[]) => setModels(list))
       .catch(() => setModels([]))
       .finally(() => setLoading(false))
@@ -95,7 +71,7 @@ export function ModelPicker({ open, onOpenChange }: Props) {
     // Auto-focus search after dialog animation settles
     const t = setTimeout(() => searchRef.current?.focus(), 80)
     return () => clearTimeout(t)
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, targetPaneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Filtering + grouping
@@ -127,11 +103,27 @@ export function ModelPicker({ open, onOpenChange }: Props) {
   // -------------------------------------------------------------------------
 
   const handleSelect = async (model: Model) => {
+    const requestedModel = `${model.provider}/${model.id}`
     try {
-      await bridge.switchModel(activePaneId, model.provider, model.id)
-      getPaneStore(activePaneId).getState().setModel(`${model.provider}/${model.id}`)
-    } catch {
-      // Silently ignore — agent may log the error
+      await bridge.switchModel(targetPaneId, model.provider, model.id)
+      const state = await bridge.getState(targetPaneId)
+      const actualModel = getModelRefFromState(state)
+      if (actualModel) {
+        getPaneStore(targetPaneId).getState().setModel(actualModel)
+      }
+      if (actualModel && actualModel !== requestedModel) {
+        toast.error(`Model switch did not apply. Active model is ${formatModelDisplay(actualModel, { includeProvider: true })}.`)
+        return
+      }
+      if (!actualModel) {
+        toast.error('Model switch completed, but the active model could not be confirmed.')
+        return
+      }
+      toast.success(`Switched to ${formatModelDisplay(actualModel, { includeProvider: true })}`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to switch model'
+      toast.error(message)
+      return
     }
     onOpenChange(false)
   }
@@ -187,7 +179,7 @@ export function ModelPicker({ open, onOpenChange }: Props) {
                 <div key={provider} className="mb-1">
                   {/* Provider header */}
                   <div className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-tertiary select-none">
-                    {formatProvider(provider)}
+                    {formatProviderName(provider)}
                   </div>
 
                   {/* Model rows */}

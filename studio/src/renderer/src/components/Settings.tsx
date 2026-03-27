@@ -20,6 +20,11 @@ import {
   Eye,
   EyeOff,
   Check,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Globe,
+  Lock,
 } from 'lucide-react'
 import {
   Dialog,
@@ -52,6 +57,15 @@ type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts'
 interface Model {
   provider: string
   id: string
+}
+
+interface ProviderStatus {
+  id: string
+  label: string
+  configured: boolean
+  configuredVia: 'auth_file' | 'environment' | null
+  removeAllowed: boolean
+  recommended?: boolean
 }
 
 interface TabItem {
@@ -97,6 +111,7 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
   const [loadingModels, setLoadingModels] = useState(false)
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
 
   // Debounce timer ref for font size saves
   const fontSizeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -127,11 +142,17 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
       })
       .catch(() => {})
 
+    if (typeof bridge.getProviderAuthStatus === 'function') {
+      bridge.getProviderAuthStatus()
+        .then((s) => setProviderStatuses(s as ProviderStatus[]))
+        .catch(() => {})
+    }
+
     // Fetch models for the Models tab
     setLoadingModels(true)
     bridge
-      .getModels()
-      .then((list: Model[]) => setModels(list))
+      .getModels('pane-0')
+      .then((list: Model[]) => setModels(list ?? []))
       .catch(() => setModels([]))
       .finally(() => setLoadingModels(false))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -218,6 +239,14 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
                 onToggleShow={() => setShowKey((v) => !v)}
                 onSave={handleSaveTavilyKey}
                 saved={keySaved}
+                providerStatuses={providerStatuses}
+                onRefreshProviders={() => {
+                  if (typeof bridge.getProviderAuthStatus === 'function') {
+                    bridge.getProviderAuthStatus()
+                      .then((s) => setProviderStatuses(s as ProviderStatus[]))
+                      .catch(() => {})
+                  }
+                }}
               />
             )}
             {activeTab === 'models' && (
@@ -287,6 +316,8 @@ interface ApiKeysTabProps {
   onToggleShow: () => void
   onSave: () => void
   saved: boolean
+  providerStatuses: ProviderStatus[]
+  onRefreshProviders: () => void
 }
 
 function ApiKeysTab({
@@ -296,9 +327,15 @@ function ApiKeysTab({
   onToggleShow,
   onSave,
   saved,
+  providerStatuses,
+  onRefreshProviders,
 }: ApiKeysTabProps) {
   return (
     <div className="p-6 space-y-6">
+      <ProvidersSection
+        providerStatuses={providerStatuses}
+        onRefresh={onRefreshProviders}
+      />
       <Section title="Web Search">
         <Field
           label="Tavily API key"
@@ -361,6 +398,231 @@ function ApiKeysTab({
         </Field>
       </Section>
     </div>
+  )
+}
+
+// ============================================================================
+// ProvidersSection
+// ============================================================================
+
+interface ProvidersSectionProps {
+  providerStatuses: ProviderStatus[]
+  onRefresh: () => void
+}
+
+function ProvidersSection({ providerStatuses, onRefresh }: ProvidersSectionProps) {
+  const bridge = window.bridge
+
+  const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
+  const [showKeyFor, setShowKeyFor] = useState<Record<string, boolean>>({})
+  const [savingProvider, setSavingProvider] = useState<string | null>(null)
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({})
+  const [removingProvider, setRemovingProvider] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
+
+  const handleSave = async (providerId: string) => {
+    const key = (keyInputs[providerId] ?? '').trim()
+    if (!key) return
+    setSavingProvider(providerId)
+    setSaveErrors((prev) => ({ ...prev, [providerId]: '' }))
+    try {
+      const result = await bridge.validateAndSaveProviderKey(providerId, key)
+      if (result.ok) {
+        onRefresh()
+        setExpandedProvider(null)
+        setKeyInputs((prev) => ({ ...prev, [providerId]: '' }))
+      } else {
+        setSaveErrors((prev) => ({ ...prev, [providerId]: result.message }))
+      }
+    } catch (err: unknown) {
+      setSaveErrors((prev) => ({
+        ...prev,
+        [providerId]: err instanceof Error ? err.message : 'Failed to save key',
+      }))
+    } finally {
+      setSavingProvider(null)
+    }
+  }
+
+  const handleRemove = async (providerId: string) => {
+    setRemovingProvider(providerId)
+    setConfirmRemove(null)
+    try {
+      await bridge.removeProviderKey(providerId)
+      onRefresh()
+    } finally {
+      setRemovingProvider(null)
+    }
+  }
+
+  if (providerStatuses.length === 0) return null
+
+  return (
+    <Section title="LLM Providers">
+      <div className="space-y-2">
+        {providerStatuses.map((status) => {
+          const isExpanded = expandedProvider === status.id
+          const isSaving = savingProvider === status.id
+          const isRemoving = removingProvider === status.id
+          const error = saveErrors[status.id] ?? ''
+
+          return (
+            <div
+              key={status.id}
+              className={[
+                'rounded-lg border transition-colors',
+                status.configured
+                  ? 'border-accent/40 bg-accent/5'
+                  : isExpanded
+                    ? 'border-border bg-bg-secondary'
+                    : 'border-border',
+              ].join(' ')}
+            >
+              {/* Row header */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExpandedProvider((prev) => {
+                      setSaveErrors((e) => ({ ...e, [status.id]: '' }))
+                      setConfirmRemove(null)
+                      return prev === status.id ? null : status.id
+                    })
+                  }}
+                  className="flex items-center gap-2 flex-1 text-left"
+                >
+                  <span className="text-sm font-medium text-text-primary">{status.label}</span>
+                  {status.recommended && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-accent bg-accent/15 px-1.5 py-0.5 rounded">
+                      Recommended
+                    </span>
+                  )}
+                </button>
+                <div className="flex items-center gap-2 ml-2">
+                  {status.configured && status.configuredVia === 'auth_file' && (
+                    <span className="flex items-center gap-1 text-xs text-green-400">
+                      <Check className="w-3 h-3" />
+                      Added
+                    </span>
+                  )}
+                  {status.configured && status.configuredVia === 'environment' && (
+                    <span className="flex items-center gap-1 text-xs text-blue-400">
+                      <Globe className="w-3 h-3" />
+                      via env
+                    </span>
+                  )}
+                  {!status.configured && (
+                    <span className="text-xs text-text-tertiary">Not configured</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExpandedProvider((prev) => {
+                        setSaveErrors((e) => ({ ...e, [status.id]: '' }))
+                        setConfirmRemove(null)
+                        return prev === status.id ? null : status.id
+                      })
+                    }}
+                    className="text-text-tertiary"
+                  >
+                    {isExpanded
+                      ? <ChevronUp className="w-3.5 h-3.5" />
+                      : <ChevronDown className="w-3.5 h-3.5" />
+                    }
+                  </button>
+                </div>
+              </div>
+
+              {/* Expanded form */}
+              {isExpanded && (
+                <div className="px-3 pb-3 space-y-2.5">
+                  {status.configuredVia === 'environment' ? (
+                    <div className="flex items-center gap-2 text-xs text-text-secondary bg-bg-tertiary rounded p-2.5">
+                      <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                      Configured via environment variable — managed outside the app.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="relative">
+                        <Input
+                          type={showKeyFor[status.id] ? 'text' : 'password'}
+                          value={keyInputs[status.id] ?? ''}
+                          onChange={(e) =>
+                            setKeyInputs((prev) => ({ ...prev, [status.id]: e.target.value }))
+                          }
+                          placeholder={status.configured ? 'Enter new key to replace...' : 'Paste your API key...'}
+                          className="h-8 text-sm pr-9 font-mono"
+                          disabled={isSaving}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void handleSave(status.id) }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShowKeyFor((prev) => ({ ...prev, [status.id]: !prev[status.id] }))
+                          }
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
+                          tabIndex={-1}
+                        >
+                          {showKeyFor[status.id]
+                            ? <EyeOff className="w-3.5 h-3.5" />
+                            : <Eye className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                      </div>
+                      {error && <p className="text-xs text-red-400">{error}</p>}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void handleSave(status.id)}
+                          disabled={isSaving || !(keyInputs[status.id] ?? '').trim()}
+                          className="h-7 text-xs gap-1.5"
+                        >
+                          {isSaving ? (
+                            <><Loader2 className="w-3 h-3 animate-spin" />Validating...</>
+                          ) : (
+                            status.configured ? 'Save New Key' : 'Validate & Save'
+                          )}
+                        </Button>
+                        {status.removeAllowed && (
+                          <>
+                            {confirmRemove === status.id ? (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-text-secondary">Remove key?</span>
+                                <button
+                                  onClick={() => void handleRemove(status.id)}
+                                  disabled={isRemoving}
+                                  className="text-red-400 hover:text-red-300 underline"
+                                >
+                                  {isRemoving ? 'Removing...' : 'Yes'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmRemove(null)}
+                                  className="text-text-tertiary hover:text-text-secondary underline"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmRemove(status.id)}
+                                className="text-xs text-red-400/70 hover:text-red-400 transition-colors"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </Section>
   )
 }
 

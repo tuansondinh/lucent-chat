@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
-import { Search, Plus, Cpu, PanelLeft, Settings, Square } from 'lucide-react'
+import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
 
 // ============================================================================
@@ -36,7 +36,10 @@ interface CommandPaletteProps {
   onSwitchModel: (provider: string, modelId: string) => void
   onStopGeneration: () => void
   onSettings: () => void
+  onSplitPane: () => void
+  onClosePane?: () => void
   isGenerating: boolean
+  canSplit: boolean
 }
 
 // ============================================================================
@@ -53,7 +56,10 @@ export function CommandPalette({
   onSwitchModel,
   onStopGeneration,
   onSettings,
+  onSplitPane,
+  onClosePane,
   isGenerating,
+  canSplit,
 }: CommandPaletteProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [models, setModels] = useState<Model[]>([])
@@ -198,6 +204,38 @@ export function CommandPalette({
                   </KbdGroup>
                 }
                 onSelect={onClose}
+              />
+            )}
+          </Command.Group>
+
+          {/* Pane group */}
+          <Command.Group
+            heading="Panes"
+            className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-text-tertiary"
+          >
+            <CommandItem
+              icon={<Columns2 className="h-4 w-4" />}
+              label="Split Pane"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>D</Kbd>
+                </KbdGroup>
+              }
+              disabled={!canSplit}
+              onSelect={() => { onSplitPane(); onClose() }}
+            />
+            {onClosePane && (
+              <CommandItem
+                icon={<X className="h-4 w-4" />}
+                label="Close Pane"
+                shortcut={
+                  <KbdGroup>
+                    <Kbd>⌘</Kbd>
+                    <Kbd>W</Kbd>
+                  </KbdGroup>
+                }
+                onSelect={() => { onClosePane(); onClose() }}
               />
             )}
           </Command.Group>

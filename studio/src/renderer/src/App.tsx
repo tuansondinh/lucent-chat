@@ -25,6 +25,7 @@ import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { Terminal } from './components/Terminal'
 import { FileViewer } from './components/FileViewer'
+import { formatModelDisplay, getModelRefFromState } from './lib/models'
 
 // ============================================================================
 // App
@@ -140,6 +141,16 @@ export default function App() {
   // Sidebar / session actions (scoped to active pane)
   // -------------------------------------------------------------------------
 
+  const syncPaneState = useCallback(async (paneId: string) => {
+    const state = await bridge.getState(paneId)
+    const paneStore = getPaneStore(paneId).getState()
+    const modelRef = getModelRefFromState(state)
+    if (modelRef) paneStore.setModel(modelRef)
+    if (typeof state.sessionFile === 'string') paneStore.setSessionPath(state.sessionFile)
+    if (typeof state.sessionName === 'string') paneStore.setSessionName(state.sessionName)
+    return { state, modelRef }
+  }, [bridge])
+
   const handleToggleSidebar = useCallback(() => {
     setSidebarCollapsed((c) => !c)
   }, [])
@@ -147,51 +158,48 @@ export default function App() {
   const handleNewSession = useCallback(async () => {
     const history = await bridge.getMessages(activePaneId).catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
     getPaneStore(activePaneId).getState().loadHistory(history)
-    bridge
-      .getState(activePaneId)
-      .then((state) => {
-        if (typeof state.sessionFile === 'string') getPaneStore(activePaneId).getState().setSessionPath(state.sessionFile)
-        if (typeof state.sessionName === 'string') getPaneStore(activePaneId).getState().setSessionName(state.sessionName)
-      })
-      .catch(() => {})
-  }, [bridge, activePaneId])
+    syncPaneState(activePaneId).catch(() => {})
+  }, [bridge, activePaneId, syncPaneState])
 
   const handleSwitchSession = useCallback(async (path: string) => {
     const history = await bridge.getMessages(activePaneId).catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
     getPaneStore(activePaneId).getState().loadHistory(history)
     getPaneStore(activePaneId).getState().setSessionPath(path)
-    bridge
-      .getState(activePaneId)
-      .then((state) => {
+    syncPaneState(activePaneId)
+      .then(({ state }) => {
         const name = typeof state.sessionName === 'string' ? state.sessionName : ''
-        getPaneStore(activePaneId).getState().setSessionName(name)
         if (name) toast.success(`Switched to ${name}`)
       })
       .catch(() => {})
-  }, [bridge, activePaneId])
+  }, [bridge, activePaneId, syncPaneState])
 
   const handleRefresh = useCallback(() => {
-    bridge
-      .getState(activePaneId)
-      .then((state) => {
-        if (typeof state.sessionFile === 'string') getPaneStore(activePaneId).getState().setSessionPath(state.sessionFile)
-        if (typeof state.sessionName === 'string') getPaneStore(activePaneId).getState().setSessionName(state.sessionName)
-      })
-      .catch(() => {})
-  }, [bridge, activePaneId])
+    syncPaneState(activePaneId).catch(() => {})
+  }, [activePaneId, syncPaneState])
 
   // -------------------------------------------------------------------------
   // Model actions (scoped to active pane)
   // -------------------------------------------------------------------------
 
   const handleSwitchModel = useCallback(async (provider: string, modelId: string) => {
+    const requestedModel = `${provider}/${modelId}`
     try {
       await bridge.switchModel(activePaneId, provider, modelId)
-      getPaneStore(activePaneId).getState().setModel(`${provider}/${modelId}`)
+      const { modelRef } = await syncPaneState(activePaneId)
+      if (modelRef && modelRef !== requestedModel) {
+        toast.error(`Model switch did not apply. Active model is ${formatModelDisplay(modelRef, { includeProvider: true })}.`)
+        return
+      }
+      if (!modelRef) {
+        toast.error('Model switch completed, but the active model could not be confirmed.')
+        return
+      }
+      toast.success(`Switched to ${formatModelDisplay(modelRef, { includeProvider: true })}`)
     } catch (err) {
       console.error('[model] switchModel failed:', err)
+      toast.error(err instanceof Error ? err.message : 'Failed to switch model')
     }
-  }, [bridge, activePaneId])
+  }, [bridge, activePaneId, syncPaneState])
 
   // -------------------------------------------------------------------------
   // Keyboard shortcuts
@@ -220,8 +228,8 @@ export default function App() {
         return
       }
 
-      // Cmd+\ — split pane
-      if (e.metaKey && e.key === '\\') {
+      // Cmd+D — split pane (layout-independent shortcut)
+      if (e.metaKey && e.key === 'd') {
         e.preventDefault()
         void handleSplitPane()
         return
@@ -237,6 +245,17 @@ export default function App() {
           return open
         })
         return
+      }
+
+      // Cmd+1-4 — focus pane by index (works even in inputs)
+      if (e.metaKey && ['1', '2', '3', '4'].includes(e.key)) {
+        const idx = parseInt(e.key, 10) - 1
+        const ids = usePanesStore.getState().paneIds
+        if (idx < ids.length) {
+          e.preventDefault()
+          setActivePane(ids[idx])
+          return
+        }
       }
 
       // Don't capture remaining shortcuts when focus is in an input/textarea
@@ -264,15 +283,6 @@ export default function App() {
         e.preventDefault()
         void handleClosePane(usePanesStore.getState().activePaneId)
         return
-      }
-      // Cmd+1-4 — focus pane by index
-      if (e.metaKey && ['1', '2', '3', '4'].includes(e.key)) {
-        const idx = parseInt(e.key, 10) - 1
-        const ids = usePanesStore.getState().paneIds
-        if (idx < ids.length) {
-          e.preventDefault()
-          setActivePane(ids[idx])
-        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -411,7 +421,10 @@ export default function App() {
         onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
         onStopGeneration={() => bridge.abort(activePaneId).catch(() => {})}
         onSettings={() => setSettingsOpen(true)}
+        onSplitPane={() => void handleSplitPane()}
+        onClosePane={paneIds.length > 1 ? () => void handleClosePane(activePaneId) : undefined}
         isGenerating={activePaneGenerating}
+        canSplit={paneIds.length < 4}
       />
 
       {/* Settings dialog — Cmd+, */}

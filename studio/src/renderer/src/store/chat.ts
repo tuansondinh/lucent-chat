@@ -19,6 +19,13 @@ export interface ViewedFile {
   tool: 'read' | 'write'
 }
 
+/** Ordered content block within an assistant message. */
+export type ContentBlock =
+  | { type: 'thinking'; id: string; text: string; isStreaming: boolean }
+  | { type: 'text'; id: string; text: string; isStreaming: boolean }
+  | { type: 'tool_use'; id: string; tool: string; input: unknown; output?: unknown; isError?: boolean; done: boolean }
+
+/** @deprecated Use ContentBlock instead. Kept for type compatibility in ToolCallItem. */
 export interface ToolCall {
   tool: string
   input: unknown
@@ -31,10 +38,17 @@ export interface ChatMessage {
   id: string
   turn_id: string
   role: MessageRole
-  text: string
+  contentBlocks: ContentBlock[]
   isStreaming: boolean
-  toolCalls: ToolCall[]
   createdAt: number
+}
+
+/** Helper: concatenate all text blocks from a message (for copy). */
+export function getMessageText(msg: ChatMessage): string {
+  return msg.contentBlocks
+    .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text)
+    .join('')
 }
 
 // ============================================================================
@@ -96,6 +110,14 @@ function extractFileInfo(
   return { path, content }
 }
 
+/** Per-turn counter for tool_execution blocks (which lack contentIndex). */
+const toolCounters: Record<string, number> = {}
+
+function nextToolId(turn_id: string): string {
+  toolCounters[turn_id] = (toolCounters[turn_id] ?? 0) + 1
+  return `${turn_id}-tool-${toolCounters[turn_id]}`
+}
+
 interface ChatState {
   messages: ChatMessage[]
   currentTurnId: string | null
@@ -114,6 +136,16 @@ interface ChatState {
   finalizeMessage: (turn_id: string, full_text: string) => void
   addToolCall: (turn_id: string, tool: string, input: unknown) => void
   finalizeToolCall: (turn_id: string, tool: string, output: unknown, isError: boolean) => void
+  /** Start a new thinking block for a turn. */
+  addThinking: (turn_id: string) => void
+  /** Append a delta to the current thinking block. */
+  appendThinkingChunk: (turn_id: string, text: string) => void
+  /** Finalize the current thinking block with full text. */
+  finalizeThinking: (turn_id: string, text: string) => void
+  /** Start a new streaming text block. */
+  startTextBlock: (turn_id: string) => void
+  /** Finalize the last streaming text block. */
+  finalizeTextBlock: (turn_id: string) => void
   setHealth: (states: Record<string, string>) => void
   setGenerating: (val: boolean) => void
   setModel: (model: string) => void
@@ -140,6 +172,26 @@ function mapHealth(state: string): AgentHealth {
   }
 }
 
+/** Ensure an assistant message exists for this turn, returning updated messages array. */
+function ensureAssistantMessage(
+  messages: ChatMessage[],
+  turn_id: string,
+): ChatMessage[] {
+  const exists = messages.some((m) => m.turn_id === turn_id && m.role === 'assistant')
+  if (exists) return messages
+  return [
+    ...messages,
+    {
+      id: turn_id + '-assistant',
+      turn_id,
+      role: 'assistant',
+      contentBlocks: [],
+      isStreaming: true,
+      createdAt: Date.now(),
+    },
+  ]
+}
+
 export const useChatStore = create<ChatState>((set) => ({
   messages: [],
   currentTurnId: null,
@@ -157,9 +209,8 @@ export const useChatStore = create<ChatState>((set) => ({
           id: turn_id + '-user',
           turn_id,
           role: 'user',
-          text,
+          contentBlocks: [{ type: 'text', id: `${turn_id}-user-text`, text, isStreaming: false }],
           isStreaming: false,
-          toolCalls: [],
           createdAt: Date.now(),
         },
       ],
@@ -181,9 +232,8 @@ export const useChatStore = create<ChatState>((set) => ({
             id: turn_id + '-assistant',
             turn_id,
             role: 'assistant',
-            text: '',
+            contentBlocks: [],
             isStreaming: true,
-            toolCalls: [],
             createdAt: Date.now(),
           },
         ],
@@ -192,40 +242,69 @@ export const useChatStore = create<ChatState>((set) => ({
 
   appendChunk: (turn_id, text) =>
     set((s) => {
-      const messages = s.messages.map((m) => {
-        if (m.turn_id === turn_id && m.role === 'assistant') {
-          return { ...m, text: m.text + text, isStreaming: true }
+      let messages = ensureAssistantMessage(s.messages, turn_id)
+      messages = messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const blocks = m.contentBlocks
+        const last = blocks[blocks.length - 1]
+        // Append to last text block if it's streaming, else create a new one
+        if (last && last.type === 'text' && last.isStreaming) {
+          return {
+            ...m,
+            isStreaming: true,
+            contentBlocks: [
+              ...blocks.slice(0, -1),
+              { ...last, text: last.text + text },
+            ],
+          }
         }
-        return m
-      })
-      // If no assistant message exists yet, create one
-      const hasAssistant = messages.some(
-        (m) => m.turn_id === turn_id && m.role === 'assistant'
-      )
-      if (!hasAssistant) {
-        messages.push({
-          id: turn_id + '-assistant',
-          turn_id,
-          role: 'assistant',
-          text,
+        // Create new text block
+        const newId = `${turn_id}-chunk-${Date.now()}`
+        return {
+          ...m,
           isStreaming: true,
-          toolCalls: [],
-          createdAt: Date.now(),
-        })
-      }
+          contentBlocks: [
+            ...blocks,
+            { type: 'text' as const, id: newId, text, isStreaming: true },
+          ],
+        }
+      })
       return { messages }
     }),
 
   finalizeMessage: (turn_id, full_text) =>
     set((s) => {
-      const messages = s.messages.map((m) => {
-        if (m.turn_id === turn_id && m.role === 'assistant') {
-          // If we got full_text but message is empty (no streaming chunks), use full_text
-          const finalText = m.text || full_text
-          return { ...m, text: finalText, isStreaming: false }
+      let messages = s.messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+
+        // Close all streaming blocks
+        let blocks = m.contentBlocks.map((b) => {
+          if (b.type === 'tool_use' && !b.done) {
+            return { ...b, done: true, isError: true, output: 'Aborted' }
+          }
+          if (b.type === 'thinking' || b.type === 'text') {
+            return { ...b, isStreaming: false }
+          }
+          return b
+        })
+
+        // If no text blocks at all and we have full_text, add one
+        const hasText = blocks.some((b) => b.type === 'text')
+        if (!hasText && full_text) {
+          blocks = [
+            ...blocks,
+            {
+              type: 'text' as const,
+              id: `${turn_id}-final`,
+              text: full_text,
+              isStreaming: false,
+            },
+          ]
         }
-        return m
+
+        return { ...m, contentBlocks: blocks, isStreaming: false }
       })
+
       // If no assistant message at all, add one (shouldn't happen but be safe)
       const hasAssistant = messages.some(
         (m) => m.turn_id === turn_id && m.role === 'assistant'
@@ -235,9 +314,10 @@ export const useChatStore = create<ChatState>((set) => ({
           id: turn_id + '-assistant',
           turn_id,
           role: 'assistant',
-          text: full_text,
+          contentBlocks: [
+            { type: 'text', id: `${turn_id}-final`, text: full_text, isStreaming: false },
+          ],
           isStreaming: false,
-          toolCalls: [],
           createdAt: Date.now(),
         })
       }
@@ -246,29 +326,18 @@ export const useChatStore = create<ChatState>((set) => ({
 
   addToolCall: (turn_id, tool, input) =>
     set((s) => {
-      const messages = s.messages.map((m) => {
-        if (m.turn_id === turn_id && m.role === 'assistant') {
-          return {
-            ...m,
-            toolCalls: [...m.toolCalls, { tool, input, done: false }],
-          }
+      let messages = ensureAssistantMessage(s.messages, turn_id)
+      messages = messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const id = nextToolId(turn_id)
+        return {
+          ...m,
+          contentBlocks: [
+            ...m.contentBlocks,
+            { type: 'tool_use' as const, id, tool, input, done: false },
+          ],
         }
-        return m
       })
-      // If no assistant message exists yet (agent's first action is a tool call),
-      // create one so the tool call is not silently dropped.
-      const hasAssistant = messages.some((m) => m.turn_id === turn_id && m.role === 'assistant')
-      if (!hasAssistant) {
-        messages.push({
-          id: turn_id + '-assistant',
-          turn_id,
-          role: 'assistant',
-          text: '',
-          isStreaming: true,
-          toolCalls: [{ tool, input, done: false }],
-          createdAt: Date.now(),
-        })
-      }
       return { messages }
     }),
 
@@ -278,9 +347,9 @@ export const useChatStore = create<ChatState>((set) => ({
       let toolInput: unknown = undefined
       for (const m of s.messages) {
         if (m.turn_id === turn_id && m.role === 'assistant') {
-          for (const tc of m.toolCalls) {
-            if (tc.tool === tool && !tc.done) {
-              toolInput = tc.input
+          for (const b of m.contentBlocks) {
+            if (b.type === 'tool_use' && b.tool === tool && !b.done) {
+              toolInput = b.input
               break
             }
           }
@@ -305,24 +374,125 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         viewedFile,
         messages: s.messages.map((m) => {
-          if (m.turn_id === turn_id && m.role === 'assistant') {
-            // Find the first unfinished call with this tool name (FIFO order).
-            // This correctly handles the case where the same tool is called
-            // multiple times in a single turn (e.g., two 'read' calls).
-            let matched = false
-            const toolCalls = m.toolCalls.map((tc) => {
-              if (tc.tool === tool && !tc.done && !matched) {
-                matched = true
-                return { ...tc, output, isError, done: true }
-              }
-              return tc
-            })
-            return { ...m, toolCalls }
-          }
-          return m
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          // Find the first undone tool_use block with matching tool name (FIFO)
+          let matched = false
+          const contentBlocks = m.contentBlocks.map((b) => {
+            if (b.type === 'tool_use' && b.tool === tool && !b.done && !matched) {
+              matched = true
+              return { ...b, output, isError, done: true }
+            }
+            return b
+          })
+          return { ...m, contentBlocks }
         }),
       }
     }),
+
+  addThinking: (turn_id) =>
+    set((s) => {
+      let messages = ensureAssistantMessage(s.messages, turn_id)
+      messages = messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const id = `${turn_id}-thinking-${m.contentBlocks.length}`
+        return {
+          ...m,
+          isStreaming: true,
+          contentBlocks: [
+            ...m.contentBlocks,
+            { type: 'thinking' as const, id, text: '', isStreaming: true },
+          ],
+        }
+      })
+      return { messages }
+    }),
+
+  appendThinkingChunk: (turn_id, text) =>
+    set((s) => ({
+      messages: s.messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const blocks = m.contentBlocks
+        // Find the last thinking block that is streaming
+        const idx = [...blocks].reverse().findIndex(
+          (b) => b.type === 'thinking' && b.isStreaming
+        )
+        if (idx === -1) return m
+        const realIdx = blocks.length - 1 - idx
+        const block = blocks[realIdx] as Extract<ContentBlock, { type: 'thinking' }>
+        return {
+          ...m,
+          contentBlocks: [
+            ...blocks.slice(0, realIdx),
+            { ...block, text: block.text + text },
+            ...blocks.slice(realIdx + 1),
+          ],
+        }
+      }),
+    })),
+
+  finalizeThinking: (turn_id, text) =>
+    set((s) => ({
+      messages: s.messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const blocks = m.contentBlocks
+        // Find the last streaming thinking block
+        const idx = [...blocks].reverse().findIndex(
+          (b) => b.type === 'thinking' && b.isStreaming
+        )
+        if (idx === -1) return m
+        const realIdx = blocks.length - 1 - idx
+        const block = blocks[realIdx] as Extract<ContentBlock, { type: 'thinking' }>
+        return {
+          ...m,
+          contentBlocks: [
+            ...blocks.slice(0, realIdx),
+            { ...block, text: text || block.text, isStreaming: false },
+            ...blocks.slice(realIdx + 1),
+          ],
+        }
+      }),
+    })),
+
+  startTextBlock: (turn_id) =>
+    set((s) => {
+      let messages = ensureAssistantMessage(s.messages, turn_id)
+      messages = messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const id = `${turn_id}-text-${m.contentBlocks.length}`
+        return {
+          ...m,
+          isStreaming: true,
+          contentBlocks: [
+            ...m.contentBlocks,
+            { type: 'text' as const, id, text: '', isStreaming: true },
+          ],
+        }
+      })
+      return { messages }
+    }),
+
+  finalizeTextBlock: (turn_id) =>
+    set((s) => ({
+      messages: s.messages.map((m) => {
+        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+        const blocks = m.contentBlocks
+        // Find the last streaming text block
+        const idx = [...blocks].reverse().findIndex(
+          (b) => b.type === 'text' && b.isStreaming
+        )
+        if (idx === -1) return m
+        const realIdx = blocks.length - 1 - idx
+        const block = blocks[realIdx] as Extract<ContentBlock, { type: 'text' }>
+        return {
+          ...m,
+          contentBlocks: [
+            ...blocks.slice(0, realIdx),
+            { ...block, isStreaming: false },
+            ...blocks.slice(realIdx + 1),
+          ],
+        }
+      }),
+    })),
 
   setHealth: (states) =>
     set({ agentHealth: mapHealth(states.agent ?? 'unknown') }),
@@ -341,9 +511,10 @@ export const useChatStore = create<ChatState>((set) => ({
           id: `err-${Date.now()}`,
           turn_id: '',
           role: 'error',
-          text: message,
+          contentBlocks: [
+            { type: 'text', id: `err-text-${Date.now()}`, text: message, isStreaming: false },
+          ],
           isStreaming: false,
-          toolCalls: [],
           createdAt: Date.now(),
         },
       ],
@@ -359,9 +530,10 @@ export const useChatStore = create<ChatState>((set) => ({
         id: `history-${i}-${m.timestamp}`,
         turn_id: `history-${i}`,
         role: m.role,
-        text: m.text,
+        contentBlocks: [
+          { type: 'text' as const, id: `history-${i}-text`, text: m.text, isStreaming: false },
+        ],
         isStreaming: false,
-        toolCalls: [],
         createdAt: m.timestamp,
       })),
       currentTurnId: null,
