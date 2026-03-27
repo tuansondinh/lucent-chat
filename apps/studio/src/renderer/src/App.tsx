@@ -33,7 +33,6 @@ import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { Terminal } from './components/Terminal'
 import { FileViewer } from './components/FileViewer'
-import { StatusBar } from './components/StatusBar'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 
 const MIN_FILE_VIEWER_WIDTH = 360
@@ -96,8 +95,8 @@ function renderLayoutNode(
   const isHorizontal = node.orientation === 'horizontal'
   const minSize = isHorizontal ? 15 : 25
   const handleClass = isHorizontal
-    ? 'w-px bg-accent/40 hover:bg-accent transition-colors cursor-col-resize'
-    : 'h-px bg-accent/40 hover:bg-accent transition-colors cursor-row-resize'
+    ? 'w-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-col-resize'
+    : 'h-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-row-resize'
   return (
     <PanelGroup key={node.id} orientation={node.orientation} className="flex-1 min-h-0 min-w-0">
       <Panel key={`${node.id}-0`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
@@ -152,7 +151,7 @@ export default function App() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [fileViewerOpen, setFileViewerOpen] = useState(false)
   const [fileViewerWidth, setFileViewerWidth] = useState(440)
-  const [sidebarView, setSidebarView] = useState<SidebarView>('sessions')
+  const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
@@ -358,16 +357,32 @@ export default function App() {
     syncPaneState(activePaneId).catch(() => {})
   }, [activePaneId, syncPaneState])
 
-  const openFileViewer = useCallback(() => {
+  const openFileViewer = useCallback(async () => {
     const sidebarWidth = sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : EXPANDED_SIDEBAR_WIDTH
-    const maxViewerWidth = getMaxFileViewerWidth(window.innerWidth, paneCount, sidebarCollapsed)
+    let viewportWidth = window.innerWidth
+
+    const maxViewerWidth = getMaxFileViewerWidth(viewportWidth, paneCount, sidebarCollapsed)
     if (maxViewerWidth < MIN_FILE_VIEWER_WIDTH) {
-      toast.error('Not enough space to open the file viewer with the current pane layout.')
-      return
+      // Expand the native window to fit: sidebar + panes + file viewer (full desired width)
+      const needed = sidebarWidth + paneCount * MIN_CHAT_AREA_WIDTH + MIN_FILE_VIEWER_WIDTH + MIN_CHAT_AREA_WIDTH
+      await window.bridge.setWindowWidth(needed)
+      // Wait for the renderer's innerWidth to reflect the OS resize before computing widths
+      viewportWidth = await new Promise<number>((resolve) => {
+        const onResize = () => {
+          window.removeEventListener('resize', onResize)
+          resolve(window.innerWidth)
+        }
+        window.addEventListener('resize', onResize)
+        // Fallback: if no resize fires within 400ms, use our computed target
+        setTimeout(() => {
+          window.removeEventListener('resize', onResize)
+          resolve(Math.max(window.innerWidth, needed))
+        }, 400)
+      })
     }
 
-    const desiredWidth = Math.round((window.innerWidth - sidebarWidth) / 2)
-    setFileViewerWidth(clampFileViewerWidth(window.innerWidth, desiredWidth, paneCount, sidebarCollapsed))
+    const desiredWidth = Math.round((viewportWidth - sidebarWidth) / 2)
+    setFileViewerWidth(clampFileViewerWidth(viewportWidth, desiredWidth, paneCount, sidebarCollapsed))
     setFileViewerOpen(true)
   }, [paneCount, sidebarCollapsed])
 
@@ -731,7 +746,7 @@ export default function App() {
   // -------------------------------------------------------------------------
 
   return (
-    <div className="flex h-screen flex-col bg-bg-primary text-text-primary select-none overflow-hidden">
+    <div className="flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
       {/* Fixed top bar — spans full width */}
       <header
         className="flex h-9 flex-shrink-0 items-center border-b border-border bg-bg-secondary"
@@ -803,20 +818,13 @@ export default function App() {
         {/* Terminal panel — toggled with Cmd+T */}
         {terminalOpen && (
           <>
-            <PanelResizeHandle className="h-px bg-accent/40 hover:bg-accent transition-colors cursor-row-resize" />
+            <PanelResizeHandle className="h-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-row-resize" />
             <Panel defaultSize={30} minSize={10} className="flex flex-col min-h-0">
               <Terminal />
             </Panel>
           </>
         )}
       </PanelGroup>
-
-      {/* Global status bar */}
-      <StatusBar
-        model={activePaneModel}
-        sessionName={activePaneSessionName}
-        health={activePaneHealth}
-      />
 
       {/* Model picker dialog */}
       <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />

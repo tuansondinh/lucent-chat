@@ -22,6 +22,11 @@ import { TailscaleService } from './tailscale-service.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
+// Suppress EPIPE errors on stdout/stderr — these happen when the parent terminal
+// closes its end of the pipe (e.g. during app shutdown) while console.log is in-flight.
+process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err })
+process.stderr.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err })
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let processManager: ProcessManager | null = null

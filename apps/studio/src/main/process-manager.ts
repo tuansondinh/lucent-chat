@@ -199,6 +199,13 @@ export class ProcessManager extends EventEmitter {
     if (!managed?.proc) return
 
     managed.intentionalKill = true
+
+    // Cancel any pending restart timer so it cannot fire after we kill the process
+    if (managed.restartTimer) {
+      clearTimeout(managed.restartTimer)
+      managed.restartTimer = null
+    }
+
     const proc = managed.proc
 
     return new Promise<void>((resolve) => {
@@ -248,6 +255,8 @@ export class ProcessManager extends EventEmitter {
 
     managed.restartTimer = setTimeout(() => {
       managed.restartTimer = null
+      // Guard: if the process was intentionally killed while we were waiting, abort
+      if (managed.intentionalKill) return
       // Double the backoff for next time, capped at max
       managed.backoffMs = Math.min(managed.backoffMs * 2, BACKOFF_MAX_MS)
       if (name === 'agent') {

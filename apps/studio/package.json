@@ -6,7 +6,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "build": "electron-vite build && cp -r src/resources dist/",
     "preview": "electron-vite preview",
     "test:main": "node --import tsx/esm --test test/**/*.test.{ts,mjs}",
     "test:renderer": "vitest --run",

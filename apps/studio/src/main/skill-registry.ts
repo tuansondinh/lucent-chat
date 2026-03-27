@@ -10,6 +10,7 @@
  */
 
 import { readFile, readdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -153,9 +154,12 @@ export class SkillRegistry {
   }
 
   private resolveDir(): string {
-    // In dev: __dirname = apps/studio/src/main → src/resources/skills
-    // In prod: __dirname = dist/main → relative path
-    return join(__dirname, '..', 'resources', 'skills')
+    // After build: dist/main → dist/resources/skills (copied by postbuild)
+    const distPath = join(__dirname, '..', 'resources', 'skills')
+    if (existsSync(distPath)) return distPath
+    // Dev fallback: dist/main → ../../src/resources/skills
+    const srcPath = join(__dirname, '..', '..', 'src', 'resources', 'skills')
+    return srcPath
   }
 
   /**
@@ -164,39 +168,56 @@ export class SkillRegistry {
    * Must be called at startup before using the registry.
    */
   async load(): Promise<void> {
-    let files: string[]
+    let entries: string[]
     try {
-      const entries = await readdir(this.skillsDir)
-      files = entries.filter((f) => f.endsWith('.md'))
+      entries = await readdir(this.skillsDir)
     } catch (err) {
       // If directory doesn't exist (e.g., test path), treat as empty
       const nodeErr = err as NodeJS.ErrnoException
       if (nodeErr.code === 'ENOENT') {
-        files = []
+        entries = []
       } else {
         throw err
       }
     }
 
+    // Collect skill files: flat .md files + subdirectory SKILL.md files
+    const skillFiles: Array<{ filePath: string; baseName: string }> = []
+    for (const entry of entries) {
+      const entryPath = join(this.skillsDir, entry)
+      if (entry.endsWith('.md')) {
+        skillFiles.push({ filePath: entryPath, baseName: entry.replace('.md', '') })
+      } else {
+        // Check for subdirectory with SKILL.md
+        const skillMdPath = join(entryPath, 'SKILL.md')
+        if (existsSync(skillMdPath)) {
+          skillFiles.push({ filePath: skillMdPath, baseName: entry })
+        }
+      }
+    }
+
     const loaded: SkillDefinition[] = []
 
-    for (const file of files) {
-      const content = await readFile(join(this.skillsDir, file), 'utf8')
-      const { frontmatter, steps } = parseFrontmatter(content)
+    for (const { filePath, baseName } of skillFiles) {
+      const content = await readFile(filePath, 'utf8')
+      const { frontmatter, steps, body } = parseFrontmatter(content)
 
-      const name = frontmatter.name ?? file.replace('.md', '')
+      const name = frontmatter.name ?? baseName
       const description = frontmatter.description ?? ''
-      const trigger = frontmatter.trigger ?? file.replace('.md', '')
+      const trigger = frontmatter.trigger ?? baseName
+
+      // If no steps defined in frontmatter, use the body as a single-step prompt
+      const resolvedSteps = steps.length > 0 ? steps : body ? [{ prompt: body }] : []
 
       // Validate agentType references
-      for (const step of steps) {
+      for (const step of resolvedSteps) {
         if (step.agentType && !VALID_AGENT_TYPES.has(step.agentType)) {
           // Not a hard error — log a warning but accept it
           console.warn(`[SkillRegistry] Unknown agentType "${step.agentType}" in skill "${trigger}"`)
         }
       }
 
-      loaded.push({ name, description, trigger, steps })
+      loaded.push({ name, description, trigger, steps: resolvedSteps })
     }
 
     // Validate no duplicate triggers

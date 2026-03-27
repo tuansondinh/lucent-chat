@@ -360,8 +360,24 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
                 </div>
               </div>
             ))
-          : /* Loading state — render nothing while Shiki initializes */
-            null
+          : /* Loading state — render plain text while Shiki initializes */
+            lines.map((lineText, i) => (
+              <div
+                key={i}
+                ref={getLineRef(i)}
+                className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+              >
+                <div
+                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                  style={{ lineHeight: '1.6' }}
+                >
+                  {i + 1}
+                </div>
+                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#e6edf3]">
+                  {lineText || '\u00a0'}
+                </div>
+              </div>
+            ))
       }
     </div>
   )

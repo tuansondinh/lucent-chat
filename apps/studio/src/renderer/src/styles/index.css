@@ -41,12 +41,12 @@
 }
 
 @theme {
-  --color-bg-primary: #1a1a1a;
-  --color-bg-secondary: #212121;
-  --color-bg-tertiary: #2a2a2a;
-  --color-bg-hover: #313131;
-  --color-border: #333333;
-  --color-border-active: #444444;
+  --color-bg-primary: #1e2028;
+  --color-bg-secondary: #252830;
+  --color-bg-tertiary: #2c2f3a;
+  --color-bg-hover: #333742;
+  --color-border: #353a47;
+  --color-border-active: #454b5c;
   --color-text-primary: #e8e8e8;
   --color-text-secondary: #a8a8a8;
   --color-text-tertiary: #686868;

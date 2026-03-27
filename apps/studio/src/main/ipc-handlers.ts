@@ -236,6 +236,16 @@ export function registerIpcHandlers(
     }
   })
 
+  ipcMain.handle('cmd:set-window-width', (_event, minWidth: number) => {
+    const win = getMainWindow()
+    if (win && !win.isDestroyed()) {
+      const [currentWidth, currentHeight] = win.getSize()
+      if (currentWidth < minWidth) {
+        win.setSize(minWidth, currentHeight, true)
+      }
+    }
+  })
+
   ipcMain.handle('cmd:open-external', async (_event, url: string) => {
     const { shell } = await import('electron')
     await openExternalHttpUrl(shell.openExternal, url)

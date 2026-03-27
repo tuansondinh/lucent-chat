@@ -50,7 +50,7 @@
     "copy-resources": "node scripts/copy-resources.cjs",
     "copy-themes": "node scripts/copy-themes.cjs",
     "copy-export-html": "node scripts/copy-export-html.cjs",
-    "test:unit": "node --experimental-strip-types --test src/tests/*.test.ts",
+    "test:unit": "node --import ./src/tests/resolve-ts.mjs --experimental-strip-types --test src/tests/*.test.ts",
     "test:integration": "node --experimental-strip-types --test src/tests/integration/*.test.ts",
     "test": "npm run test:unit && npm run test:integration",
     "test:smoke": "node --experimental-strip-types tests/smoke/run.ts",

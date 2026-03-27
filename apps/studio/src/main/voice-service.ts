@@ -118,11 +118,8 @@ export class VoiceService extends EventEmitter {
     if (this.startPromise) {
       return this.startPromise
     }
-    if (this.state === 'unavailable') {
-      throw new Error('Voice sidecar unavailable — run probe() first')
-    }
-    if (!this.pythonCmd || !this.audioServicePath) {
-      // Try probe first
+    if (this.state === 'unavailable' || !this.pythonCmd || !this.audioServicePath) {
+      // Re-probe in case the environment changed since the last check
       const probe = await this.probe()
       if (!probe.available) throw new Error(probe.reason ?? 'Voice unavailable')
     }

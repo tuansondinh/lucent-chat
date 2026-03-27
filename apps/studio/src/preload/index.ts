@@ -146,6 +146,10 @@ const bridge = {
   setWindowTitle: (title: string): Promise<void> =>
     ipcRenderer.invoke('cmd:set-window-title', title),
 
+  /** Expand the native window width to at least minWidth (px). Animates if narrower. */
+  setWindowWidth: (minWidth: number): Promise<void> =>
+    ipcRenderer.invoke('cmd:set-window-width', minWidth),
+
   /** Validate an API key via HTTP and save it atomically. Returns ok, message, updated statuses. */
   validateAndSaveProviderKey: (
     providerId: string,

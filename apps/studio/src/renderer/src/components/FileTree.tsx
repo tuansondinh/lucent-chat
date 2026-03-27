@@ -11,8 +11,10 @@ import {
   useRef,
   useCallback,
   useState,
+  memo,
   type MouseEvent,
 } from 'react'
+import { useShallow } from 'zustand/shallow'
 import {
   ChevronRight,
   ChevronDown,
@@ -117,7 +119,7 @@ interface FileTreeNodeProps {
   onContextMenu: (e: MouseEvent, relativePath: string, isDir: boolean) => void
 }
 
-function FileTreeNode({
+const FileTreeNode = memo(function FileTreeNode({
   paneId,
   parentPath,
   depth,
@@ -127,10 +129,15 @@ function FileTreeNode({
   const treeStore = getFileTreeStore(paneId)
   const paneStore = getPaneStore(paneId)
 
-  const { dirContents, expandedDirs, changedFilesMap, loading, toggleDir } = treeStore()
-  const { activeFilePath, projectRoot } = paneStore()
-
-  const entries = dirContents.get(parentPath)
+  // Selective subscriptions — only re-render when data for this subtree changes
+  const entries = treeStore((s) => s.dirContents.get(parentPath))
+  const expandedDirs = treeStore((s) => s.expandedDirs)
+  const changedFilesMap = treeStore((s) => s.changedFilesMap)
+  const loading = treeStore((s) => s.loading)
+  const toggleDir = treeStore((s) => s.toggleDir)
+  const { activeFilePath, projectRoot } = paneStore(
+    useShallow((s) => ({ activeFilePath: s.activeFilePath, projectRoot: s.projectRoot })),
+  )
 
   if (!entries) return null
 
@@ -244,7 +251,7 @@ function FileTreeNode({
       })}
     </>
   )
-}
+})
 
 // ============================================================================
 // FileTree
@@ -254,8 +261,7 @@ export function FileTree({ paneId, onFileOpen, onClose, embedded = false }: File
   const treeStore = getFileTreeStore(paneId)
   const paneStore = getPaneStore(paneId)
 
-  const { loading } = treeStore()
-  const rootLoading = loading.has('')
+  const rootLoading = treeStore((s) => s.loading.has(''))
   const hasRootEntries = treeStore((s) => s.dirContents.has(''))
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)

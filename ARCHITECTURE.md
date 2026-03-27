@@ -63,7 +63,12 @@ voice-bridge-desktop/
 │   ├── pi-migration.ts         # Migration from earlier tool versions
 │   ├── mcp-server.ts           # MCP server mode
 │   ├── models-resolver.ts      # Model ID resolution
-│   └── resources/              # Bundled skills, extensions, assets
+│   └── resources/              # Bundled skills, extensions, assets (source of truth)
+│       ├── skills/             # Skills available via /command autocomplete
+│       │   └── <name>/SKILL.md
+│       ├── agents/             # Subagent definitions (name + system prompt)
+│       │   └── <name>.md
+│       └── extensions/         # Runtime tool extensions
 │
 ├── packages/
 │   ├── pi-coding-agent/        # @gsd/pi-coding-agent — agent glue layer
@@ -76,7 +81,10 @@ voice-bridge-desktop/
 │   └── studio/                 # @gsd/studio — Electron desktop app
 │
 ├── pkg/                        # piConfig shim (name, configDir identity)
-├── dist/                       # Compiled CLI output (gitignored ideally)
+├── dist/                       # Compiled CLI output — also mirrors src/resources/ after build
+│   └── resources/              # Built copy of src/resources/ (what the running app reads)
+│       ├── skills/             # Must be kept in sync with src/resources/skills/
+│       └── agents/             # Must be kept in sync with src/resources/agents/
 ├── tsconfig.json               # Root TS config (src/ → dist/)
 └── package.json                # Root workspace + gsd/gsd-cli bin
 ```

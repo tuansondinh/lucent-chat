@@ -343,7 +343,8 @@ export function Settings({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-5xl w-full p-0 gap-0 overflow-hidden"
+        className="p-0 gap-0 overflow-hidden"
+        style={{ width: '900px', maxWidth: 'calc(100vw - 2rem)' }}
         showCloseButton={true}
         aria-describedby={undefined}
       >

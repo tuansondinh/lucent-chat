@@ -155,15 +155,47 @@ function createFileTreeStore(paneId: string): FileTreeStore {
 
     refreshVisibleDirs: async () => {
       const expandedDirs = Array.from(get().expandedDirs)
-      const targets = ['']
+      const targets = ['', ...expandedDirs.filter((p) => p !== '')]
 
-      for (const relativePath of expandedDirs) {
-        if (relativePath !== '') targets.push(relativePath)
-      }
+      // Mark all targets as loading in one update to avoid cascading renders
+      set((s) => {
+        const nextLoading = new Set(s.loading)
+        for (const p of targets) nextLoading.add(p)
+        return { loading: nextLoading }
+      })
 
-      await Promise.allSettled(
-        targets.map((relativePath) => get().refreshDir(relativePath)),
+      // Fetch all in parallel
+      const results = await Promise.allSettled(
+        targets.map((relativePath) =>
+          getBridge().fsListDir(paneId, relativePath).then((r) => ({
+            relativePath,
+            entries: r.entries as DirEntry[],
+          })),
+        ),
       )
+
+      // Apply all results in a single state update
+      set((s) => {
+        const nextDirContents = new Map(s.dirContents)
+        const nextExpanded = new Set(s.expandedDirs)
+        const nextLoading = new Set(s.loading)
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            nextDirContents.set(result.value.relativePath, result.value.entries)
+          } else {
+            // On error, remove stale content for non-root dirs
+            const p = targets[results.indexOf(result)]
+            if (p && p !== '') {
+              nextDirContents.delete(p)
+              nextExpanded.delete(p)
+            }
+          }
+        }
+        for (const p of targets) nextLoading.delete(p)
+
+        return { dirContents: nextDirContents, expandedDirs: nextExpanded, loading: nextLoading }
+      })
     },
 
     refreshModifiedFiles: async () => {
