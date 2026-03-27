@@ -176,13 +176,13 @@ app.whenReady().then(async () => {
     '9hAAAAFElEQVQ4T2NkYGD4z8BQDwAEgAF/AAAyxgF/AAAAAElFTkSuQmCC'
   const trayIcon = nativeImage.createFromDataURL(iconDataUrl)
   tray = new Tray(trayIcon)
-  tray.setToolTip('GSD Studio')
+  tray.setToolTip('Voice Bridge')
 
   const updateTray = () => {
     const states = processManager!.getStates()
     const agentState = states.agent ?? 'stopped'
     tray!.setContextMenu(buildTrayMenu(agentState))
-    tray!.setToolTip(`GSD Studio — agent: ${agentState}`)
+    tray!.setToolTip(`Voice Bridge — agent: ${agentState}`)
   }
 
   updateTray()

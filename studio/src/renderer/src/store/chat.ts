@@ -53,6 +53,8 @@ interface ChatState {
   setModel: (model: string) => void
   addErrorMessage: (message: string) => void
   clearMessages: () => void
+  /** Clears existing messages and loads historical ones from a switched session. */
+  loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
 }
 
 function mapHealth(state: string): AgentHealth {
@@ -230,4 +232,19 @@ export const useChatStore = create<ChatState>((set) => ({
 
   clearMessages: () =>
     set({ messages: [], currentTurnId: null, isGenerating: false }),
+
+  loadHistory: (history) =>
+    set({
+      messages: history.map((m, i) => ({
+        id: `history-${i}-${m.timestamp}`,
+        turn_id: `history-${i}`,
+        role: m.role,
+        text: m.text,
+        isStreaming: false,
+        toolCalls: [],
+        createdAt: m.timestamp,
+      })),
+      currentTurnId: null,
+      isGenerating: false,
+    }),
 }))
