@@ -13,13 +13,15 @@
     "test:all": "npm run test:main && npm run test:renderer",
     "test:coverage": "vitest --coverage",
     "test:smoke": "node --import tsx/esm --test test/**/*.smoke.test.ts",
-    "pack": "electron-builder --dir",
-    "dist": "npm run build && electron-builder -wml",
-    "dist:mac": "npm run build && electron-builder -m",
-    "dist:mac:arm64": "npm run build && electron-builder -m --arm64",
-    "dist:mac:x64": "npm run build && electron-builder -m --x64",
-    "dist:mac:universal": "npm run build && electron-builder -m --universal",
-    "release": "npm run build && electron-builder -m --publish never"
+    "prebundle-runtime": "npm run build -w @lc/runtime",
+    "bundle-runtime": "npm run bundle -w @lc/runtime",
+    "pack": "npm run bundle-runtime && electron-builder --dir",
+    "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
+    "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
+    "dist:mac:arm64": "npm run build && npm run bundle-runtime && electron-builder -m --arm64",
+    "dist:mac:x64": "npm run build && npm run bundle-runtime && electron-builder -m --x64",
+    "dist:mac:universal": "npm run build && npm run bundle-runtime && electron-builder -m --universal",
+    "release": "npm run build && npm run bundle-runtime && electron-builder -m --publish never"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -84,63 +86,8 @@
     ],
     "extraResources": [
       {
-        "from": "../../dist",
-        "to": "runtime/dist"
-      },
-      {
-        "from": "../../packages",
-        "to": "runtime/packages"
-      },
-      {
-        "from": "../../pkg",
-        "to": "runtime/pkg"
-      },
-      {
-        "from": "../../package.json",
-        "to": "runtime/package.json"
-      },
-      {
-        "from": "../../node_modules",
-        "to": "runtime/node_modules",
-        "filter": [
-          "!@lc",
-          "!.bin",
-          "!@electron",
-          "!app-builder-bin",
-          "!app-builder-lib",
-          "!builder-util",
-          "!builder-util-runtime",
-          "!dmg-builder",
-          "!electron",
-          "!electron-builder",
-          "!electron-osx-sign",
-          "!electron-publish",
-          "!electron-rebuild",
-          "!electron-vite",
-          "!vite",
-          "!typescript",
-          "!@types"
-        ]
-      },
-      {
-        "from": "../../packages/native",
-        "to": "runtime/node_modules/@lc/native"
-      },
-      {
-        "from": "../../packages/agent-core",
-        "to": "runtime/node_modules/@lc/agent-core"
-      },
-      {
-        "from": "../../packages/ai",
-        "to": "runtime/node_modules/@lc/ai"
-      },
-      {
-        "from": "../../packages/runtime",
-        "to": "runtime/node_modules/@lc/runtime"
-      },
-      {
-        "from": "../../packages/tui",
-        "to": "runtime/node_modules/@lc/tui"
+        "from": "../../packages/runtime/bundle",
+        "to": "runtime"
       }
     ],
     "mac": {

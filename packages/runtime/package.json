@@ -17,7 +17,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run copy-assets",
-    "copy-assets": "node scripts/copy-assets.cjs"
+    "copy-assets": "node scripts/copy-assets.cjs",
+    "bundle": "node scripts/bundle.cjs",
+    "validate-bundle": "node scripts/validate-bundle.cjs"
   },
   "dependencies": {
     "@mariozechner/jiti": "^2.6.2",

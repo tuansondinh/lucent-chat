@@ -33,14 +33,17 @@ const KILL_GRACE_MS = 3_000
 
 /** Path to the agent entry point (built dist). */
 function resolveAgentPath(): string {
-  const bundledRuntimeEntry = join(process.resourcesPath, 'runtime', 'dist', 'loader.js')
-  if (existsSync(bundledRuntimeEntry)) {
-    return bundledRuntimeEntry
+  // Packaged mode: use the bundled entrypoint.js from the @lc/runtime bundle.
+  // The bundle places entrypoint.js at runtime/dist/entrypoint.js (alongside all
+  // compiled JS) so relative imports resolve correctly.
+  const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')
+  if (existsSync(bundledEntry)) {
+    return bundledEntry
   }
 
-  // __dirname at runtime is studio/dist/main (after electron-vite build).
-  // Going up 3 levels: dist/main → dist → studio → voice-bridge-desktop (project root).
-  const projectRoot = join(__dirname, '..', '..', '..')
+  // Dev mode: __dirname is apps/studio/dist/main (after electron-vite build).
+  // Going up 4 levels: dist/main → dist → studio → apps → voice-bridge-desktop (project root).
+  const projectRoot = join(__dirname, '..', '..', '..', '..')
   return join(projectRoot, 'dist', 'loader.js')
 }
 
@@ -50,13 +53,17 @@ function resolveAgentCommand(entry: string): {
   env: NodeJS.ProcessEnv
 } {
   if (entry.startsWith(join(process.resourcesPath, 'runtime'))) {
+    // Packaged mode: use the bundled standalone Node binary.
+    // No ELECTRON_RUN_AS_NODE — the bundled node is a plain Node binary, not Electron.
+    const bundledNode = join(process.resourcesPath, 'runtime', 'node')
     return {
-      command: process.execPath,
+      command: bundledNode,
       args: [entry, '--mode', 'rpc'],
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      env: { ...process.env },
     }
   }
 
+  // Dev mode: use system node binary.
   return {
     command: 'node',
     args: [entry, '--mode', 'rpc'],
