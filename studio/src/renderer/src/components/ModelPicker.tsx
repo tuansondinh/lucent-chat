@@ -16,7 +16,7 @@ import {
 } from './ui/dialog'
 import { Input } from './ui/input'
 import { ScrollArea } from './ui/scroll-area'
-import { useChatStore } from '../store/chat'
+import { usePanesStore, getPaneStore } from '../store/pane-store'
 import { cn } from '../lib/utils'
 
 // ============================================================================
@@ -66,7 +66,8 @@ function formatProvider(provider: string): string {
 // ============================================================================
 
 export function ModelPicker({ open, onOpenChange }: Props) {
-  const { currentModel, setModel } = useChatStore()
+  const { activePaneId } = usePanesStore()
+  const { currentModel } = getPaneStore(activePaneId)()
   const bridge = window.bridge
 
   const [models, setModels] = useState<Model[]>([])
@@ -86,7 +87,7 @@ export function ModelPicker({ open, onOpenChange }: Props) {
     }
     setLoading(true)
     bridge
-      .getModels()
+      .getModels(activePaneId)
       .then((list: Model[]) => setModels(list))
       .catch(() => setModels([]))
       .finally(() => setLoading(false))
@@ -127,8 +128,8 @@ export function ModelPicker({ open, onOpenChange }: Props) {
 
   const handleSelect = async (model: Model) => {
     try {
-      await bridge.switchModel(model.provider, model.id)
-      setModel(`${model.provider}/${model.id}`)
+      await bridge.switchModel(activePaneId, model.provider, model.id)
+      getPaneStore(activePaneId).getState().setModel(`${model.provider}/${model.id}`)
     } catch {
       // Silently ignore — agent may log the error
     }

@@ -17,7 +17,7 @@ import {
   MessageSquare,
   Cpu,
 } from 'lucide-react'
-import { useChatStore } from '../store/chat'
+import { getPaneStore } from '../store/pane-store'
 import { ScrollArea } from './ui/scroll-area'
 import {
   DropdownMenu,
@@ -51,6 +51,8 @@ interface Props {
   collapsed: boolean
   onToggleCollapse: () => void
   currentSessionPath: string | null
+  /** The pane whose sessions this sidebar manages. */
+  activePaneId: string
   onNewSession: () => void
   onSwitchSession: (path: string) => void
   onRefresh: () => void
@@ -66,13 +68,14 @@ export function Sidebar({
   collapsed,
   onToggleCollapse,
   currentSessionPath,
+  activePaneId,
   onNewSession,
   onSwitchSession,
   onRefresh,
   onOpenModelPicker,
   onOpenSettings,
 }: Props) {
-  const { currentModel } = useChatStore()
+  const { currentModel } = getPaneStore(activePaneId)()
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = window.bridge
 
@@ -90,12 +93,12 @@ export function Sidebar({
 
   const loadSessions = useCallback(async () => {
     try {
-      const list = await bridge.getSessions()
+      const list = await bridge.getSessions(activePaneId)
       setSessions(list)
     } catch {
       // silently ignore
     }
-  }, [bridge])
+  }, [bridge, activePaneId])
 
   useEffect(() => {
     void loadSessions()
@@ -106,7 +109,7 @@ export function Sidebar({
   // -------------------------------------------------------------------------
 
   const handleNewSession = async () => {
-    const result = await bridge.newSession()
+    const result = await bridge.newSession(activePaneId)
     if (!result.cancelled) {
       await loadSessions()
       onNewSession()
@@ -115,7 +118,7 @@ export function Sidebar({
 
   const handleSwitchSession = async (path: string) => {
     if (path === currentSessionPath) return
-    const result = await bridge.switchSession(path)
+    const result = await bridge.switchSession(activePaneId, path)
     if (!result.cancelled) {
       await loadSessions()
       onSwitchSession(path)
@@ -132,9 +135,9 @@ export function Sidebar({
     try {
       // Switch to the session first if it's not current, then rename
       if (renameTarget.path !== currentSessionPath) {
-        await bridge.switchSession(renameTarget.path)
+        await bridge.switchSession(activePaneId, renameTarget.path)
       }
-      await bridge.renameSession(renameValue.trim())
+      await bridge.renameSession(activePaneId, renameValue.trim())
       await loadSessions()
       onRefresh()
     } catch {
@@ -149,7 +152,7 @@ export function Sidebar({
     if (!deleteTarget) return
     setDeleteError(null)
     try {
-      await bridge.deleteSession(deleteTarget.path)
+      await bridge.deleteSession(activePaneId, deleteTarget.path)
       setDeleteTarget(null)
       await loadSessions()
       onRefresh()

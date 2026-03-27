@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator } from './orchestrator.js'
+import { PaneManager } from './pane-manager.js'
 import { registerIpcHandlers, pushEvent } from './ipc-handlers.js'
 import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
@@ -16,6 +17,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let processManager: ProcessManager | null = null
 let terminalManager: TerminalManager | null = null
+let paneManager: PaneManager | null = null
 
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
@@ -154,14 +156,28 @@ app.whenReady().then(async () => {
     setTimeout(attachAgentBridge, 200)
   })
 
-  // 7. Orchestrator
+  // 7. PaneManager — create pane-0 with pane-aware event callbacks
+  paneManager = new PaneManager()
+
   const orchestrator = new Orchestrator(agentBridge, {
-    onChunk: (d) => pushEvent(mainWindow, 'event:agent-chunk', d),
-    onDone: (d) => pushEvent(mainWindow, 'event:agent-done', d),
-    onToolStart: (d) => pushEvent(mainWindow, 'event:tool-start', d),
-    onToolEnd: (d) => pushEvent(mainWindow, 'event:tool-end', d),
-    onTurnState: (d) => pushEvent(mainWindow, 'event:turn-state', d),
-    onError: (d) => pushEvent(mainWindow, 'event:error', d),
+    onChunk: (d) => pushEvent(mainWindow, 'event:agent-chunk', { paneId: 'pane-0', ...d }),
+    onDone: (d) => pushEvent(mainWindow, 'event:agent-done', { paneId: 'pane-0', ...d }),
+    onToolStart: (d) => pushEvent(mainWindow, 'event:tool-start', { paneId: 'pane-0', ...d }),
+    onToolEnd: (d) => pushEvent(mainWindow, 'event:tool-end', { paneId: 'pane-0', ...d }),
+    onTurnState: (d) => pushEvent(mainWindow, 'event:turn-state', { paneId: 'pane-0', ...d }),
+    onError: (d) => pushEvent(mainWindow, 'event:error', { paneId: 'pane-0', ...d }),
+    onThinkingStart: (d) => pushEvent(mainWindow, 'event:thinking-start', { paneId: 'pane-0', ...d }),
+    onThinkingChunk: (d) => pushEvent(mainWindow, 'event:thinking-chunk', { paneId: 'pane-0', ...d }),
+    onThinkingEnd: (d) => pushEvent(mainWindow, 'event:thinking-end', { paneId: 'pane-0', ...d }),
+    onTextBlockStart: (d) => pushEvent(mainWindow, 'event:text-block-start', { paneId: 'pane-0', ...d }),
+    onTextBlockEnd: (d) => pushEvent(mainWindow, 'event:text-block-end', { paneId: 'pane-0', ...d }),
+  })
+
+  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService)
+
+  // Forward health events for pane-0 to renderer (with paneId)
+  processManager.on('health', (states: Record<string, string>) => {
+    pushEvent(mainWindow, 'event:health', { paneId: 'pane-0', states })
   })
 
   // 8. Terminal Manager — forwards pty output to renderer
@@ -171,19 +187,11 @@ app.whenReady().then(async () => {
 
   // 9. IPC handlers
   registerIpcHandlers(
-    orchestrator,
-    agentBridge,
-    processManager,
-    () => mainWindow,
-    sessionService,
+    paneManager,
     settingsService,
-    terminalManager
+    terminalManager,
+    () => mainWindow
   )
-
-  // 10. Forward health events to renderer
-  processManager.on('health', (states: Record<string, string>) => {
-    pushEvent(mainWindow, 'event:health', states)
-  })
 
   // 11. System tray
   // Minimal 16×16 transparent PNG as placeholder icon
@@ -229,6 +237,9 @@ app.on('before-quit', (e) => {
     void (async () => {
       try {
         terminalManager?.destroyAll()
+        // Shutdown non-pane-0 panes first
+        await paneManager?.shutdownAll()
+        // Then shutdown pane-0's process manager
         await processManager?.shutdownAll()
       } finally {
         app.exit(0)

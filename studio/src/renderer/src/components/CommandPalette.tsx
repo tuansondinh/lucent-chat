@@ -28,6 +28,8 @@ interface Model {
 interface CommandPaletteProps {
   open: boolean
   onClose: () => void
+  /** The active pane ID — used for fetching sessions and models. */
+  activePaneId: string
   onNewSession: () => void
   onSwitchSession: (path: string) => void
   onToggleSidebar: () => void
@@ -44,6 +46,7 @@ interface CommandPaletteProps {
 export function CommandPalette({
   open,
   onClose,
+  activePaneId,
   onNewSession,
   onSwitchSession,
   onToggleSidebar,
@@ -63,10 +66,10 @@ export function CommandPalette({
     const bridge = window.bridge
 
     Promise.allSettled([
-      bridge.getSessions().then((list) => setSessions(list as Session[])),
-      bridge.getModels().then((list) => setModels(list as Model[])),
+      bridge.getSessions(activePaneId).then((list) => setSessions(list as Session[])),
+      bridge.getModels(activePaneId).then((list) => setModels(list as Model[])),
     ]).then(() => setLoadedData(true))
-  }, [open, loadedData])
+  }, [open, loadedData, activePaneId])
 
   // Reset loaded state when closed so data refreshes on next open
   useEffect(() => {

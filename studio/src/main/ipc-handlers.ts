@@ -1,15 +1,15 @@
 /**
  * IPC Handlers — registers all Electron IPC channels between main and renderer.
  *
+ * All pane-specific commands now accept paneId as the first argument so that
+ * each pane's agent process, bridge, and orchestrator are addressed separately.
+ *
  * Commands: renderer → main (ipcMain.handle, invoked via ipcRenderer.invoke)
  * Events:   main → renderer (webContents.send, received via ipcRenderer.on)
  */
 
 import { ipcMain, type BrowserWindow } from 'electron'
-import type { Orchestrator } from './orchestrator.js'
-import type { AgentBridge } from './agent-bridge.js'
-import type { ProcessManager } from './process-manager.js'
-import type { SessionService } from './session-service.js'
+import type { PaneManager } from './pane-manager.js'
 import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
 
@@ -21,70 +21,99 @@ export type { SessionInfo as SessionFile } from './session-service.js'
 // ============================================================================
 
 export function registerIpcHandlers(
-  orchestrator: Orchestrator,
-  agentBridge: AgentBridge,
-  processManager: ProcessManager,
-  getMainWindow: () => BrowserWindow | null,
-  sessionService: SessionService,
+  paneManager: PaneManager,
   settingsService: SettingsService,
-  terminalManager: TerminalManager
+  terminalManager: TerminalManager,
+  getMainWindow: () => BrowserWindow | null,
 ): void {
-  // --- Commands (renderer → main) ---
 
-  ipcMain.handle('cmd:prompt', (_event, text: string) => {
-    return orchestrator.submitTurn(text, 'text')
+  // --------------------------------------------------------------------------
+  // Pane-specific commands — all accept paneId as first arg
+  // --------------------------------------------------------------------------
+
+  ipcMain.handle('cmd:prompt', (_event, paneId: string, text: string) => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+    return pane.orchestrator.submitTurn(text, 'text')
   })
 
-  ipcMain.handle('cmd:abort', () => {
-    return orchestrator.abortCurrentTurn()
+  ipcMain.handle('cmd:abort', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.orchestrator.abortCurrentTurn()
   })
 
-  ipcMain.handle('cmd:switch-model', (_event, provider: string, modelId: string) => {
-    return agentBridge.setModel(provider, modelId)
+  ipcMain.handle('cmd:switch-model', (_event, paneId: string, provider: string, modelId: string) => {
+    return paneManager.getPane(paneId)?.agentBridge.setModel(provider, modelId)
   })
 
-  ipcMain.handle('cmd:new-session', async () => {
-    const result = await agentBridge.newSession()
+  ipcMain.handle('cmd:new-session', async (_event, paneId: string) => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+    const result = await pane.agentBridge.newSession()
     if (!result.cancelled) {
-      // Sync active session ID so the delete guard stays accurate
-      agentBridge.getState().then((state) => {
-        if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
+      pane.agentBridge.getState().then((state) => {
+        if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile)
       }).catch(() => {})
     }
     return result
   })
 
-  ipcMain.handle('cmd:switch-session', (_event, sessionPath: string) => {
-    return sessionService.switchSession(sessionPath, orchestrator)
+  ipcMain.handle('cmd:switch-session', (_event, paneId: string, sessionPath: string) => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+    return pane.sessionService.switchSession(sessionPath, pane.orchestrator)
   })
 
-  ipcMain.handle('cmd:rename-session', (_event, name: string) => {
-    return sessionService.renameSession(name)
+  ipcMain.handle('cmd:rename-session', (_event, paneId: string, name: string) => {
+    return paneManager.getPane(paneId)?.sessionService.renameSession(name)
   })
 
-  ipcMain.handle('cmd:get-sessions', () => {
-    return sessionService.listSessions()
+  ipcMain.handle('cmd:get-sessions', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.sessionService.listSessions()
   })
 
-  ipcMain.handle('cmd:delete-session', (_event, path: string) => {
-    return sessionService.deleteSession(path)
+  ipcMain.handle('cmd:delete-session', (_event, paneId: string, path: string) => {
+    return paneManager.getPane(paneId)?.sessionService.deleteSession(path)
   })
 
-  ipcMain.handle('cmd:get-messages', () => {
-    return sessionService.getMessages()
+  ipcMain.handle('cmd:get-messages', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.sessionService.getMessages()
   })
 
-  ipcMain.handle('cmd:get-models', () => {
-    return agentBridge.getAvailableModels()
+  ipcMain.handle('cmd:get-models', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.agentBridge.getAvailableModels()
   })
 
-  ipcMain.handle('cmd:get-state', () => {
-    return agentBridge.getState()
+  ipcMain.handle('cmd:get-state', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.agentBridge.getState()
   })
 
-  ipcMain.handle('cmd:get-health', () => {
-    return processManager.getStates()
+  ipcMain.handle('cmd:get-health', (_event, paneId: string) => {
+    return paneManager.getPane(paneId)?.processManager.getStates()
   })
+
+  // --------------------------------------------------------------------------
+  // Pane lifecycle
+  // --------------------------------------------------------------------------
+
+  ipcMain.handle('cmd:pane-create', async () => {
+    const win = getMainWindow()
+    const pane = await paneManager.createPane(settingsService, (channel, data) => {
+      if (win && !win.isDestroyed()) win.webContents.send(channel, data)
+    })
+    return { paneId: pane.id }
+  })
+
+  ipcMain.handle('cmd:pane-close', async (_event, paneId: string) => {
+    await paneManager.destroyPane(paneId)
+  })
+
+  ipcMain.handle('cmd:pane-list', () => {
+    return paneManager.getPaneIds()
+  })
+
+  // --------------------------------------------------------------------------
+  // Settings — not pane-specific
+  // --------------------------------------------------------------------------
 
   ipcMain.handle('cmd:get-settings', () => {
     return settingsService.get()
@@ -95,6 +124,10 @@ export function registerIpcHandlers(
     return settingsService.get()
   })
 
+  // --------------------------------------------------------------------------
+  // Window / shell — not pane-specific
+  // --------------------------------------------------------------------------
+
   ipcMain.handle('cmd:set-window-title', (_event, title: string) => {
     const win = getMainWindow()
     if (win && !win.isDestroyed()) {
@@ -103,14 +136,15 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('cmd:open-external', async (_event, url: string) => {
-    // Only allow http/https URLs to prevent security issues
     if (url.startsWith('http://') || url.startsWith('https://')) {
       const { shell } = await import('electron')
       await shell.openExternal(url)
     }
   })
 
-  // --- Terminal handlers ---
+  // --------------------------------------------------------------------------
+  // Terminal — not pane-specific
+  // --------------------------------------------------------------------------
 
   ipcMain.handle('cmd:terminal-create', () => {
     terminalManager.create('main')
@@ -128,7 +162,7 @@ export function registerIpcHandlers(
     terminalManager.destroy('main')
   })
 
-  void getMainWindow // used by pushEvent callers in index.ts
+  void getMainWindow // referenced by pushEvent callers in index.ts
 }
 
 // ============================================================================
