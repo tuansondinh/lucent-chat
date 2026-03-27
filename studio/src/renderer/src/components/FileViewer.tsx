@@ -2,16 +2,20 @@
  * FileViewer — right-side panel that displays file content from agent tool events.
  *
  * Features:
- * - Syntax highlighted via the shared Shiki highlighter singleton
- * - Language detection from file extension
+ * - Tab bar showing all open files; middle-click or ✕ to close tabs
+ * - Token-based syntax highlighting via Shiki codeToTokens (Phase 6)
+ * - Line numbers in a gutter column
+ * - Plain-text fallback with line numbers for files ≥ 2000 lines
  * - Large file truncation at ~500 lines with "Show more" toggle
  * - Binary file detection (null bytes / non-UTF-8 characters)
  * - Read-only display with copy-to-clipboard support
- * - Close button and empty state
+ * - Calls onClose() when last tab is closed
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { ThemedToken } from 'shiki'
 import { getPaneStore } from '../store/pane-store'
+import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
 import { X, Copy, Check, FileText } from 'lucide-react'
@@ -21,6 +25,8 @@ import { X, Copy, Check, FileText } from 'lucide-react'
 // ============================================================================
 
 const TRUNCATE_LINES = 500
+/** Lines at or above this threshold skip Shiki and render plain text. */
+const HIGHLIGHT_LINE_LIMIT = 2000
 
 // ============================================================================
 // Helpers
@@ -158,7 +164,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 }
 
 // ============================================================================
-// HighlightedCode — async syntax highlighted code view
+// HighlightedCode — token-based syntax highlighted code with line numbers
 // ============================================================================
 
 interface HighlightedCodeProps {
@@ -167,44 +173,98 @@ interface HighlightedCodeProps {
 }
 
 function HighlightedCode({ code, language }: HighlightedCodeProps) {
-  const [html, setHtml] = useState<string | null>(null)
+  const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
+  const lines = code.split('\n')
+  const isLarge = lines.length >= HIGHLIGHT_LINE_LIMIT
 
   useEffect(() => {
+    if (isLarge) {
+      // Skip Shiki for large files
+      setTokens(null)
+      return
+    }
+
     let cancelled = false
 
-    const doHighlight = async () => {
+    const doTokenize = async () => {
       try {
         const hl = await getHighlighter()
-        const result = hl.codeToHtml(code, {
+        const result = hl.codeToTokens(code, {
           lang: language || 'text',
           theme: 'github-dark-default',
         })
-        if (!cancelled) setHtml(result)
+        if (!cancelled) setTokens(result.tokens)
       } catch {
-        // Unknown language or error — fall back to plain text display
-        if (!cancelled) setHtml(null)
+        // Unknown language or Shiki error — fall back to plain text rendering
+        if (!cancelled) setTokens(null)
       }
     }
 
-    void doHighlight()
+    setTokens(null)
+    void doTokenize()
     return () => { cancelled = true }
-  }, [code, language])
-
-  if (html) {
-    return (
-      <div
-        className="text-[12.5px] leading-[1.6] [&_pre]:p-4 [&_pre]:m-0 [&_pre]:bg-transparent! [&_code]:bg-transparent! min-w-0"
-        // Safe: Shiki output is sanitized HTML with no user-controlled URLs
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    )
-  }
+  }, [code, language, isLarge])
 
   return (
-    <pre className="p-4 text-[12.5px] leading-[1.6] text-text-primary font-mono bg-[#0d1117] min-w-0 whitespace-pre">
-      <code>{code}</code>
-    </pre>
+    <div className="overflow-x-auto bg-[#0d1117]">
+      {/* Large file banner */}
+      {isLarge && (
+        <div className="px-4 py-1.5 text-[11px] text-amber-400/80 bg-amber-400/5 border-b border-amber-400/10 font-mono">
+          File too large for syntax highlighting — showing plain text
+        </div>
+      )}
+
+      {isLarge
+        ? /* Plain text with line numbers for large files */
+          lines.map((lineText, i) => (
+            <div key={i} className="flex items-stretch hover:bg-white/5 group/line">
+              <div
+                className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                style={{ lineHeight: '1.6' }}
+              >
+                {i + 1}
+              </div>
+              <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#e6edf3]">
+                {lineText || '\u00a0'}
+              </div>
+            </div>
+          ))
+        : tokens !== null
+          ? /* Tokenized rendering */
+            tokens.map((lineTokens, i) => (
+              <div key={i} className="flex items-stretch hover:bg-white/5 group/line">
+                {/* Gutter */}
+                <div
+                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                  style={{ lineHeight: '1.6' }}
+                >
+                  {i + 1}
+                </div>
+                {/* Code tokens */}
+                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0">
+                  {lineTokens.length === 0
+                    ? '\n'
+                    : lineTokens.map((token, j) => (
+                      <span
+                        key={j}
+                        style={{
+                          color: token.color,
+                          fontStyle: token.fontStyle != null && (token.fontStyle & 1) ? 'italic' : undefined,
+                          fontWeight: token.fontStyle != null && (token.fontStyle & 2) ? 'bold' : undefined,
+                          textDecoration: token.fontStyle != null && (token.fontStyle & 4) ? 'underline' : undefined,
+                        }}
+                      >
+                        {token.content}
+                      </span>
+                    ))
+                  }
+                </div>
+              </div>
+            ))
+          : /* Loading state — render nothing while Shiki initializes */
+            null
+      }
+    </div>
   )
 }
 
@@ -218,15 +278,31 @@ export interface FileViewerProps {
 }
 
 export function FileViewer({ paneId, onClose }: FileViewerProps) {
-  const activeFile = getPaneStore(paneId)((s) =>
-    s.openFiles.find((f) => f.relativePath === s.activeFilePath) ?? null
-  )
+  const openFiles = getPaneStore(paneId)((s) => s.openFiles)
+  const activeFilePath = getPaneStore(paneId)((s) => s.activeFilePath)
+  const closeFile = getPaneStore(paneId)((s) => s.closeFile)
+  const setActiveFile = getPaneStore(paneId)((s) => s.setActiveFile)
+  const modifiedFiles = getFileTreeStore(paneId)((s) => s.modifiedFiles)
+
   const [showAll, setShowAll] = useState(false)
 
-  // Reset "show all" when file changes
+  // Track previous openFiles.length to detect transition to 0
+  const prevOpenFilesLengthRef = useRef(openFiles.length)
+
+  // Reset "show all" when active file changes
   useEffect(() => {
     setShowAll(false)
-  }, [activeFile?.relativePath])
+  }, [activeFilePath])
+
+  // Close FileViewer panel when all tabs are closed
+  useEffect(() => {
+    if (prevOpenFilesLengthRef.current > 0 && openFiles.length === 0) {
+      onClose()
+    }
+    prevOpenFilesLengthRef.current = openFiles.length
+  }, [openFiles.length, onClose])
+
+  const activeFile = openFiles.find((f) => f.relativePath === activeFilePath) ?? null
 
   // ---- Empty state ----
   if (!activeFile) {
@@ -253,6 +329,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     return (
       <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
         <FileViewerHeader path={relativePath} onClose={onClose} fullContent="" />
+        <TabStrip
+          openFiles={openFiles}
+          activeFilePath={activeFilePath}
+          modifiedFiles={modifiedFiles}
+          closeFile={closeFile}
+          setActiveFile={setActiveFile}
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-6">
           <FileText className="size-8 text-text-tertiary opacity-40" />
           <p className="text-sm text-text-tertiary">Binary file — preview unavailable</p>
@@ -271,6 +354,15 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   return (
     <div className="flex flex-col h-full bg-bg-secondary border-l border-border min-w-0">
       <FileViewerHeader path={relativePath} onClose={onClose} fullContent={content} />
+
+      {/* Tab strip */}
+      <TabStrip
+        openFiles={openFiles}
+        activeFilePath={activeFilePath}
+        modifiedFiles={modifiedFiles}
+        closeFile={closeFile}
+        setActiveFile={setActiveFile}
+      />
 
       {/* Scrollable code area */}
       <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
@@ -291,6 +383,61 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// TabStrip
+// ============================================================================
+
+interface TabStripProps {
+  openFiles: Array<{ relativePath: string }>
+  activeFilePath: string | null
+  modifiedFiles: Set<string>
+  closeFile: (relativePath: string) => void
+  setActiveFile: (relativePath: string) => void
+}
+
+function TabStrip({ openFiles, activeFilePath, modifiedFiles, closeFile, setActiveFile }: TabStripProps) {
+  if (openFiles.length === 0) return null
+
+  return (
+    <div className="flex overflow-x-auto border-b border-border/60 bg-[#0d1117] flex-shrink-0 scrollbar-none">
+      {openFiles.map((file) => {
+        const fileName = file.relativePath.split('/').pop() ?? file.relativePath
+        const isActive = file.relativePath === activeFilePath
+        const isModified = modifiedFiles.has(file.relativePath)
+        return (
+          <div
+            key={file.relativePath}
+            role="tab"
+            aria-selected={isActive}
+            className={[
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs flex-shrink-0 cursor-pointer border-r border-border/30',
+              'transition-colors max-w-[160px]',
+              isActive
+                ? 'bg-bg-secondary text-text-primary border-t-2 border-t-accent border-b-0'
+                : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover',
+            ].join(' ')}
+            onClick={() => setActiveFile(file.relativePath)}
+            onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.relativePath) } }}
+            title={file.relativePath}
+          >
+            {isModified && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+            )}
+            <span className="truncate">{fileName}</span>
+            <button
+              onClick={(e) => { e.stopPropagation(); closeFile(file.relativePath) }}
+              className="size-3.5 flex-shrink-0 flex items-center justify-center rounded hover:bg-white/10 text-text-tertiary hover:text-text-primary"
+              aria-label={`Close ${fileName}`}
+            >
+              <X className="size-2.5" />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }
