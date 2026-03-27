@@ -24,10 +24,12 @@ import {
   BookOpen,
   FileText,
   RefreshCw,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getPaneStore } from '../store/pane-store'
+import type { GitChangeStatus } from '../../../preload'
 
 // ============================================================================
 // Props
@@ -37,6 +39,8 @@ interface FileTreeProps {
   paneId: string
   /** Called when a file is opened — lets App.tsx show the FileViewer panel. */
   onFileOpen?: () => void
+  onClose?: () => void
+  embedded?: boolean
 }
 
 // ============================================================================
@@ -69,6 +73,22 @@ function getFileIcon(name: string) {
       return BookOpen
     default:
       return FileText
+  }
+}
+
+function getStatusBadgeClass(status: GitChangeStatus): string {
+  switch (status) {
+    case 'A':
+    case '??':
+      return 'bg-emerald-400'
+    case 'D':
+      return 'bg-red-400'
+    case 'R':
+      return 'bg-sky-400'
+    case 'U':
+      return 'bg-amber-300'
+    default:
+      return 'bg-amber-400'
   }
 }
 
@@ -106,7 +126,7 @@ function FileTreeNode({
   const treeStore = getFileTreeStore(paneId)
   const paneStore = getPaneStore(paneId)
 
-  const { dirContents, expandedDirs, modifiedFiles, loading, toggleDir } = treeStore()
+  const { dirContents, expandedDirs, changedFilesMap, loading, toggleDir } = treeStore()
   const { activeFilePath, projectRoot } = paneStore()
 
   const entries = dirContents.get(parentPath)
@@ -120,7 +140,8 @@ function FileTreeNode({
         const isDir = entry.type === 'directory'
         const isExpanded = expandedDirs.has(childPath)
         const isLoading = loading.has(childPath)
-        const isModified = modifiedFiles.has(childPath)
+        const changedFile = changedFilesMap.get(childPath)
+        const isModified = Boolean(changedFile)
         const isActive = !isDir && childPath === activeFilePath
 
         const indentPx = 16 * depth
@@ -153,7 +174,7 @@ function FileTreeNode({
               </div>
 
               {/* Loading row */}
-              {isLoading && (
+              {isLoading && !dirContents.has(childPath) && (
                 <div
                   className="flex items-center gap-1 h-7 text-[12px] text-text-tertiary animate-pulse"
                   style={{ paddingLeft: `${indentPx + 28}px` }}
@@ -213,8 +234,8 @@ function FileTreeNode({
             <span className="truncate flex-1">{entry.name}</span>
             {isModified && (
               <span
-                className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0"
-                title="Modified"
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getStatusBadgeClass(changedFile!.status)}`}
+                title={`Changed (${changedFile!.status})`}
               />
             )}
           </div>
@@ -228,12 +249,13 @@ function FileTreeNode({
 // FileTree
 // ============================================================================
 
-export function FileTree({ paneId, onFileOpen }: FileTreeProps) {
+export function FileTree({ paneId, onFileOpen, onClose, embedded = false }: FileTreeProps) {
   const treeStore = getFileTreeStore(paneId)
   const paneStore = getPaneStore(paneId)
 
   const { loading } = treeStore()
   const rootLoading = loading.has('')
+  const hasRootEntries = treeStore((s) => s.dirContents.has(''))
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
@@ -311,33 +333,58 @@ export function FileTree({ paneId, onFileOpen }: FileTreeProps) {
   // -------------------------------------------------------------------------
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-bg-secondary">
-      {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-border/40">
-        <span className="text-[10px] text-text-tertiary font-semibold tracking-wider uppercase">
-          Explorer
-        </span>
-        <button
-          onClick={handleRefresh}
-          className="p-0.5 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className={`size-3 ${rootLoading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+    <div className="flex h-full min-w-[220px] flex-col overflow-hidden bg-bg-secondary">
+      {!embedded && (
+        <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-border/40">
+          <span className="text-[10px] text-text-tertiary font-semibold tracking-wider uppercase">
+            Explorer
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleRefresh}
+              className="p-0.5 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className={`size-3 ${rootLoading ? 'animate-spin' : ''}`} />
+            </button>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-0.5 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+                title="Close explorer"
+                aria-label="Close explorer"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {embedded && (
+        <div className="flex-shrink-0 flex items-center justify-end px-2 py-1.5 border-b border-border/40">
+          <button
+            onClick={handleRefresh}
+            className="p-1 rounded text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+            title="Refresh explorer"
+          >
+            <RefreshCw className={`size-3 ${rootLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      )}
 
       {/* Tree content */}
       <div
         role="tree"
         className="flex-1 overflow-y-auto py-1"
       >
-        {rootLoading && (
+        {rootLoading && !hasRootEntries && (
           <div className="flex items-center gap-1 px-4 h-7 text-[12px] text-text-tertiary animate-pulse">
             Loading...
           </div>
         )}
 
-        {!rootLoading && (
+        {hasRootEntries && (
           <FileTreeNode
             paneId={paneId}
             parentPath=""

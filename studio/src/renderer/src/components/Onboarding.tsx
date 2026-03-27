@@ -308,7 +308,7 @@ function ProviderSetupStep({
         <p className="text-sm text-text-secondary leading-relaxed">
           Add at least one API key or sign in with OAuth to start chatting. Keys are stored in{' '}
           <span className="font-mono text-xs text-text-tertiary bg-bg-secondary px-1 py-0.5 rounded">
-            ~/.gsd/agent/auth.json
+            ~/.lucent/agent/auth.json
           </span>
           .
         </p>

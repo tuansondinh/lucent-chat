@@ -14,12 +14,26 @@ import { type ChatMessage, type AgentHealth, type ContentBlock } from './chat'
 // ============================================================================
 
 export interface OpenFile {
+  kind: 'file'
+  tabKey: string
   relativePath: string
   content: string
   source: 'user'
   truncated: boolean
   isBinary: boolean
 }
+
+export interface OpenDiff {
+  kind: 'diff'
+  tabKey: string
+  relativePath: string
+  diffText: string | null
+  status: 'M' | 'A' | 'D' | 'R' | '??' | 'U'
+  previousPath?: string
+  isBinary: boolean
+}
+
+export type OpenViewerItem = OpenFile | OpenDiff
 
 // ============================================================================
 // Per-pane state shape
@@ -33,8 +47,8 @@ export interface PaneChatState {
   isGenerating: boolean
   currentModel: string
   /** Open file tabs — ordered list. */
-  openFiles: OpenFile[]
-  /** Relative path of the active file tab (or null if none). */
+  openFiles: OpenViewerItem[]
+  /** Active tab key (or null if none). */
   activeFilePath: string | null
   /** Current git branch for this pane's project root. */
   gitBranch: string | null
@@ -58,15 +72,18 @@ export interface PaneChatState {
   startTextBlock: (turn_id: string) => void
   finalizeTextBlock: (turn_id: string) => void
   setHealth: (states: Record<string, string>) => void
+  setGenerating: (value: boolean) => void
   setModel: (model: string) => void
   addErrorMessage: (message: string) => void
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
   /** Open a file tab (or switch to it if already open). */
-  openFile: (file: OpenFile) => void
+  openFile: (file: Omit<OpenFile, 'kind' | 'tabKey'>) => void
+  /** Open a diff tab (or switch to it if already open). */
+  openDiff: (diff: Omit<OpenDiff, 'kind' | 'tabKey'>) => void
   /** Close a file tab, selecting the nearest neighbor if it was active. */
-  closeFile: (relativePath: string) => void
+  closeFile: (tabKey: string) => void
   /** Switch to an already-open file tab. */
-  setActiveFile: (relativePath: string) => void
+  setActiveFile: (tabKey: string) => void
   /** Update the git branch for this pane. */
   setGitBranch: (branch: string | null) => void
   /** Update the project root for this pane. */
@@ -370,6 +387,9 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setHealth: (states) =>
       set({ agentHealth: mapHealth(states.agent ?? 'unknown') }),
 
+    setGenerating: (value) =>
+      set({ isGenerating: value }),
+
     setModel: (model) =>
       set({ currentModel: model }),
 
@@ -409,39 +429,72 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     openFile: (file) =>
       set((s) => {
-        const exists = s.openFiles.some((f) => f.relativePath === file.relativePath)
+        const nextFile: OpenFile = {
+          ...file,
+          kind: 'file',
+          tabKey: file.relativePath,
+        }
+        const exists = s.openFiles.some((f) => f.tabKey === nextFile.tabKey)
         const filtered = s.recentFiles.filter((p) => p !== file.relativePath)
         const newRecent = [file.relativePath, ...filtered].slice(0, 10)
         if (exists) {
-          return { activeFilePath: file.relativePath, recentFiles: newRecent }
+          return {
+            openFiles: s.openFiles.map((openFile) =>
+              openFile.tabKey === nextFile.tabKey ? nextFile : openFile,
+            ),
+            activeFilePath: nextFile.tabKey,
+            recentFiles: newRecent,
+          }
         }
         return {
-          openFiles: [file, ...s.openFiles],
-          activeFilePath: file.relativePath,
+          openFiles: [nextFile, ...s.openFiles],
+          activeFilePath: nextFile.tabKey,
           recentFiles: newRecent,
         }
       }),
 
-    closeFile: (relativePath) =>
+    openDiff: (diff) =>
       set((s) => {
-        const idx = s.openFiles.findIndex((f) => f.relativePath === relativePath)
+        const nextDiff: OpenDiff = {
+          ...diff,
+          kind: 'diff',
+          tabKey: `diff:${diff.relativePath}`,
+        }
+        const exists = s.openFiles.some((f) => f.tabKey === nextDiff.tabKey)
+        if (exists) {
+          return {
+            openFiles: s.openFiles.map((openFile) =>
+              openFile.tabKey === nextDiff.tabKey ? nextDiff : openFile,
+            ),
+            activeFilePath: nextDiff.tabKey,
+          }
+        }
+        return {
+          openFiles: [nextDiff, ...s.openFiles],
+          activeFilePath: nextDiff.tabKey,
+        }
+      }),
+
+    closeFile: (tabKey) =>
+      set((s) => {
+        const idx = s.openFiles.findIndex((f) => f.tabKey === tabKey)
         if (idx === -1) return {}
-        const newFiles = s.openFiles.filter((f) => f.relativePath !== relativePath)
+        const newFiles = s.openFiles.filter((f) => f.tabKey !== tabKey)
         let newActive = s.activeFilePath
-        if (s.activeFilePath === relativePath) {
+        if (s.activeFilePath === tabKey) {
           // Select right neighbor, then left, then null
           if (newFiles.length === 0) {
             newActive = null
           } else if (idx < newFiles.length) {
-            newActive = newFiles[idx].relativePath
+            newActive = newFiles[idx].tabKey
           } else {
-            newActive = newFiles[newFiles.length - 1].relativePath
+            newActive = newFiles[newFiles.length - 1].tabKey
           }
         }
         return { openFiles: newFiles, activeFilePath: newActive }
       }),
 
-    setActiveFile: (relativePath) => set({ activeFilePath: relativePath }),
+    setActiveFile: (tabKey) => set({ activeFilePath: tabKey }),
 
     setGitBranch: (branch) => set({ gitBranch: branch }),
 

@@ -52,6 +52,8 @@ import { cn } from '../lib/utils'
 interface SettingsProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
+  onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
 }
 
 type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts'
@@ -98,6 +100,12 @@ const TABS: TabItem[] = [
   { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard     className="w-3.5 h-3.5" /> },
 ]
 
+const VOICE_SHORTCUT_OPTIONS = [
+  { value: 'space', label: 'Hold Space' },
+  { value: 'alt+space', label: 'Hold Option+Space' },
+  { value: 'cmd+shift+space', label: 'Hold Command+Shift+Space' },
+] as const
+
 const SHORTCUTS = [
   { shortcut: '⌘N', action: 'New session' },
   { shortcut: '⌘B', action: 'Toggle sidebar' },
@@ -117,7 +125,7 @@ function sleep(ms: number): Promise<void> {
 // Settings
 // ============================================================================
 
-export function Settings({ open, onOpenChange }: SettingsProps) {
+export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShortcutChange }: SettingsProps) {
   const bridge = window.bridge
 
   const [activeTab, setActiveTab] = useState<Tab>('general')
@@ -129,6 +137,7 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
+  const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
 
@@ -193,6 +202,11 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
       .then((s) => {
         if (typeof s.fontSize === 'number') setFontSize(s.fontSize)
         if (typeof s.tavilyApiKey === 'string') setTavilyKey(s.tavilyApiKey)
+        if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
+          setLocalVoicePttShortcut(s.voicePttShortcut)
+        } else {
+          setLocalVoicePttShortcut(voicePttShortcut)
+        }
         if (s.defaultModel) {
           setDefaultModel(`${s.defaultModel.provider}/${s.defaultModel.modelId}`)
         } else {
@@ -203,7 +217,7 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
 
     void refreshProviderStatuses()
     void refreshModels()
-  }, [open, bridge, refreshModels, refreshProviderStatuses])
+  }, [open, bridge, refreshModels, refreshProviderStatuses, voicePttShortcut])
 
   // -------------------------------------------------------------------------
   // Save helpers
@@ -235,6 +249,12 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
     const modelId = rest.join('/')
     bridge.setSettings({ defaultModel: { provider, modelId } }).catch(() => {})
   }, [bridge])
+
+  const handleVoicePttShortcutChange = useCallback((value: 'space' | 'alt+space' | 'cmd+shift+space') => {
+    setLocalVoicePttShortcut(value)
+    onVoicePttShortcutChange(value)
+    bridge.setSettings({ voicePttShortcut: value }).catch(() => {})
+  }, [bridge, onVoicePttShortcutChange])
 
   // -------------------------------------------------------------------------
   // Render helpers
@@ -301,7 +321,12 @@ export function Settings({ open, onOpenChange }: SettingsProps) {
                 onDefaultModelChange={handleDefaultModelChange}
               />
             )}
-            {activeTab === 'shortcuts' && <ShortcutsTab />}
+            {activeTab === 'shortcuts' && (
+              <ShortcutsTab
+                voicePttShortcut={localVoicePttShortcut}
+                onVoicePttShortcutChange={handleVoicePttShortcutChange}
+              />
+            )}
           </div>
         </div>
       </DialogContent>
@@ -1021,9 +1046,44 @@ function ModelsTab({ models, loading, defaultModel, onDefaultModelChange }: Mode
 // ShortcutsTab
 // ============================================================================
 
-function ShortcutsTab() {
+function ShortcutsTab({
+  voicePttShortcut,
+  onVoicePttShortcutChange,
+}: {
+  voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
+  onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
+}) {
+  const shortcutRows = [
+    ...SHORTCUTS.slice(0, 5),
+    {
+      shortcut: VOICE_SHORTCUT_OPTIONS.find((option) => option.value === voicePttShortcut)?.label ?? 'Hold Space',
+      action: 'Push to talk in active pane',
+    },
+    ...SHORTCUTS.slice(5),
+  ]
+
   return (
     <div className="p-6 space-y-6">
+      <Section title="Voice Push-To-Talk">
+        <Field
+          label="Shortcut"
+          hint="Starts voice input while held, then stops when released. Quick taps still type a normal space in the composer."
+        >
+          <Select value={voicePttShortcut} onValueChange={(value) => onVoicePttShortcutChange(value as 'space' | 'alt+space' | 'cmd+shift+space')}>
+            <SelectTrigger className="w-72 h-8 text-sm">
+              <SelectValue placeholder="Select a push-to-talk shortcut..." />
+            </SelectTrigger>
+            <SelectContent>
+              {VOICE_SHORTCUT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </Section>
+
       <Section title="Keyboard Shortcuts">
         <div className="rounded-md border border-border overflow-hidden">
           <table className="w-full text-sm">
@@ -1038,12 +1098,12 @@ function ShortcutsTab() {
               </tr>
             </thead>
             <tbody>
-              {SHORTCUTS.map((row, i) => (
+              {shortcutRows.map((row, i) => (
                 <tr
                   key={row.shortcut}
                   className={cn(
                     'transition-colors',
-                    i < SHORTCUTS.length - 1 && 'border-b border-border',
+                    i < shortcutRows.length - 1 && 'border-b border-border',
                     'hover:bg-bg-hover',
                   )}
                 >
@@ -1060,9 +1120,6 @@ function ShortcutsTab() {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-text-tertiary mt-2">
-          Shortcuts are not configurable in this version.
-        </p>
       </Section>
     </div>
   )

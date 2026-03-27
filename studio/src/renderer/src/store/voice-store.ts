@@ -16,6 +16,7 @@ interface VoiceState {
 
   // Active state
   active: boolean           // voice mode on (mic capturing)
+  activePaneId: string | null
   micPermission: 'unknown' | 'granted' | 'denied'
   speaking: boolean         // VAD detected speech
   partialTranscript: string // preview of current utterance before accumulation
@@ -30,7 +31,7 @@ interface VoiceState {
   setAvailable: (v: boolean, reason?: string | null) => void
   setSidecarState: (s: VoiceState['sidecarState']) => void
   setPort: (p: number | null) => void
-  setActive: (v: boolean) => void
+  setActive: (v: boolean, paneId?: string | null) => void
   setMicPermission: (p: VoiceState['micPermission']) => void
   setSpeaking: (v: boolean) => void
   setPartialTranscript: (t: string) => void
@@ -47,6 +48,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   sidecarState: 'stopped',
   port: null,
   active: false,
+  activePaneId: null,
   micPermission: 'unknown',
   speaking: false,
   partialTranscript: '',
@@ -58,7 +60,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   setAvailable: (v, reason) => set({ available: v, unavailableReason: reason ?? null }),
   setSidecarState: (s) => set({ sidecarState: s }),
   setPort: (p) => set({ port: p }),
-  setActive: (v) => set({ active: v, speaking: false, partialTranscript: '', error: null }),
+  setActive: (v, paneId = null) =>
+    set({
+      active: v,
+      activePaneId: v ? paneId : null,
+      speaking: false,
+      partialTranscript: '',
+      error: null,
+    }),
   setMicPermission: (p) => set({ micPermission: p }),
   setSpeaking: (v) => set({ speaking: v }),
   setPartialTranscript: (t) => set({ partialTranscript: t }),
@@ -73,6 +82,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   reset: () =>
     set({
       active: false,
+      activePaneId: null,
       speaking: false,
       partialTranscript: '',
       ttsPlaying: false,

@@ -44,10 +44,10 @@ export class SessionService {
 
   /**
    * List all sessions on disk, sorted newest-first.
-   * Reads from ~/.pi/agent/sessions/ (and subdirectories).
+   * Reads from ~/.lucent/agent/sessions/ (and subdirectories).
    */
   async listSessions(): Promise<SessionInfo[]> {
-    const sessionsBase = join(homedir(), '.gsd', 'agent', 'sessions')
+    const sessionsBase = join(homedir(), '.lucent', 'agent', 'sessions')
     const results: SessionInfo[] = []
 
     async function walk(dir: string): Promise<void> {

@@ -217,6 +217,18 @@ class AudioSession:
             {"type": "transcript", "text": text, "no_speech_prob": 0.0},
         )
 
+    async def finalize_stt(self, ws: WebSocket) -> None:
+        """Force-finish any in-progress utterance and emit the final transcript."""
+        if self._continuation_task and not self._continuation_task.done():
+            self._continuation_task.cancel()
+        self._continuation_task = None
+
+        utterance = self.vad.finalize()
+        if utterance is not None:
+            await self._transcribe_and_accumulate(utterance, ws)
+
+        await self._flush_pending_segments(ws)
+
     def reset_vad(self) -> None:
         """Reset VAD and clear pending segments; cancel continuation timer."""
         self.vad.reset()
@@ -425,6 +437,9 @@ async def _handle_control(
 
     elif msg_type == "vad_reset":
         session.reset_vad()
+
+    elif msg_type == "stt_finalize":
+        await session.finalize_stt(ws)
 
     else:
         _log(f"Unknown message type: {msg_type!r}")

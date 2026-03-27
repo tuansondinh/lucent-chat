@@ -1,7 +1,8 @@
 /**
  * AuthService — manages LLM provider API keys and OAuth credentials for Lucent Chat Desktop.
  *
- * Reads/writes ~/.gsd/agent/auth.json using the same format as the GSD web
+ * Reads/writes ~/.lucent/agent/auth.json using the same storage format as the
+ * desktop app onboarding flow.
  * onboarding (FileOnboardingAuthStorage pattern). Validates keys via HTTP
  * before persisting.
  *
@@ -76,7 +77,7 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
 // ============================================================================
 
 function getAuthFilePath(): string {
-  return join(homedir(), '.gsd', 'agent', 'auth.json')
+  return join(homedir(), '.lucent', 'agent', 'auth.json')
 }
 
 function ensureAuthFile(authPath: string): void {

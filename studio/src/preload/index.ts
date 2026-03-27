@@ -12,6 +12,22 @@ interface ProviderAuthStatus {
   supportsOAuth: boolean
 }
 
+export type GitChangeStatus = 'M' | 'A' | 'D' | 'R' | '??' | 'U'
+
+export interface GitChangedFile {
+  path: string
+  status: GitChangeStatus
+  previousPath?: string
+}
+
+export interface GitFileDiff {
+  path: string
+  status: GitChangeStatus
+  previousPath?: string
+  isBinary: boolean
+  diffText: string | null
+}
+
 /**
  * Bridge API exposed to the renderer via contextBridge.
  * Commands are invoked via ipcRenderer.invoke (returns Promise).
@@ -169,9 +185,29 @@ const bridge = {
   fsReadFile: (paneId: string, relativePath: string): Promise<{ content: string; size: number; truncated: boolean; isBinary: boolean }> =>
     ipcRenderer.invoke('cmd:fs-read-file', paneId, relativePath),
 
+  /** Subscribe to filesystem changes under a pane's current project root. */
+  onFileChanged: (
+    cb: (data: {
+      paneId: string
+      changes: Array<{ relativePath: string | null; eventType: 'change' | 'rename' | 'root' }>
+    }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:file-changed', handler)
+    return () => ipcRenderer.removeListener('event:file-changed', handler)
+  },
+
   /** Get the current git branch for a pane's project root. */
   gitBranch: (paneId: string): Promise<string | null> =>
     ipcRenderer.invoke('cmd:git-branch', paneId),
+
+  /** List local git branches for a pane's project root. */
+  gitListBranches: (paneId: string): Promise<{ current: string | null; branches: string[] }> =>
+    ipcRenderer.invoke('cmd:git-list-branches', paneId),
+
+  /** Switch the current pane's repository to another branch. */
+  gitCheckoutBranch: (paneId: string, branch: string): Promise<string | null> =>
+    ipcRenderer.invoke('cmd:git-checkout-branch', paneId, branch),
 
   /** Get the resolved project root path for a pane. */
   gitProjectRoot: (paneId: string): Promise<string> =>
@@ -180,6 +216,14 @@ const bridge = {
   /** Get list of modified/untracked files for a pane's project root. */
   gitModifiedFiles: (paneId: string): Promise<string[]> =>
     ipcRenderer.invoke('cmd:git-modified-files', paneId),
+
+  /** Get changed files with Git status metadata for a pane's project root. */
+  gitChangedFiles: (paneId: string): Promise<GitChangedFile[]> =>
+    ipcRenderer.invoke('cmd:git-changed-files', paneId),
+
+  /** Get the unified diff for a specific file against HEAD. */
+  gitFileDiff: (paneId: string, relativePath: string): Promise<GitFileDiff | null> =>
+    ipcRenderer.invoke('cmd:git-file-diff', paneId, relativePath),
 
   /** Get pane info including project root. */
   getPaneInfo: (paneId: string): Promise<{ paneId: string; projectRoot: string }> =>

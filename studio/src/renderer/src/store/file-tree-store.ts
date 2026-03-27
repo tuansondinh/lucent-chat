@@ -9,6 +9,7 @@
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
+import type { GitChangedFile } from '../../../preload'
 
 // ============================================================================
 // Types
@@ -25,8 +26,10 @@ interface FileTreeState {
   expandedDirs: Set<string>
   /** Cached directory listings keyed by relative path. */
   dirContents: Map<string, DirEntry[]>
-  /** Relative paths of files with uncommitted changes (from git status). */
-  modifiedFiles: Set<string>
+  /** Files with uncommitted changes plus status metadata. */
+  changedFiles: GitChangedFile[]
+  /** Fast lookup for changed files by relative path. */
+  changedFilesMap: Map<string, GitChangedFile>
   /** Relative paths of directories currently being fetched. */
   loading: Set<string>
 
@@ -34,6 +37,8 @@ interface FileTreeState {
   toggleDir: (relativePath: string) => Promise<void>
   /** Re-fetch a directory (defaults to root ''). Clears cache for that path. */
   refreshDir: (relativePath?: string) => Promise<void>
+  /** Re-fetch root plus all currently expanded directories. */
+  refreshVisibleDirs: () => Promise<void>
   /** Re-fetch git-modified files list. */
   refreshModifiedFiles: () => Promise<void>
 }
@@ -49,7 +54,8 @@ function createFileTreeStore(paneId: string): FileTreeStore {
     paneId,
     expandedDirs: new Set<string>(),
     dirContents: new Map<string, DirEntry[]>(),
-    modifiedFiles: new Set<string>(),
+    changedFiles: [],
+    changedFilesMap: new Map<string, GitChangedFile>(),
     loading: new Set<string>(),
 
     toggleDir: async (relativePath: string) => {
@@ -105,15 +111,12 @@ function createFileTreeStore(paneId: string): FileTreeStore {
     },
 
     refreshDir: async (relativePath = '') => {
-      // Clear cached content for this path and re-fetch
+      // Re-fetch in the background while preserving existing content to avoid UI flicker.
       set((s) => {
-        const nextDirContents = new Map(s.dirContents)
-        nextDirContents.delete(relativePath)
-
         const nextLoading = new Set(s.loading)
         nextLoading.add(relativePath)
 
-        return { dirContents: nextDirContents, loading: nextLoading }
+        return { loading: nextLoading }
       })
 
       try {
@@ -131,18 +134,44 @@ function createFileTreeStore(paneId: string): FileTreeStore {
         })
       } catch (err) {
         set((s) => {
+          const nextDirContents = new Map(s.dirContents)
+          nextDirContents.delete(relativePath)
+
+          const nextExpanded = new Set(s.expandedDirs)
+          nextExpanded.delete(relativePath)
+
           const next = new Set(s.loading)
           next.delete(relativePath)
-          return { loading: next }
+          return {
+            dirContents: nextDirContents,
+            expandedDirs: nextExpanded,
+            loading: next,
+          }
         })
         throw err
       }
     },
 
+    refreshVisibleDirs: async () => {
+      const expandedDirs = Array.from(get().expandedDirs)
+      const targets = ['']
+
+      for (const relativePath of expandedDirs) {
+        if (relativePath !== '') targets.push(relativePath)
+      }
+
+      await Promise.allSettled(
+        targets.map((relativePath) => get().refreshDir(relativePath)),
+      )
+    },
+
     refreshModifiedFiles: async () => {
       try {
-        const files = await window.bridge.gitModifiedFiles(paneId)
-        set({ modifiedFiles: new Set(files) })
+        const files = await window.bridge.gitChangedFiles(paneId)
+        set({
+          changedFiles: files,
+          changedFilesMap: new Map(files.map((file) => [file.path, file])),
+        })
       } catch {
         // Git may not be available — silently ignore
       }

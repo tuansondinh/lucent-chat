@@ -1,7 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { execFileSync } from 'node:child_process'
 import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator } from './orchestrator.js'
@@ -14,6 +13,7 @@ import { AuthService } from './auth-service.js'
 import { VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
+import { FileWatchService } from './file-watch-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -24,6 +24,7 @@ let processManager: ProcessManager | null = null
 let terminalManager: TerminalManager | null = null
 let paneManager: PaneManager | null = null
 let voiceService: VoiceService | null = null
+let fileWatchService: FileWatchService | null = null
 
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
@@ -46,7 +47,7 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     minHeight: 500,
     backgroundColor: '#1a1a1a',
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-    titleBarOverlay: process.platform === 'darwin' ? { height: 44 } : undefined,
+    titleBarOverlay: process.platform === 'darwin' ? { height: 36 } : undefined,
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -164,12 +165,15 @@ app.whenReady().then(async () => {
       })
   }
 
-  // 6. Spawn agent and attach — pass TAVILY_API_KEY if configured in settings
+  // 6. Resolve initial project root from the app's current working directory.
+  const initialProjectRoot = process.cwd()
+
+  // 7. Spawn agent and attach — pass TAVILY_API_KEY if configured in settings
   const agentEnv: Record<string, string> = {}
   if (settings.tavilyApiKey) {
     agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   }
-  processManager.spawnAgent(agentEnv)
+  processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
 
   // Re-attach whenever the agent restarts (brief delay for new proc to be set)
@@ -177,7 +181,7 @@ app.whenReady().then(async () => {
     setTimeout(attachAgentBridge, 200)
   })
 
-  // 7. PaneManager — create pane-0 with pane-aware event callbacks
+  // 8. PaneManager — create pane-0 with pane-aware event callbacks
   paneManager = new PaneManager()
 
   const orchestrator = new Orchestrator(agentBridge, {
@@ -194,42 +198,30 @@ app.whenReady().then(async () => {
     onTextBlockEnd: (d) => pushEvent(mainWindow, 'event:text-block-end', { paneId: 'pane-0', ...d }),
   })
 
-  // Resolve initial project root for pane-0
-  let initialProjectRoot = process.cwd()
-  try {
-    initialProjectRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: process.cwd(),
-      timeout: 2000,
-      encoding: 'utf8',
-    }).trim()
-  } catch {
-    // Not a git repo or git not available — fall back to cwd
-  }
-
-  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, initialProjectRoot)
+  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
 
   // Forward health events for pane-0 to renderer (with paneId)
   processManager.on('health', (states: Record<string, string>) => {
     pushEvent(mainWindow, 'event:health', { paneId: 'pane-0', states })
   })
 
-  // 8. Terminal Manager — forwards pty output to renderer
+  // 9. Terminal Manager — forwards pty output to renderer
   terminalManager = new TerminalManager((_id, data) => {
     pushEvent(mainWindow, 'event:terminal-data', { data })
   })
 
-  // 9. Auth service + IPC handlers
+  // 10. Auth service + IPC handlers
   const authService = new AuthService()
   const fileService = new FileService()
   const gitService = new GitService()
+  fileWatchService = new FileWatchService((channel, data) => {
+    pushEvent(mainWindow, channel, data)
+  })
+  fileWatchService.watchPane('pane-0', initialProjectRoot)
 
   const restartAllAgents = async () => {
     for (const paneId of paneManager!.getPaneIds()) {
-      const pane = paneManager!.getPane(paneId)
-      if (!pane) continue
-      await pane.processManager.killProcess('agent')
-      pane.processManager.spawnAgent()
-      pane.processManager.emit('agent-restarting')
+      await paneManager!.restartPaneAgent(paneId)
     }
   }
 
@@ -241,6 +233,7 @@ app.whenReady().then(async () => {
     voiceService!,
     fileService,
     gitService,
+    fileWatchService,
     restartAllAgents,
     () => mainWindow
   )
@@ -289,6 +282,7 @@ app.on('before-quit', (e) => {
     void (async () => {
       try {
         terminalManager?.destroyAll()
+        fileWatchService?.shutdown()
         // Stop voice sidecar first (non-blocking 3s grace)
         await voiceService?.stop()
         // Shutdown non-pane-0 panes first

@@ -28,6 +28,8 @@ export interface AppSettings {
   windowBounds?: { x: number; y: number; width: number; height: number }
   /** Whether the user has completed first-run onboarding. */
   onboardingComplete?: boolean
+  /** Push-to-talk shortcut for pane-scoped voice input. */
+  voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
 }
 
 // ============================================================================
@@ -38,6 +40,7 @@ const DEFAULTS: AppSettings = {
   theme: 'dark',
   fontSize: 14,
   sidebarCollapsed: true,
+  voicePttShortcut: 'space',
 }
 
 // ============================================================================
@@ -66,7 +69,10 @@ export class SettingsService {
   load(): AppSettings {
     try {
       const raw = readFileSync(this.settingsPath, 'utf8')
-      const parsed = JSON.parse(raw) as Partial<AppSettings>
+      const parsed = JSON.parse(raw) as Partial<AppSettings> & { voicePttShortcut?: string }
+      if (parsed.voicePttShortcut === 'alt+v') {
+        parsed.voicePttShortcut = 'space'
+      }
       // Merge stored values over defaults (shallow)
       this.settings = { ...DEFAULTS, ...parsed }
     } catch {

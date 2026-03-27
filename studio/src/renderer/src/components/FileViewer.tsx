@@ -16,11 +16,12 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
-import { getPaneStore } from '../store/pane-store'
+import { getPaneStore, type OpenViewerItem } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch } from 'lucide-react'
+import type { GitChangeStatus } from '../../../preload'
 
 // ============================================================================
 // Constants
@@ -103,6 +104,91 @@ function extensionToLanguage(path: string): string {
     php: 'php',
   }
   return map[ext] ?? 'text'
+}
+
+interface ParsedDiffLine {
+  kind: 'meta' | 'hunk' | 'context' | 'add' | 'remove'
+  text: string
+  oldLineNumber: number | null
+  newLineNumber: number | null
+}
+
+function parseDiffHunkHeader(line: string): { oldStart: number; newStart: number } | null {
+  const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
+  if (!match) return null
+  return {
+    oldStart: Number(match[1]),
+    newStart: Number(match[2]),
+  }
+}
+
+function parseUnifiedDiff(diffText: string | null): ParsedDiffLine[] {
+  if (!diffText) return []
+
+  const lines = diffText.split('\n')
+  const parsed: ParsedDiffLine[] = []
+  let oldLine = 0
+  let newLine = 0
+
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      const header = parseDiffHunkHeader(line)
+      if (header) {
+        oldLine = header.oldStart
+        newLine = header.newStart
+      }
+      parsed.push({ kind: 'hunk', text: line, oldLineNumber: null, newLineNumber: null })
+      continue
+    }
+
+    if (
+      line.startsWith('diff --git') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('rename from ') ||
+      line.startsWith('rename to ') ||
+      line.startsWith('new file mode ') ||
+      line.startsWith('deleted file mode ')
+    ) {
+      parsed.push({ kind: 'meta', text: line, oldLineNumber: null, newLineNumber: null })
+      continue
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      parsed.push({ kind: 'add', text: line, oldLineNumber: null, newLineNumber: newLine })
+      newLine += 1
+      continue
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      parsed.push({ kind: 'remove', text: line, oldLineNumber: oldLine, newLineNumber: null })
+      oldLine += 1
+      continue
+    }
+
+    parsed.push({ kind: 'context', text: line, oldLineNumber: oldLine, newLineNumber: newLine })
+    oldLine += 1
+    newLine += 1
+  }
+
+  return parsed
+}
+
+function getDiffStatusBadgeClass(status: GitChangeStatus): string {
+  switch (status) {
+    case 'A':
+    case '??':
+      return 'bg-emerald-500/15 text-emerald-300'
+    case 'D':
+      return 'bg-red-500/15 text-red-300'
+    case 'R':
+      return 'bg-sky-500/15 text-sky-300'
+    case 'U':
+      return 'bg-amber-400/15 text-amber-200'
+    default:
+      return 'bg-amber-500/15 text-amber-300'
+  }
 }
 
 // ============================================================================
@@ -331,7 +417,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   const activeFilePath = getPaneStore(paneId)((s) => s.activeFilePath)
   const closeFile = getPaneStore(paneId)((s) => s.closeFile)
   const setActiveFile = getPaneStore(paneId)((s) => s.setActiveFile)
-  const modifiedFiles = getFileTreeStore(paneId)((s) => s.modifiedFiles)
+  const changedFilesMap = getFileTreeStore(paneId)((s) => s.changedFilesMap)
 
   const [showAll, setShowAll] = useState(false)
 
@@ -384,12 +470,12 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     }
   }, [searchOpen])
 
-  const activeFile = openFiles.find((f) => f.relativePath === activeFilePath) ?? null
+  const activeFile = openFiles.find((f) => f.tabKey === activeFilePath) ?? null
 
   // ---- Empty state ----
   if (!activeFile) {
     return (
-      <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
+      <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
         <FileViewerHeader
           path={null}
           paneId={paneId}
@@ -410,12 +496,56 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     )
   }
 
+  if (activeFile.kind === 'diff') {
+    const diffLines = parseUnifiedDiff(activeFile.diffText)
+    const fullContent = activeFile.diffText ?? ''
+
+    return (
+      <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
+        <FileViewerHeader
+          path={activeFile.relativePath}
+          paneId={paneId}
+          mode="diff"
+          onClose={onClose}
+          onSearchOpen={() => {}}
+          fullContent={fullContent}
+          diffStatus={activeFile.status}
+          previousPath={activeFile.previousPath}
+        />
+
+        <TabStrip
+          openFiles={openFiles}
+          activeFilePath={activeFilePath}
+          changedFilesMap={changedFilesMap}
+          closeFile={closeFile}
+          setActiveFile={setActiveFile}
+        />
+
+        <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
+          {activeFile.isBinary ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <GitBranch className="size-8 text-text-tertiary opacity-40" />
+              <p className="text-sm text-text-tertiary">Binary diff preview unavailable</p>
+            </div>
+          ) : diffLines.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+              <GitBranch className="size-8 text-text-tertiary opacity-40" />
+              <p className="text-sm text-text-tertiary">No textual diff to display</p>
+            </div>
+          ) : (
+            <UnifiedDiffView lines={diffLines} />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const { relativePath, content, isBinary } = activeFile
 
   // ---- Binary detection ----
   if (isBinary || isBinaryContent(content)) {
     return (
-      <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
+      <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
         <FileViewerHeader
           path={relativePath}
           paneId={paneId}
@@ -426,7 +556,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         <TabStrip
           openFiles={openFiles}
           activeFilePath={activeFilePath}
-          modifiedFiles={modifiedFiles}
+          changedFilesMap={changedFilesMap}
           closeFile={closeFile}
           setActiveFile={setActiveFile}
         />
@@ -478,7 +608,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-bg-secondary border-l border-border min-w-0">
+    <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
       <FileViewerHeader
         path={relativePath}
         paneId={paneId}
@@ -491,7 +621,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
       <TabStrip
         openFiles={openFiles}
         activeFilePath={activeFilePath}
-        modifiedFiles={modifiedFiles}
+        changedFilesMap={changedFilesMap}
         closeFile={closeFile}
         setActiveFile={setActiveFile}
       />
@@ -570,25 +700,26 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
 // ============================================================================
 
 interface TabStripProps {
-  openFiles: Array<{ relativePath: string }>
+  openFiles: OpenViewerItem[]
   activeFilePath: string | null
-  modifiedFiles: Set<string>
-  closeFile: (relativePath: string) => void
-  setActiveFile: (relativePath: string) => void
+  changedFilesMap: Map<string, { status: GitChangeStatus }>
+  closeFile: (tabKey: string) => void
+  setActiveFile: (tabKey: string) => void
 }
 
-function TabStrip({ openFiles, activeFilePath, modifiedFiles, closeFile, setActiveFile }: TabStripProps) {
+function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setActiveFile }: TabStripProps) {
   if (openFiles.length === 0) return null
 
   return (
     <div className="flex overflow-x-auto border-b border-border/60 bg-[#0d1117] flex-shrink-0 scrollbar-none">
       {openFiles.map((file) => {
         const fileName = file.relativePath.split('/').pop() ?? file.relativePath
-        const isActive = file.relativePath === activeFilePath
-        const isModified = modifiedFiles.has(file.relativePath)
+        const isActive = file.tabKey === activeFilePath
+        const fileChange = changedFilesMap.get(file.relativePath)
+        const isModified = Boolean(fileChange)
         return (
           <div
-            key={file.relativePath}
+            key={file.tabKey}
             role="tab"
             aria-selected={isActive}
             className={[
@@ -598,16 +729,17 @@ function TabStrip({ openFiles, activeFilePath, modifiedFiles, closeFile, setActi
                 ? 'bg-bg-secondary text-text-primary border-t-2 border-t-accent border-b-0'
                 : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover',
             ].join(' ')}
-            onClick={() => setActiveFile(file.relativePath)}
-            onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.relativePath) } }}
+            onClick={() => setActiveFile(file.tabKey)}
+            onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.tabKey) } }}
             title={file.relativePath}
           >
             {isModified && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', fileChange?.status === 'D' ? 'bg-red-400' : fileChange?.status === 'A' || fileChange?.status === '??' ? 'bg-emerald-400' : fileChange?.status === 'R' ? 'bg-sky-400' : 'bg-amber-400')} />
             )}
+            {file.kind === 'diff' && <GitBranch className="size-3 text-text-tertiary flex-shrink-0" />}
             <span className="truncate">{fileName}</span>
             <button
-              onClick={(e) => { e.stopPropagation(); closeFile(file.relativePath) }}
+              onClick={(e) => { e.stopPropagation(); closeFile(file.tabKey) }}
               className="size-3.5 flex-shrink-0 flex items-center justify-center rounded hover:bg-white/10 text-text-tertiary hover:text-text-primary"
               aria-label={`Close ${fileName}`}
             >
@@ -627,12 +759,24 @@ function TabStrip({ openFiles, activeFilePath, modifiedFiles, closeFile, setActi
 interface FileViewerHeaderProps {
   path: string | null
   paneId: string
+  mode?: 'file' | 'diff'
   onClose: () => void
   onSearchOpen: () => void
   fullContent: string
+  diffStatus?: GitChangeStatus
+  previousPath?: string
 }
 
-function FileViewerHeader({ path, paneId, onClose, onSearchOpen, fullContent }: FileViewerHeaderProps) {
+function FileViewerHeader({
+  path,
+  paneId,
+  mode = 'file',
+  onClose,
+  onSearchOpen,
+  fullContent,
+  diffStatus,
+  previousPath,
+}: FileViewerHeaderProps) {
   const handleSegmentClick = useCallback((segmentPath: string) => {
     void getFileTreeStore(paneId).getState().toggleDir(segmentPath)
   }, [paneId])
@@ -640,19 +784,35 @@ function FileViewerHeader({ path, paneId, onClose, onSearchOpen, fullContent }: 
   return (
     <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-bg-tertiary flex-shrink-0 min-w-0">
       {/* File icon */}
-      <FileText className="size-3.5 text-text-tertiary flex-shrink-0" />
+      {mode === 'diff' ? (
+        <GitBranch className="size-3.5 text-text-tertiary flex-shrink-0" />
+      ) : (
+        <FileText className="size-3.5 text-text-tertiary flex-shrink-0" />
+      )}
 
       {/* Breadcrumb or placeholder */}
       <div className="flex-1 min-w-0 overflow-hidden">
         {path ? (
-          <FileBreadcrumb relativePath={path} onSegmentClick={handleSegmentClick} />
+          <div className="flex min-w-0 items-center gap-2">
+            <FileBreadcrumb relativePath={path} onSegmentClick={handleSegmentClick} />
+            {mode === 'diff' && diffStatus && (
+              <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold flex-shrink-0', getDiffStatusBadgeClass(diffStatus))}>
+                {diffStatus}
+              </span>
+            )}
+            {mode === 'diff' && previousPath && (
+              <span className="truncate text-[10px] text-text-tertiary">
+                from {previousPath}
+              </span>
+            )}
+          </div>
         ) : (
           <span className="text-xs text-text-tertiary">File Viewer</span>
         )}
       </div>
 
       {/* Search button */}
-      {path && (
+      {path && mode === 'file' && (
         <button
           onClick={onSearchOpen}
           title="Search in file (⌘F)"
@@ -675,6 +835,36 @@ function FileViewerHeader({ path, paneId, onClose, onSearchOpen, fullContent }: 
       >
         <X className="size-3.5" />
       </button>
+    </div>
+  )
+}
+
+function UnifiedDiffView({ lines }: { lines: ParsedDiffLine[] }) {
+  return (
+    <div className="overflow-x-auto bg-[#0d1117]">
+      {lines.map((line, index) => (
+        <div
+          key={`${index}-${line.text}`}
+          className={cn(
+            'flex items-stretch font-mono text-[12px] leading-[1.6]',
+            line.kind === 'add' && 'bg-emerald-500/10 text-emerald-100',
+            line.kind === 'remove' && 'bg-red-500/10 text-red-100',
+            line.kind === 'hunk' && 'bg-sky-500/10 text-sky-200',
+            line.kind === 'meta' && 'bg-white/5 text-text-tertiary',
+            (line.kind === 'context' || line.kind === 'add' || line.kind === 'remove') && 'text-[#e6edf3]',
+          )}
+        >
+          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#636e7b] select-none">
+            {line.oldLineNumber ?? ''}
+          </div>
+          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#636e7b] select-none">
+            {line.newLineNumber ?? ''}
+          </div>
+          <div className="min-w-0 flex-1 whitespace-pre px-4">
+            {line.text || ' '}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

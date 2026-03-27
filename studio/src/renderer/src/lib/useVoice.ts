@@ -174,6 +174,8 @@ interface UseVoiceOptions {
 
 interface UseVoiceReturn {
   toggleVoice: () => void
+  beginVoiceCapture: () => void
+  finishVoiceCapture: () => void
   stopTts: () => void
   /** Feed an agent text chunk to the TTS sentence accumulator. */
   feedAgentChunk: (text: string, turnId: string) => void
@@ -188,6 +190,7 @@ interface UseVoiceReturn {
 export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoiceOptions): UseVoiceReturn {
   const voiceStore = useVoiceStore
   const bridge = window.bridge
+  const isVoiceOwner = useVoiceStore((state) => state.active && state.activePaneId === _activePaneId)
 
   // Refs for mutable audio/WS state (not React state — avoids re-render churn)
   const wsRef = useRef<WebSocket | null>(null)
@@ -196,6 +199,8 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const playbackQueueRef = useRef<AudioPlaybackQueue | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingReleaseRef = useRef(false)
+  const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // TTS sentence accumulation
   const ttsSentenceBufferRef = useRef('')
@@ -314,6 +319,60 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
   }, [bridge, voiceStore, applyVoiceStatus])
 
   // =========================================================================
+  // Stop mic capture
+  // =========================================================================
+
+  const stopMic = useCallback(() => {
+    if (processorRef.current) {
+      processorRef.current.disconnect()
+      processorRef.current = null
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {})
+      audioCtxRef.current = null
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+  }, [])
+
+  const isMicRunning = useCallback(() => {
+    return !!processorRef.current && !!audioCtxRef.current && !!streamRef.current
+  }, [])
+
+  const disconnectVoiceIo = useCallback(() => {
+    pendingReleaseRef.current = false
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current)
+      releaseTimerRef.current = null
+    }
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    stopMic()
+    playbackQueueRef.current?.destroy()
+    playbackQueueRef.current = null
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+  }, [stopMic])
+
+  const completePushToTalkRelease = useCallback(() => {
+    const state = voiceStore.getState()
+    if (!state.active || state.activePaneId !== _activePaneId) return
+    pendingReleaseRef.current = false
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current)
+      releaseTimerRef.current = null
+    }
+    state.setActive(false, null)
+    disconnectVoiceIo()
+  }, [voiceStore, _activePaneId, disconnectVoiceIo])
+
+  // =========================================================================
   // WebSocket connection
   // =========================================================================
 
@@ -368,6 +427,9 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
           case 'transcript':
             voiceStore.getState().setPartialTranscript('')
             onTranscript(msg.text as string)
+            if (pendingReleaseRef.current) {
+              completePushToTalkRelease()
+            }
             break
           case 'tts_start':
             voiceStore.getState().setTtsPlaying(true)
@@ -386,10 +448,12 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       voiceStore.getState().setWsConnected(false)
       wsRef.current = null
       // Reconnect if voice is still active
-      if (voiceStore.getState().active) {
+      const state = voiceStore.getState()
+      if (state.active && state.activePaneId === _activePaneId) {
         reconnectTimerRef.current = setTimeout(() => {
-          const p = voiceStore.getState().port
-          if (p && voiceStore.getState().active) {
+          const latest = voiceStore.getState()
+          const p = latest.port
+          if (p && latest.active && latest.activePaneId === _activePaneId) {
             connectWs(p)
           }
         }, 2000)
@@ -400,30 +464,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       console.error('[voice] WebSocket error', err)
       voiceStore.getState().setError('WebSocket connection failed')
     }
-  }, [voiceStore, onTranscript, handlePlaybackDrain])
-
-  // =========================================================================
-  // Stop mic capture
-  // =========================================================================
-
-  const stopMic = useCallback(() => {
-    if (processorRef.current) {
-      processorRef.current.disconnect()
-      processorRef.current = null
-    }
-    if (audioCtxRef.current) {
-      audioCtxRef.current.close().catch(() => {})
-      audioCtxRef.current = null
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop())
-      streamRef.current = null
-    }
-  }, [])
-
-  // =========================================================================
-  // Start mic capture
-  // =========================================================================
+  }, [voiceStore, onTranscript, handlePlaybackDrain, _activePaneId, completePushToTalkRelease])
 
   const startMic = useCallback(async () => {
     try {
@@ -481,33 +522,20 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
 
   const toggleVoice = useCallback(async () => {
     const state = voiceStore.getState()
+    const thisPaneOwnsVoice = state.active && state.activePaneId === _activePaneId
 
-    if (state.active) {
+    if (thisPaneOwnsVoice) {
       // --- Turn voice OFF ---
-      state.setActive(false)
-
-      // Stop reconnect timer
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-
-      // Stop mic
-      stopMic()
+      state.setActive(false, null)
 
       // Stop TTS
       stopTts()
-      playbackQueueRef.current?.destroy()
-      playbackQueueRef.current = null
 
       // Flush any pending TTS buffer
       flushTtsBuffer()
 
-      // Close WebSocket cleanly
-      if (wsRef.current) {
-        wsRef.current.close()
-        wsRef.current = null
-      }
+      // Close local resources cleanly
+      disconnectVoiceIo()
     } else {
       // --- Turn voice ON ---
       let port = state.port
@@ -527,7 +555,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
         }
       }
 
-      state.setActive(true)
+      state.setActive(true, _activePaneId)
 
       // Connect WebSocket first
       connectWs(port)
@@ -535,14 +563,66 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       // Start mic
       await startMic()
     }
-  }, [voiceStore, bridge, stopMic, stopTts, flushTtsBuffer, connectWs, startMic])
+  }, [voiceStore, bridge, _activePaneId, stopTts, flushTtsBuffer, connectWs, startMic, disconnectVoiceIo])
+
+  const beginVoiceCapture = useCallback(async () => {
+    const state = voiceStore.getState()
+    const thisPaneOwnsVoice = state.active && state.activePaneId === _activePaneId
+
+    if (!thisPaneOwnsVoice) {
+      let port = state.port
+      if (!port) {
+        try {
+          state.setSidecarState('starting')
+          const started = await bridge.voiceStart()
+          port = started.port
+          state.setPort(port)
+          state.setAvailable(true, null)
+          state.setSidecarState('ready')
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Voice service failed to start'
+          state.setError(msg)
+          state.setSidecarState('error')
+          return
+        }
+      }
+
+      state.setActive(true, _activePaneId)
+      connectWs(port)
+    }
+
+    if (!isMicRunning()) {
+      await startMic()
+    }
+  }, [voiceStore, bridge, _activePaneId, connectWs, startMic, isMicRunning])
+
+  const finishVoiceCapture = useCallback(() => {
+    const state = voiceStore.getState()
+    if (!state.active || state.activePaneId !== _activePaneId) return
+
+    stopMic()
+    state.setSpeaking(false)
+    pendingReleaseRef.current = true
+
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'stt_finalize' }))
+    }
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current)
+    }
+    releaseTimerRef.current = setTimeout(() => {
+      completePushToTalkRelease()
+    }, 1500)
+  }, [voiceStore, _activePaneId, stopMic, completePushToTalkRelease])
 
   // =========================================================================
   // Feed agent chunk for TTS
   // =========================================================================
 
   const feedAgentChunk = useCallback((text: string, turnId: string) => {
-    if (!voiceStore.getState().active) return
+    const state = voiceStore.getState()
+    if (!state.active || state.activePaneId !== _activePaneId) return
 
     // Reset buffer if this is a new turn
     if (turnId !== ttsTurnIdRef.current) {
@@ -565,17 +645,24 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       sendTtsSynthesize(ttsSentenceBufferRef.current)
       ttsSentenceBufferRef.current = ''
     }
-  }, [voiceStore, sendTtsSynthesize])
+  }, [voiceStore, _activePaneId, sendTtsSynthesize])
 
   // =========================================================================
   // Flush TTS at end of agent turn
   // =========================================================================
 
   const flushTts = useCallback((turnId: string) => {
-    if (!voiceStore.getState().active) return
+    const state = voiceStore.getState()
+    if (!state.active || state.activePaneId !== _activePaneId) return
     if (turnId !== ttsTurnIdRef.current) return
     flushTtsBuffer()
-  }, [voiceStore, flushTtsBuffer])
+  }, [voiceStore, _activePaneId, flushTtsBuffer])
+
+  useEffect(() => {
+    if (!isVoiceOwner) {
+      disconnectVoiceIo()
+    }
+  }, [isVoiceOwner, disconnectVoiceIo])
 
   // =========================================================================
   // Cleanup on unmount
@@ -585,18 +672,14 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
     return () => {
       // Clean up all resources when hook unmounts
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
-      stopMic()
-      playbackQueueRef.current?.destroy()
-      playbackQueueRef.current = null
-      if (wsRef.current) {
-        wsRef.current.close()
-        wsRef.current = null
-      }
+      disconnectVoiceIo()
     }
-  }, [stopMic])
+  }, [disconnectVoiceIo])
 
   return {
     toggleVoice: () => { void toggleVoice() },
+    beginVoiceCapture: () => { void beginVoiceCapture() },
+    finishVoiceCapture,
     stopTts,
     feedAgentChunk,
     flushTts,

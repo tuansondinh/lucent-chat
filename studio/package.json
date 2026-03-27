@@ -1,14 +1,21 @@
 {
   "name": "@lc/studio",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "pack": "electron-builder --dir",
+    "dist": "npm run build && electron-builder -wml",
+    "dist:mac": "npm run build && electron-builder -m",
+    "dist:mac:arm64": "npm run build && electron-builder -m --arm64",
+    "dist:mac:x64": "npm run build && electron-builder -m --x64",
+    "dist:mac:universal": "npm run build && electron-builder -m --universal",
+    "release": "npm run build && electron-builder -m --publish never"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -49,13 +56,63 @@
     "typescript": "^5.9.3"
   },
   "build": {
-    "appId": "com.gsd.studio",
+    "appId": "com.lucent.chat",
     "productName": "Lucent Chat",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "audio-service/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
     "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        },
+        {
+          "target": "zip",
+          "arch": ["universal"]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
       "entitlementsFile": "entitlements.mac.plist",
       "entitlementsInheritFile": "entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "This app needs microphone access for voice input."
+        "NSMicrophoneUsageDescription": "This app needs microphone access for voice input.",
+        "NSCameraUsageDescription": "This app does not access your camera.",
+        "NSSupportsAutomaticTermination": false,
+        "NSRequiresAquaSystemAppearance": false
+      },
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "Lucent Chat",
+      "background": "build/dmg-background.png",
+      "icon": "build/icon.icns",
+      "iconSize": 80,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
       }
     }
   }

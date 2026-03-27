@@ -22,6 +22,8 @@ interface ManagedProcess {
   intentionalKill: boolean
   /** Extra env vars to pass on spawn and automatic restarts. */
   extraEnv?: Record<string, string>
+  /** Working directory to use for spawn and automatic restarts. */
+  cwd?: string
 }
 
 const BACKOFF_INITIAL_MS = 1_000
@@ -62,12 +64,15 @@ export class ProcessManager extends EventEmitter {
   /** Spawn the Pi SDK agent in RPC mode.
    * @param extraEnv — Additional environment variables to pass to the agent process.
    */
-  spawnAgent(extraEnv?: Record<string, string>): void {
+  spawnAgent(cwd?: string, extraEnv?: Record<string, string>): void {
     const entry = resolveAgentPath()
     console.log(`[process-manager] spawning agent: node ${entry} --mode rpc`)
 
     const managed = this.processes.get('agent')!
     managed.intentionalKill = false
+    if (cwd !== undefined) {
+      managed.cwd = cwd
+    }
     // Persist extraEnv so automatic restarts use the same environment
     if (extraEnv !== undefined) {
       managed.extraEnv = extraEnv
@@ -76,6 +81,7 @@ export class ProcessManager extends EventEmitter {
     const proc = spawn('node', [entry, '--mode', 'rpc'], {
       stdio: ['pipe', 'pipe', 'inherit'],
       detached: true,
+      cwd: managed.cwd ?? process.cwd(),
       env: { ...process.env, ...managed.extraEnv },
     })
 
@@ -211,7 +217,7 @@ export class ProcessManager extends EventEmitter {
       // Double the backoff for next time, capped at max
       managed.backoffMs = Math.min(managed.backoffMs * 2, BACKOFF_MAX_MS)
       if (name === 'agent') {
-        this.spawnAgent()
+        this.spawnAgent(managed.cwd)
         this.emit('agent-restarting')
       }
     }, delay)

@@ -23,8 +23,9 @@ export interface PaneRuntime {
   orchestrator: Orchestrator
   sessionService: SessionService
   model: string
-  /** Project root for this pane's file tree / git context (viewer-only, not agent cwd). */
+  /** Project root for this pane's explorer, git context, and agent cwd. */
   projectRoot: string
+  attachBridge: () => void
 }
 
 // ============================================================================
@@ -44,6 +45,7 @@ export class PaneManager {
     agentBridge: AgentBridge,
     orchestrator: Orchestrator,
     sessionService: SessionService,
+    attachBridge: () => void,
     projectRoot: string = process.cwd(),
   ): PaneRuntime {
     const pane: PaneRuntime = {
@@ -54,6 +56,7 @@ export class PaneManager {
       sessionService,
       model: '',
       projectRoot,
+      attachBridge,
     }
     this.panes.set('pane-0', pane)
     return pane
@@ -111,7 +114,8 @@ export class PaneManager {
     }
 
     // Spawn agent and wire up bridge
-    processManager.spawnAgent(agentEnv)
+    const projectRoot = process.cwd()
+    processManager.spawnAgent(projectRoot, agentEnv)
     attachBridge()
     processManager.on('agent-restarting', () => setTimeout(attachBridge, 200))
     processManager.on('health', (states: Record<string, string>) => {
@@ -120,9 +124,29 @@ export class PaneManager {
 
     await sessionService.loadActiveSessionId()
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot: process.cwd() }
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, attachBridge }
     this.panes.set(id, pane)
     return pane
+  }
+
+  async restartPaneAgent(id: string, projectRoot?: string): Promise<void> {
+    const pane = this.panes.get(id)
+    if (!pane) return
+
+    if (projectRoot) {
+      pane.projectRoot = projectRoot
+    }
+
+    try {
+      await pane.orchestrator.abortCurrentTurn()
+    } catch {
+      // ignore
+    }
+
+    pane.agentBridge.detach()
+    await pane.processManager.killProcess('agent')
+    pane.processManager.spawnAgent(pane.projectRoot)
+    pane.attachBridge()
   }
 
   /**

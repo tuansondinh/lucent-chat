@@ -17,6 +17,7 @@ import type { AuthService } from './auth-service.js'
 import type { VoiceService } from './voice-service.js'
 import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
+import type { FileWatchService } from './file-watch-service.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -33,6 +34,7 @@ export function registerIpcHandlers(
   voiceService: VoiceService,
   fileService: FileService,
   gitService: GitService,
+  fileWatchService: FileWatchService,
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
 ): void {
@@ -140,10 +142,12 @@ export function registerIpcHandlers(
     const pane = await paneManager.createPane(settingsService, (channel, data) => {
       if (win && !win.isDestroyed()) win.webContents.send(channel, data)
     })
+    fileWatchService.watchPane(pane.id, pane.projectRoot)
     return { paneId: pane.id }
   })
 
   ipcMain.handle('cmd:pane-close', async (_event, paneId: string) => {
+    fileWatchService.unwatchPane(paneId)
     await paneManager.destroyPane(paneId)
   })
 
@@ -254,6 +258,25 @@ export function registerIpcHandlers(
     return gitService.getBranch(root)
   })
 
+  ipcMain.handle('cmd:git-list-branches', async (_e, paneId: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) {
+      return { current: null, branches: [] }
+    }
+    return gitService.listBranches(root)
+  })
+
+  ipcMain.handle('cmd:git-checkout-branch', async (_e, paneId: string, branch: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) return null
+
+    const nextBranch = await gitService.checkoutBranch(root, branch)
+    if (nextBranch) {
+      fileWatchService.notifyRootChanged(paneId)
+    }
+    return nextBranch
+  })
+
   ipcMain.handle('cmd:git-project-root', (_e, paneId: string) => {
     const root = paneManager.getPane(paneId)?.projectRoot ?? process.cwd()
     return root
@@ -263,6 +286,18 @@ export function registerIpcHandlers(
     const root = paneManager.getPane(paneId)?.projectRoot
     if (!root) return []
     return gitService.getModifiedFiles(root)
+  })
+
+  ipcMain.handle('cmd:git-changed-files', async (_e, paneId: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) return []
+    return gitService.getChangedFiles(root)
+  })
+
+  ipcMain.handle('cmd:git-file-diff', async (_e, paneId: string, relativePath: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) return null
+    return gitService.getFileDiff(root, relativePath)
   })
 
   ipcMain.handle('cmd:get-pane-info', (_e, paneId: string) => {
@@ -276,7 +311,9 @@ export function registerIpcHandlers(
     // Validate it's a real directory
     const stat = await fs.stat(absolutePath)
     if (!stat.isDirectory()) throw new Error('Not a directory')
-    pane.projectRoot = absolutePath
+    await paneManager.restartPaneAgent(paneId, absolutePath)
+    fileWatchService.watchPane(paneId, absolutePath)
+    fileWatchService.notifyRootChanged(paneId)
     return { projectRoot: absolutePath }
   })
 

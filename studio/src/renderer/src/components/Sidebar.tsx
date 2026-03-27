@@ -11,6 +11,8 @@ import {
   Settings,
   PanelLeft,
   PanelLeftClose,
+  FolderOpen,
+  GitBranch,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -18,6 +20,8 @@ import {
   Cpu,
 } from 'lucide-react'
 import { getPaneStore } from '../store/pane-store'
+import { getFileTreeStore } from '../store/file-tree-store'
+import { FileTree } from './FileTree'
 import { ScrollArea } from './ui/scroll-area'
 import {
   DropdownMenu,
@@ -37,6 +41,7 @@ import { Input } from './ui/input'
 import { cn } from '../lib/utils'
 import { relativeTime } from '../lib/time'
 import { formatModelDisplay } from '../lib/models'
+import type { GitChangeStatus } from '../../../preload'
 
 // ============================================================================
 // Types
@@ -48,17 +53,23 @@ export interface Session {
   modified: number
 }
 
+export type SidebarView = 'sessions' | 'explorer' | 'changes'
+
 interface Props {
   collapsed: boolean
   onToggleCollapse: () => void
   currentSessionPath: string | null
   /** The pane whose sessions this sidebar manages. */
   activePaneId: string
+  view: SidebarView
+  onViewChange: (view: SidebarView) => void
   onNewSession: () => void
   onSwitchSession: (path: string) => void
   onRefresh: () => void
   onOpenModelPicker?: () => void
   onOpenSettings?: () => void
+  onExplorerFileOpen?: () => void
+  onOpenDiff?: (paneId: string, relativePath: string) => Promise<void>
 }
 
 // ============================================================================
@@ -70,13 +81,18 @@ export function Sidebar({
   onToggleCollapse,
   currentSessionPath,
   activePaneId,
+  view,
+  onViewChange,
   onNewSession,
   onSwitchSession,
   onRefresh,
   onOpenModelPicker,
   onOpenSettings,
+  onExplorerFileOpen,
+  onOpenDiff,
 }: Props) {
   const { currentModel } = getPaneStore(activePaneId)()
+  const changedFiles = getFileTreeStore(activePaneId)((s) => s.changedFiles)
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = window.bridge
 
@@ -186,6 +202,28 @@ export function Sidebar({
             <Plus className="w-3.5 h-3.5" />
           </button>
 
+          <button
+            onClick={() => {
+              onViewChange('explorer')
+              onToggleCollapse()
+            }}
+            title="Open explorer (⌘E)"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={() => {
+              onViewChange('changes')
+              onToggleCollapse()
+            }}
+            title="Open changes"
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+          </button>
+
           <div className="flex-1" />
 
           <button
@@ -230,29 +268,116 @@ export function Sidebar({
           </button>
         </div>
 
-        {/* Sessions list */}
-        <ScrollArea className="flex-1 px-2">
-          <div className="flex flex-col gap-0.5 pb-2">
-            {sessions.length === 0 && (
-              <p className="text-xs text-text-tertiary px-2 py-4 text-center">
-                No saved sessions
-              </p>
-            )}
-            {sessions.map((session) => {
-              const isActive = session.path === currentSessionPath
-              return (
-                <SessionItem
-                  key={session.path}
-                  session={session}
-                  isActive={isActive}
-                  onSelect={() => void handleSwitchSession(session.path)}
-                  onRename={() => handleRenameOpen(session)}
-                  onDelete={() => setDeleteTarget(session)}
-                />
-              )
-            })}
+        <div className="px-3 pb-2 flex-shrink-0">
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-bg-tertiary/70 p-1">
+            <button
+              onClick={() => onViewChange('sessions')}
+              className={cn(
+                'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
+                view === 'sessions'
+                  ? 'bg-bg-hover text-text-primary'
+                  : 'text-text-tertiary hover:text-text-secondary',
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>Sessions</span>
+            </button>
+            <button
+              onClick={() => onViewChange('explorer')}
+              className={cn(
+                'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
+                view === 'explorer'
+                  ? 'bg-bg-hover text-text-primary'
+                  : 'text-text-tertiary hover:text-text-secondary',
+              )}
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              <span>Explorer</span>
+            </button>
+            <button
+              onClick={() => onViewChange('changes')}
+              className={cn(
+                'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
+                view === 'changes'
+                  ? 'bg-bg-hover text-text-primary'
+                  : 'text-text-tertiary hover:text-text-secondary',
+              )}
+            >
+              <GitBranch className="h-3.5 w-3.5" />
+              <span>Changes</span>
+            </button>
           </div>
-        </ScrollArea>
+        </div>
+
+        {view === 'sessions' ? (
+          <ScrollArea className="flex-1 px-2">
+            <div className="flex flex-col gap-0.5 pb-2">
+              {sessions.length === 0 && (
+                <p className="text-xs text-text-tertiary px-2 py-4 text-center">
+                  No saved sessions
+                </p>
+              )}
+              {sessions.map((session) => {
+                const isActive = session.path === currentSessionPath
+                return (
+                  <SessionItem
+                    key={session.path}
+                    session={session}
+                    isActive={isActive}
+                    onSelect={() => void handleSwitchSession(session.path)}
+                    onRename={() => handleRenameOpen(session)}
+                    onDelete={() => setDeleteTarget(session)}
+                  />
+                )
+              })}
+            </div>
+          </ScrollArea>
+        ) : view === 'explorer' ? (
+          <div className="flex-1 min-h-0 px-2 pb-2">
+            <div className="h-full overflow-hidden rounded-lg border border-border/60 bg-bg-primary/30">
+              <FileTree
+                paneId={activePaneId}
+                onFileOpen={onExplorerFileOpen}
+                embedded
+              />
+            </div>
+          </div>
+        ) : (
+          <ScrollArea className="flex-1 px-2">
+            <div className="flex flex-col gap-1 pb-2">
+              {changedFiles.length === 0 ? (
+                <p className="text-xs text-text-tertiary px-2 py-4 text-center">
+                  No local changes
+                </p>
+              ) : (
+                changedFiles.map((file) => (
+                  <button
+                    key={`${file.path}:${file.status}`}
+                    onClick={() => { void onOpenDiff?.(activePaneId, file.path) }}
+                    className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                    title={file.path}
+                  >
+                    <span className={cn(
+                      'inline-flex min-w-7 items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                      getChangeBadgeClass(file.status),
+                    )}
+                    >
+                      {file.status}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-medium">{file.path}</div>
+                      {file.previousPath && (
+                        <div className="truncate text-[10px] text-text-tertiary">
+                          from {file.previousPath}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        )}
 
         {/* Bottom area */}
         <div className="flex-shrink-0 border-t border-border px-3 py-2 flex items-center gap-2">
@@ -346,6 +471,22 @@ export function Sidebar({
       </Dialog>
     </>
   )
+}
+
+function getChangeBadgeClass(status: GitChangeStatus): string {
+  switch (status) {
+    case 'A':
+    case '??':
+      return 'bg-emerald-500/15 text-emerald-300'
+    case 'D':
+      return 'bg-red-500/15 text-red-300'
+    case 'R':
+      return 'bg-sky-500/15 text-sky-300'
+    case 'U':
+      return 'bg-amber-400/15 text-amber-200'
+    default:
+      return 'bg-amber-500/15 text-amber-300'
+  }
 }
 
 // ============================================================================

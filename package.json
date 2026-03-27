@@ -1,15 +1,15 @@
 {
   "name": "voice-bridge-desktop",
   "version": "2.42.0",
-  "description": "GSD — Get Shit Done coding agent",
+  "description": "Lucent Chat desktop app",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gsd-build/gsd-2.git"
+    "url": "https://github.com/tuansondinh/lucent-chat.git"
   },
-  "homepage": "https://github.com/gsd-build/gsd-2#readme",
+  "homepage": "https://github.com/tuansondinh/lucent-chat#readme",
   "bugs": {
-    "url": "https://github.com/gsd-build/gsd-2/issues"
+    "url": "https://github.com/tuansondinh/lucent-chat/issues"
   },
   "type": "module",
   "workspaces": [
@@ -33,8 +33,8 @@
     "README.md"
   ],
   "piConfig": {
-    "name": "gsd",
-    "configDir": ".gsd"
+    "name": "lucent",
+    "configDir": ".lucent"
   },
   "engines": {
     "node": ">=22.0.0"

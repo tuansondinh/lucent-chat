@@ -35,6 +35,48 @@ import {
 
 interface Props {
   message: ChatMsg
+  projectRoot: string
+  onOpenFileReference?: (relativePath: string) => Promise<void> | void
+}
+
+function decodeHref(href: string): string {
+  try {
+    return decodeURIComponent(href)
+  } catch {
+    return href
+  }
+}
+
+function stripFileReferenceSuffix(path: string): string {
+  return path.replace(/:\d+(?::\d+)?$/, '')
+}
+
+function resolveFileReferenceHref(href: string, projectRoot: string): string | null {
+  const decodedHref = decodeHref(href)
+  const [withoutQuery] = decodedHref.split('?')
+  const [pathOnly] = withoutQuery.split('#')
+  if (!pathOnly) return null
+
+  if (pathOnly.startsWith('http://') || pathOnly.startsWith('https://')) {
+    return null
+  }
+
+  let candidate = pathOnly
+  if (candidate.startsWith('file://')) {
+    candidate = candidate.slice('file://'.length)
+  }
+
+  candidate = stripFileReferenceSuffix(candidate).replace(/\\/g, '/')
+  const normalizedRoot = projectRoot.replace(/\\/g, '/').replace(/\/$/, '')
+
+  if (!candidate) return null
+  if (!candidate.startsWith('/')) {
+    return candidate.replace(/^\.\/+/, '')
+  }
+  if (!normalizedRoot) return null
+  if (candidate === normalizedRoot) return ''
+  if (!candidate.startsWith(`${normalizedRoot}/`)) return null
+  return candidate.slice(normalizedRoot.length + 1)
 }
 
 // ============================================================================
@@ -308,9 +350,11 @@ type RemarkGfmType = typeof import('remark-gfm').default
 interface MarkdownContentProps {
   text: string
   isStreaming: boolean
+  projectRoot: string
+  onOpenFileReference?: (relativePath: string) => Promise<void> | void
 }
 
-function MarkdownContent({ text, isStreaming }: MarkdownContentProps) {
+function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }: MarkdownContentProps) {
   const [ReactMarkdown, setReactMarkdown] = useState<ReactMarkdownType | null>(null)
   const [remarkGfm, setRemarkGfm] = useState<RemarkGfmType | null>(null)
   const [modulesLoaded, setModulesLoaded] = useState(false)
@@ -405,8 +449,17 @@ function MarkdownContent({ text, isStreaming }: MarkdownContentProps) {
               return <span className="text-text-tertiary">{children}</span>
             }
 
+            const relativeFilePath = resolveFileReferenceHref(href, projectRoot)
+
             const handleClick = (e: React.MouseEvent) => {
               e.preventDefault()
+              if (relativeFilePath && onOpenFileReference) {
+                Promise.resolve(onOpenFileReference(relativeFilePath)).catch((err) => {
+                  console.error('[open-file-reference]', err)
+                  toast.error(err instanceof Error ? err.message : 'Failed to open file')
+                })
+                return
+              }
               if (href.startsWith('http://') || href.startsWith('https://')) {
                 // Use bridge IPC if available, else window.open
                 if (typeof window !== 'undefined' && (window as any).bridge?.openExternal) {
@@ -423,6 +476,7 @@ function MarkdownContent({ text, isStreaming }: MarkdownContentProps) {
                 onClick={handleClick}
                 className="text-accent underline underline-offset-2 hover:text-accent-hover cursor-pointer"
                 rel="noopener noreferrer"
+                title={relativeFilePath ? `Open ${relativeFilePath} in file viewer` : href}
                 {...props}
               >
                 {children}
@@ -552,7 +606,7 @@ function MarkdownContent({ text, isStreaming }: MarkdownContentProps) {
 // Main ChatMessage component
 // ============================================================================
 
-export function ChatMessage({ message }: Props) {
+export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props) {
   const isUser = message.role === 'user'
   const isError = message.role === 'error'
   const isStreaming = message.isStreaming
@@ -620,7 +674,13 @@ export function ChatMessage({ message }: Props) {
                   return <ThinkingBlock key={block.id} block={block} />
                 case 'text':
                   return block.text ? (
-                    <MarkdownContent key={block.id} text={block.text} isStreaming={block.isStreaming} />
+                    <MarkdownContent
+                      key={block.id}
+                      text={block.text}
+                      isStreaming={block.isStreaming}
+                      projectRoot={projectRoot}
+                      onOpenFileReference={onOpenFileReference}
+                    />
                   ) : null
                 case 'tool_use':
                   return (
