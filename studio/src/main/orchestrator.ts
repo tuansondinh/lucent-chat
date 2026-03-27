@@ -177,6 +177,7 @@ export class Orchestrator extends EventEmitter {
         })
       } else if (event.type === 'agent_end') {
         agentEndReceived = true
+        clearTimeout(safetyTimer)
         unsubscribe()
 
         // If we got no streaming text, try to get it from the final message
@@ -223,14 +224,5 @@ export class Orchestrator extends EventEmitter {
       return
     }
 
-    // When agent_end fires, it will clear the safety timer indirectly (agentEndReceived flag)
-    // The timeout callback checks agentEndReceived before acting
-    // We store safetyTimer reference to cancel it when agent_end fires naturally
-    // Hook into the unsubscribe to also cancel the timer
-    const origUnsubscribe = unsubscribe
-    // Replace unsubscribe to also clear safety timer (already called above in closure,
-    // so we patch agentEndReceived tracking through the flag set before releaseLock)
-    void origUnsubscribe // already referenced in closure; safetyTimer cleared via flag check
-    void safetyTimer     // eslint-disable-line -- referenced by timeout callback
   }
 }

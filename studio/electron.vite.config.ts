@@ -17,10 +17,13 @@ export default defineConfig({
   preload: {
     build: {
       outDir: 'dist/preload',
+      lib: {
+        entry: resolve(__dirname, 'src/preload/index.ts'),
+        formats: ['cjs'],
+        fileName: () => 'index.js',
+      },
       rollupOptions: {
-        input: {
-          index: resolve(__dirname, 'src/preload/index.ts')
-        }
+        external: ['electron'],
       }
     }
   },

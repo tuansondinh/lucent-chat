@@ -51,29 +51,26 @@ export default function App() {
 
   // Register bridge event listeners once on mount
   useEffect(() => {
-    bridge.onAgentChunk(({ turn_id, text }) => {
-      appendChunk(turn_id, text)
-    })
-
-    bridge.onAgentDone(({ turn_id, full_text }) => {
-      finalizeMessage(turn_id, full_text)
-    })
-
-    bridge.onToolStart(({ turn_id, tool, input }) => {
-      addToolCall(turn_id, tool, input)
-    })
-
-    bridge.onToolEnd(({ turn_id, tool, output, isError }) => {
-      finalizeToolCall(turn_id, tool, output, isError)
-    })
-
-    bridge.onHealth((states) => {
-      setHealth(states)
-    })
-
-    bridge.onError(({ message }) => {
-      addErrorMessage(message)
-    })
+    const unsubs = [
+      bridge.onAgentChunk(({ turn_id, text }) => {
+        appendChunk(turn_id, text)
+      }),
+      bridge.onAgentDone(({ turn_id, full_text }) => {
+        finalizeMessage(turn_id, full_text)
+      }),
+      bridge.onToolStart(({ turn_id, tool, input }) => {
+        addToolCall(turn_id, tool, input)
+      }),
+      bridge.onToolEnd(({ turn_id, tool, output, isError }) => {
+        finalizeToolCall(turn_id, tool, output, isError)
+      }),
+      bridge.onHealth((states) => {
+        setHealth(states)
+      }),
+      bridge.onError(({ message }) => {
+        addErrorMessage(message)
+      }),
+    ]
 
     // Fetch initial health + model state
     bridge.getHealth().then(setHealth).catch(() => {})
@@ -87,14 +84,7 @@ export default function App() {
       })
       .catch(() => {})
 
-    return () => {
-      bridge.removeAllListeners('event:agent-chunk')
-      bridge.removeAllListeners('event:agent-done')
-      bridge.removeAllListeners('event:tool-start')
-      bridge.removeAllListeners('event:tool-end')
-      bridge.removeAllListeners('event:health')
-      bridge.removeAllListeners('event:error')
-    }
+    return () => unsubs.forEach((unsub) => unsub())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to bottom when messages change
