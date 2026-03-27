@@ -12,19 +12,6 @@ import { create } from 'zustand'
 export type MessageRole = 'user' | 'assistant' | 'error'
 export type AgentHealth = 'unknown' | 'starting' | 'ready' | 'degraded' | 'crashed'
 
-/** Subagent content block — an inline nested agent execution. */
-export interface SubagentBlock {
-  type: 'subagent'
-  id: string
-  agentType: string
-  prompt: string
-  status: 'running' | 'done' | 'error'
-  startedAt: number
-  endedAt?: number
-  /** Nested content blocks from the child agent (tool calls, text). Typed as any[] for forward compat. */
-  children: unknown[]
-}
-
 /** Skill step progress. */
 export interface SkillStepState {
   index: number
@@ -59,7 +46,6 @@ export type ContentBlock =
   | { type: 'thinking'; id: string; text: string; isStreaming: boolean }
   | { type: 'text'; id: string; text: string; isStreaming: boolean }
   | { type: 'tool_use'; id: string; tool: string; input: unknown; output?: unknown; isError?: boolean; done: boolean }
-  | SubagentBlock
   | SkillBlock
   | UnknownBlock
 
@@ -136,14 +122,6 @@ interface ChatState {
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
   /** Save the scroll position for a given session path. */
   saveScrollPosition: (sessionPath: string, scrollTop: number) => void
-
-  // ---- Subagent actions ----
-  /** Add a new subagent block to a turn's assistant message. */
-  addSubagentBlock: (turn_id: string, subagentId: string, agentType: string, prompt: string) => void
-  /** Update the status of a subagent block. */
-  updateSubagentStatus: (turn_id: string, subagentId: string, status: 'running' | 'done' | 'error', endedAt?: number) => void
-  /** Number of active subagents across all messages. */
-  activeSubagentCount: number
 }
 
 function mapHealth(state: string): AgentHealth {
@@ -184,7 +162,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isGenerating: false,
   currentModel: '',
   scrollPositions: {},
-  activeSubagentCount: 0,
 
   addUserMessage: (text, turn_id) =>
     set((s) => ({
@@ -498,49 +475,4 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       scrollPositions: { ...s.scrollPositions, [sessionPath]: scrollTop },
     })),
-
-  addSubagentBlock: (turn_id, subagentId, agentType, prompt) =>
-    set((s) => {
-      let messages = ensureAssistantMessage(s.messages, turn_id)
-      messages = messages.map((m) => {
-        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-        const block: SubagentBlock = {
-          type: 'subagent',
-          id: subagentId,
-          agentType,
-          prompt,
-          status: 'running',
-          startedAt: Date.now(),
-          children: [],
-        }
-        return { ...m, contentBlocks: [...m.contentBlocks, block] }
-      })
-      // Count active subagents
-      const activeSubagentCount = messages.reduce((acc, msg) => {
-        return acc + msg.contentBlocks.filter(
-          (b) => b.type === 'subagent' && (b as SubagentBlock).status === 'running'
-        ).length
-      }, 0)
-      return { messages, activeSubagentCount }
-    }),
-
-  updateSubagentStatus: (turn_id, subagentId, status, endedAt) =>
-    set((s) => {
-      const messages = s.messages.map((m) => {
-        if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-        const contentBlocks = m.contentBlocks.map((b) => {
-          if (b.type === 'subagent' && b.id === subagentId) {
-            return { ...b, status, ...(endedAt !== undefined ? { endedAt } : {}) } as SubagentBlock
-          }
-          return b
-        })
-        return { ...m, contentBlocks }
-      })
-      const activeSubagentCount = messages.reduce((acc, msg) => {
-        return acc + msg.contentBlocks.filter(
-          (b) => b.type === 'subagent' && (b as SubagentBlock).status === 'running'
-        ).length
-      }, 0)
-      return { messages, activeSubagentCount }
-    }),
 }))

@@ -18,8 +18,6 @@ import type { VoiceService } from './voice-service.js'
 import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
-import type { SubagentManager } from './subagent-manager.js'
-import { getActiveWorkers } from './worker-registry.js'
 import type { SkillRegistry } from './skill-registry.js'
 import type { SkillExecutor } from './skill-executor.js'
 
@@ -41,7 +39,6 @@ export function registerIpcHandlers(
   fileWatchService: FileWatchService,
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
-  subagentManager?: SubagentManager,
   skillRegistry?: SkillRegistry,
   skillExecutor?: SkillExecutor,
 ): void {
@@ -366,42 +363,6 @@ export function registerIpcHandlers(
     terminalManager.destroy('main')
   })
 
-  // --------------------------------------------------------------------------
-  // Subagent commands — pane-scoped (spawn/list/abort)
-  // --------------------------------------------------------------------------
-
-  ipcMain.handle('cmd:subagent-spawn', async (_event, paneId: string, parentTurnId: string, agentType: string, prompt: string) => {
-    const pane = paneManager.getPane(paneId)
-    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
-    return pane.orchestrator.submitSubagentTurn(parentTurnId, agentType, prompt)
-  })
-
-  ipcMain.handle('cmd:subagent-list', (_event, _paneId: string) => {
-    return subagentManager?.list() ?? []
-  })
-
-  ipcMain.handle('cmd:subagent-abort', async (_event, _paneId: string, subagentId: string) => {
-    if (!subagentManager) return
-    return subagentManager.abort(subagentId)
-  })
-
-  ipcMain.handle('cmd:subagent-workers', () => getActiveWorkers())
-
-  // Forward subagent events to renderer
-  if (subagentManager) {
-    subagentManager.on('subagent-done', (data) => {
-      const win = getMainWindow()
-      pushEvent(win, 'event:subagent-done', data)
-    })
-    subagentManager.on('subagent-error', (data) => {
-      const win = getMainWindow()
-      pushEvent(win, 'event:subagent-state', { ...data, status: 'error' })
-    })
-    subagentManager.on('subagent-aborted', (data) => {
-      const win = getMainWindow()
-      pushEvent(win, 'event:subagent-state', { ...data, status: 'aborted' })
-    })
-  }
 
   // --------------------------------------------------------------------------
   // Skill commands — not pane-specific

@@ -8,7 +8,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import type { AgentBridge } from './agent-bridge.js'
-import type { SubagentManager } from './subagent-manager.js'
 
 // ============================================================================
 // Types
@@ -45,12 +44,6 @@ export interface OrchestratorCallbacks {
   onThinkingEnd: (data: { turn_id: string; text: string }) => void
   onTextBlockStart: (data: { turn_id: string }) => void
   onTextBlockEnd: (data: { turn_id: string }) => void
-  /** Subagent events — optional (only wired when SubagentManager is present). */
-  onSubagentChunk?: (data: { turn_id: string; subagentId: string; text: string }) => void
-  onSubagentToolStart?: (data: { turn_id: string; subagentId: string; tool: string; input: any }) => void
-  onSubagentToolEnd?: (data: { turn_id: string; subagentId: string; tool: string; output: any; isError: boolean }) => void
-  onSubagentDone?: (data: { turn_id: string; subagentId: string; full_text: string }) => void
-  onSubagentState?: (data: { turn_id: string; subagentId: string; status: string }) => void
 }
 
 // ============================================================================
@@ -63,13 +56,11 @@ export class Orchestrator extends EventEmitter {
   private lockQueue: Array<() => void> = []
   private agentBridge: AgentBridge
   private callbacks: OrchestratorCallbacks
-  private subagentManager?: SubagentManager
 
-  constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks, subagentManager?: SubagentManager) {
+  constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks) {
     super()
     this.agentBridge = agentBridge
     this.callbacks = callbacks
-    this.subagentManager = subagentManager
   }
 
   /**
@@ -120,24 +111,14 @@ export class Orchestrator extends EventEmitter {
     return turn.turn_id
   }
 
-  /** Abort the currently generating turn (and any child subagents). */
+  /** Abort the currently generating turn. */
   async abortCurrentTurn(): Promise<void> {
     if (!this.currentTurn || this.currentTurn.state === 'idle' || this.currentTurn.state === 'aborted') {
       return
     }
 
-    const turnId = this.currentTurn.turn_id
     this.setTurnState(this.currentTurn, 'aborted')
     this.emit('voice-abort') // renderer listens to stop TTS
-
-    // Abort any subagents spawned for this turn (orphan cleanup)
-    if (this.subagentManager) {
-      try {
-        await this.subagentManager.abortByParentTurn(turnId)
-      } catch (err: any) {
-        console.warn('[orchestrator] subagent abort error:', err.message)
-      }
-    }
 
     try {
       await this.agentBridge.abort()
@@ -152,70 +133,6 @@ export class Orchestrator extends EventEmitter {
     return this.currentTurn
   }
 
-  /**
-   * Submit a subagent turn — delegates a prompt to an isolated child agent process.
-   * Returns the subagentId. Events are emitted tagged with subagentId.
-   *
-   * Handles pane close / session switch: if the parent turn is aborted, all
-   * child subagents are cleaned up via abortCurrentTurn().
-   */
-  async submitSubagentTurn(
-    parentTurnId: string,
-    agentType: string,
-    prompt: string,
-  ): Promise<string> {
-    if (!this.subagentManager) {
-      throw new Error('SubagentManager not configured on this Orchestrator')
-    }
-
-    const mgr = this.subagentManager
-
-    // Emit initial state
-    this.callbacks.onSubagentState?.({
-      turn_id: parentTurnId,
-      subagentId: '',   // filled in below
-      status: 'running',
-    })
-
-    const subagentId = await mgr.spawn(parentTurnId, agentType, prompt)
-
-    this.callbacks.onSubagentState?.({
-      turn_id: parentTurnId,
-      subagentId,
-      status: 'running',
-    })
-
-    // Listen for subagent events and route to callbacks
-    const onDone = (data: { id: string; parentTurnId: string; agentType: string }) => {
-      if (data.id !== subagentId) return
-      this.callbacks.onSubagentDone?.({ turn_id: parentTurnId, subagentId, full_text: '' })
-      this.callbacks.onSubagentState?.({ turn_id: parentTurnId, subagentId, status: 'done' })
-      cleanup()
-    }
-    const onError = (data: { id: string; reason: string }) => {
-      if (data.id !== subagentId) return
-      this.callbacks.onSubagentState?.({ turn_id: parentTurnId, subagentId, status: 'error' })
-      this.callbacks.onError({ source: 'subagent', message: data.reason })
-      cleanup()
-    }
-    const onAborted = (data: { id: string }) => {
-      if (data.id !== subagentId) return
-      this.callbacks.onSubagentState?.({ turn_id: parentTurnId, subagentId, status: 'error' })
-      cleanup()
-    }
-
-    const cleanup = () => {
-      mgr.removeListener('subagent-done', onDone)
-      mgr.removeListener('subagent-error', onError)
-      mgr.removeListener('subagent-aborted', onAborted)
-    }
-
-    mgr.on('subagent-done', onDone)
-    mgr.on('subagent-error', onError)
-    mgr.on('subagent-aborted', onAborted)
-
-    return subagentId
-  }
 
   /**
    * Set voice-specific turn phase. Only affects voice-input turns.

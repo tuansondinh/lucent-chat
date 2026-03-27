@@ -133,7 +133,6 @@ export default function App() {
     isGenerating: activePaneGenerating,
     isCompacting: activePaneCompacting,
     autoCompactionEnabled: activePaneAutoCompactionEnabled,
-    activeSubagentCount: activePaneSubagentCount,
   } = activePaneStore()
 
   // Voice store (global, not per-pane) — select only needed state to avoid re-renders
@@ -817,7 +816,6 @@ export default function App() {
         model={activePaneModel}
         sessionName={activePaneSessionName}
         health={activePaneHealth}
-        activeSubagentCount={activePaneSubagentCount ?? 0}
       />
 
       {/* Model picker dialog */}

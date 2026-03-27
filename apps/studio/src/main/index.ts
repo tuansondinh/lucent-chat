@@ -285,7 +285,6 @@ app.whenReady().then(async () => {
     fileWatchService,
     restartAllAgents,
     () => mainWindow,
-    undefined, // subagentManager
     skillRegistry,
     skillExecutor,
   )

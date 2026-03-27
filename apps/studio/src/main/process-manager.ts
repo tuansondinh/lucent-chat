@@ -300,7 +300,6 @@ export class ProcessManager extends EventEmitter {
       console.error(`[process-manager] named process "${name}" error: ${err.message}`)
       this.setState(name, 'crashed')
       managed.proc = null
-      // Emit so callers (SubagentManager) can clean up
       this.emit('named-process-error', name, err)
     })
 

@@ -267,9 +267,6 @@ export function ChatPane({
     currentModel,
     currentSessionPath,
     projectRoot,
-    addSubagentBlock,
-    updateSubagentStatus,
-    activeSubagentCount,
   } = store()
 
   const bridge = getBridge()
@@ -508,22 +505,6 @@ export function ChatPane({
         store.getState().addErrorMessage(message)
         toast.error(message)
       }),
-      // Subagent events — optional (bridge may not have these methods in older preloads)
-      ...(bridge.onSubagentState ? [
-        bridge.onSubagentState(({ turn_id, subagentId, status }) => {
-          const s = store.getState()
-          if (status === 'running') {
-            // Will be added via onSubagentChunk or a separate spawn event
-          } else {
-            s.updateSubagentStatus(turn_id, subagentId, status as 'running' | 'done' | 'error', Date.now())
-          }
-        }),
-      ] : []),
-      ...(bridge.onSubagentDone ? [
-        bridge.onSubagentDone(({ turn_id, subagentId }) => {
-          store.getState().updateSubagentStatus(turn_id, subagentId, 'done', Date.now())
-        }),
-      ] : []),
       // Skill events — optional (bridge may not have these in older preloads)
       ...(bridge.onSkillProgress ? [
         bridge.onSkillProgress(({ skillId, skillName, trigger, stepIndex, totalSteps, status, output, error }) => {
