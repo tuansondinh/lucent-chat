@@ -7,6 +7,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
+import { toast, Toaster } from 'sonner'
 import { useChatStore } from './store/chat'
 import { ChatMessage } from './components/ChatMessage'
 import { ChatInput } from './components/ChatInput'
@@ -40,6 +41,7 @@ export default function App() {
     agentHealth,
     isGenerating,
     currentModel,
+    scrollPositions,
     appendChunk,
     finalizeMessage,
     addUserMessage,
@@ -49,9 +51,12 @@ export default function App() {
     addErrorMessage,
     setModel,
     loadHistory,
+    saveScrollPosition,
   } = useChatStore()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  /** Ref to the scrollable messages container — used to save/restore scroll position. */
+  const scrollContainerRef = useRef<HTMLElement>(null)
   const bridge = window.bridge
 
   // -------------------------------------------------------------------------
@@ -100,6 +105,15 @@ export default function App() {
   }, [sidebarCollapsed, settingsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
+  // Sync native window title with current session name
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    const title = currentSessionName ? currentSessionName : 'Lucent Chat'
+    bridge.setWindowTitle(title).catch(() => {})
+  }, [currentSessionName]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -------------------------------------------------------------------------
   // Register bridge event listeners once on mount
   // -------------------------------------------------------------------------
 
@@ -122,6 +136,7 @@ export default function App() {
       }),
       bridge.onError(({ message }) => {
         addErrorMessage(message)
+        toast.error(message)
       }),
     ]
 
@@ -236,18 +251,34 @@ export default function App() {
   }, [bridge, loadHistory])
 
   const handleSwitchSession = useCallback(async (path: string) => {
+    // Save current session's scroll position before switching
+    if (currentSessionPath && scrollContainerRef.current) {
+      saveScrollPosition(currentSessionPath, scrollContainerRef.current.scrollTop)
+    }
+
     // Load messages for the newly switched session
     const history = await bridge.getMessages().catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
     loadHistory(history)
     setCurrentSessionPath(path)
+
     // Re-fetch state to get updated session name
     bridge
       .getState()
       .then((state) => {
-        if (typeof state.sessionName === 'string') setCurrentSessionName(state.sessionName)
+        const name = typeof state.sessionName === 'string' ? state.sessionName : ''
+        setCurrentSessionName(name)
+        if (name) toast.success(`Switched to ${name}`)
+
+        // Restore scroll position for this session after the DOM updates
+        requestAnimationFrame(() => {
+          if (scrollContainerRef.current) {
+            const saved = scrollPositions[path]
+            scrollContainerRef.current.scrollTop = saved ?? scrollContainerRef.current.scrollHeight
+          }
+        })
       })
       .catch(() => {})
-  }, [bridge, loadHistory])
+  }, [bridge, loadHistory, currentSessionPath, scrollPositions, saveScrollPosition]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = useCallback(() => {
     // After rename/delete, refresh state
@@ -277,10 +308,12 @@ export default function App() {
   // Chat actions
   // -------------------------------------------------------------------------
 
-  const handleSubmit = async (text: string) => {
+  const handleSubmit = async (text: string, imageDataUrl?: string) => {
     try {
-      const turn_id = await bridge.prompt(text)
-      addUserMessage(text, turn_id)
+      // If an image was pasted, append it to the prompt text as an inline marker
+      const fullText = imageDataUrl ? (text ? `${text}\n[image: ${imageDataUrl}]` : `[image: ${imageDataUrl}]`) : text
+      const turn_id = await bridge.prompt(fullText)
+      addUserMessage(text || '[image]', turn_id)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to send message'
       addErrorMessage(msg)
@@ -335,7 +368,8 @@ export default function App() {
                     inputDisabled={inputDisabled}
                     suggestions={suggestions}
                     messagesEndRef={messagesEndRef}
-                    onSubmit={(t) => void handleSubmit(t)}
+                    scrollContainerRef={scrollContainerRef}
+                    onSubmit={(t, img) => void handleSubmit(t, img)}
                     onAbort={handleAbort}
                   />
                 </div>
@@ -368,7 +402,8 @@ export default function App() {
                     inputDisabled={inputDisabled}
                     suggestions={suggestions}
                     messagesEndRef={messagesEndRef}
-                    onSubmit={(t) => void handleSubmit(t)}
+                    scrollContainerRef={scrollContainerRef}
+                    onSubmit={(t, img) => void handleSubmit(t, img)}
                     onAbort={handleAbort}
                   />
                 </Panel>
@@ -419,6 +454,9 @@ export default function App() {
       {showOnboarding && (
         <Onboarding onComplete={() => setShowOnboarding(false)} />
       )}
+
+      {/* Toast notifications — bottom-right, dark theme */}
+      <Toaster position="bottom-right" theme="dark" richColors />
     </div>
   )
 }
@@ -436,7 +474,9 @@ interface ChatColumnProps {
   inputDisabled: boolean
   suggestions: string[]
   messagesEndRef: React.RefObject<HTMLDivElement>
-  onSubmit: (text: string) => void
+  /** Ref attached to the scrollable messages container. */
+  scrollContainerRef: React.RefObject<HTMLElement>
+  onSubmit: (text: string, imageDataUrl?: string) => void
   onAbort: () => void
 }
 
@@ -448,6 +488,7 @@ function ChatColumn({
   inputDisabled,
   suggestions,
   messagesEndRef,
+  scrollContainerRef,
   onSubmit,
   onAbort,
 }: ChatColumnProps) {
@@ -473,7 +514,7 @@ function ChatColumn({
       </header>
 
       {/* Messages area */}
-      <main className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
+      <main ref={scrollContainerRef as React.RefObject<HTMLElement>} className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="text-2xl font-semibold text-text-primary">Lucent Chat</div>

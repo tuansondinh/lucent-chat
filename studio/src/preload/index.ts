@@ -70,6 +70,10 @@ const bridge = {
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('cmd:open-external', url),
 
+  /** Set the native window title bar text. */
+  setWindowTitle: (title: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:set-window-title', title),
+
   // -------------------------------------------------------------------------
   // Terminal commands
   // -------------------------------------------------------------------------

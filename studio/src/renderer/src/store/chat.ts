@@ -104,6 +104,8 @@ interface ChatState {
   currentModel: string
   /** The most recently viewed file, set when a read/write tool completes. */
   viewedFile: ViewedFile | null
+  /** Persisted scroll positions keyed by session path. */
+  scrollPositions: Record<string, number>
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -123,6 +125,8 @@ interface ChatState {
   setViewedFile: (file: ViewedFile) => void
   /** Clear the currently viewed file (close the panel). */
   clearViewedFile: () => void
+  /** Save the scroll position for a given session path. */
+  saveScrollPosition: (sessionPath: string, scrollTop: number) => void
 }
 
 function mapHealth(state: string): AgentHealth {
@@ -143,6 +147,7 @@ export const useChatStore = create<ChatState>((set) => ({
   isGenerating: false,
   currentModel: '',
   viewedFile: null,
+  scrollPositions: {},
 
   addUserMessage: (text, turn_id) =>
     set((s) => ({
@@ -366,4 +371,9 @@ export const useChatStore = create<ChatState>((set) => ({
   setViewedFile: (file) => set({ viewedFile: file }),
 
   clearViewedFile: () => set({ viewedFile: null }),
+
+  saveScrollPosition: (sessionPath, scrollTop) =>
+    set((s) => ({
+      scrollPositions: { ...s.scrollPositions, [sessionPath]: scrollTop },
+    })),
 }))

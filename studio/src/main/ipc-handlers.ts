@@ -95,6 +95,13 @@ export function registerIpcHandlers(
     return settingsService.get()
   })
 
+  ipcMain.handle('cmd:set-window-title', (_event, title: string) => {
+    const win = getMainWindow()
+    if (win && !win.isDestroyed()) {
+      win.setTitle(title)
+    }
+  })
+
   ipcMain.handle('cmd:open-external', async (_event, url: string) => {
     // Only allow http/https URLs to prevent security issues
     if (url.startsWith('http://') || url.startsWith('https://')) {
