@@ -6,14 +6,14 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolveTypeStrippingFlag } from "./ts-subprocess-flags.ts";
 
-import type { AgentSessionEvent, SessionStateChangeReason } from "../../packages/pi-coding-agent/src/core/agent-session.ts";
+import type { AgentSessionEvent, SessionStateChangeReason } from "../../packages/runtime/src/core/agent-session.ts";
 import type {
   RpcCommand,
   RpcExtensionUIRequest,
   RpcExtensionUIResponse,
   RpcResponse,
   RpcSessionState,
-} from "../../packages/pi-coding-agent/src/modes/rpc/rpc-types.ts";
+} from "../../packages/runtime/src/modes/rpc/rpc-types.ts";
 import {
   SESSION_BROWSER_SCOPE,
   normalizeSessionBrowserQuery,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
-const { BUILTIN_SLASH_COMMANDS } = await import("../../packages/pi-coding-agent/src/core/slash-commands.ts")
+const { BUILTIN_SLASH_COMMANDS } = await import("../../packages/runtime/src/core/slash-commands.ts")
 const {
   dispatchBrowserSlashCommand,
   getBrowserSlashCommandTerminalNotice,

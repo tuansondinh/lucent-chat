@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { detectCapabilities, resetCapabilitiesCache } from "../../packages/pi-tui/src/terminal-image.ts";
+import { detectCapabilities, resetCapabilitiesCache } from "../../packages/tui/src/terminal-image.ts";
 import { isCmuxTerminal } from "../resources/extensions/shared/terminal.ts";
 
 test("isCmuxTerminal detects cmux env vars", () => {

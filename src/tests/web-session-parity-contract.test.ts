@@ -639,7 +639,7 @@ test("/api/git exposes an explicit not-a-repo state instead of failing silently"
 })
 
 test("browser session, settings, and git surfaces keep inspectable browse/manage/state markers on the shared surface", () => {
-  const rpcTypesSource = readFileSync(resolve(import.meta.dirname, "../../packages/pi-coding-agent/src/modes/rpc/rpc-types.ts"), "utf8")
+  const rpcTypesSource = readFileSync(resolve(import.meta.dirname, "../../packages/runtime/src/modes/rpc/rpc-types.ts"), "utf8")
   const contractSource = readFileSync(resolve(import.meta.dirname, "../../web/lib/command-surface-contract.ts"), "utf8")
   const storeSource = readFileSync(resolve(import.meta.dirname, "../../web/lib/gsd-workspace-store.tsx"), "utf8")
   const surfaceSource = readFileSync(resolve(import.meta.dirname, "../../web/components/gsd/command-surface.tsx"), "utf8")
