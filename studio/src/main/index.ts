@@ -46,7 +46,7 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     minHeight: 500,
     backgroundColor: '#1a1a1a',
     titleBarStyle: process.platform === 'darwin' ? 'hidden' : 'default',
-    titleBarOverlay: process.platform === 'darwin' ? { height: 52 } : undefined,
+    titleBarOverlay: process.platform === 'darwin' ? { height: 44 } : undefined,
     webPreferences: {
       preload,
       contextIsolation: true,
@@ -123,7 +123,17 @@ app.whenReady().then(async () => {
 
   // 3a. Voice Service — project root is 3 levels up from studio/dist/main at runtime
   voiceService = new VoiceService(() => join(__dirname, '..', '..', '..'))
-  voiceService.probe().catch((err: Error) => console.warn('[voice] probe failed:', err.message))
+  voiceService.probe()
+    .then((result) => {
+      if (!result.available) return
+      // Prewarm the Python voice sidecar shortly after launch so first mic use is fast.
+      setTimeout(() => {
+        voiceService?.start().catch((err: Error) => {
+          console.warn('[voice] background start failed:', err.message)
+        })
+      }, 2_000)
+    })
+    .catch((err: Error) => console.warn('[voice] probe failed:', err.message))
 
   // 4. Agent Bridge
   const agentBridge = new AgentBridge()

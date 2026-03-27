@@ -16,6 +16,7 @@ interface Props {
   // Voice props
   voiceAvailable?: boolean
   voiceActive?: boolean
+  voiceSidecarState?: 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
   isSpeaking?: boolean
   isTtsPlaying?: boolean
   partialTranscript?: string
@@ -35,6 +36,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   disabled,
   voiceAvailable = false,
   voiceActive = false,
+  voiceSidecarState = 'stopped',
   isSpeaking = false,
   isTtsPlaying = false,
   partialTranscript = '',
@@ -94,11 +96,15 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }
 
   const canSubmit = (value.trim() || pastedImage) && !disabled
+  const isVoiceStarting = voiceSidecarState === 'starting'
 
   // Mic button appearance depends on voice state
   const micButtonClass = (() => {
     if (!voiceAvailable) {
       return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary opacity-40 cursor-not-allowed'
+    }
+    if (isVoiceStarting) {
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/10 border border-accent/40 text-accent cursor-wait'
     }
     if (isTtsPlaying) {
       return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
@@ -118,6 +124,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       {voiceActive && partialTranscript && (
         <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
           {partialTranscript}
+        </div>
+      )}
+
+      {/* Voice startup hint — shown while the sidecar is booting */}
+      {isVoiceStarting && !voiceActive && (
+        <div className="mb-2 px-1 text-xs text-text-tertiary">
+          Starting voice service...
         </div>
       )}
 
@@ -163,10 +176,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         {/* Mic / TTS button */}
         <button
           onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
-          disabled={!voiceAvailable}
+          disabled={!voiceAvailable || isVoiceStarting}
           title={
             !voiceAvailable
               ? (unavailableReason ?? 'Voice unavailable')
+              : isVoiceStarting
+                ? 'Starting voice service...'
               : isTtsPlaying
                 ? 'Stop speaking'
                 : voiceActive
@@ -175,7 +190,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           }
           className={micButtonClass}
         >
-          {isTtsPlaying ? (
+          {isVoiceStarting ? (
+            <svg className="h-4 w-4 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+              <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          ) : isTtsPlaying ? (
             <Volume2 className="w-4 h-4" />
           ) : voiceActive ? (
             <Mic className="w-4 h-4" />

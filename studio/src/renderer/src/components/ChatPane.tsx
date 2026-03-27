@@ -372,6 +372,7 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
             disabled={inputDisabled}
             voiceAvailable={voiceStore.available}
             voiceActive={voiceStore.active}
+            voiceSidecarState={voiceStore.sidecarState}
             isSpeaking={voiceStore.speaking}
             isTtsPlaying={voiceStore.ttsPlaying}
             partialTranscript={voiceStore.partialTranscript}

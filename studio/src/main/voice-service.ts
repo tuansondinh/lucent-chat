@@ -29,6 +29,8 @@ export class VoiceService extends EventEmitter {
   private proc: ChildProcess | null = null
   private port: number | null = null
   private state: VoiceSidecarState = 'stopped'
+  private reason: string | undefined
+  private startPromise: Promise<{ port: number }> | null = null
   private pythonCmd: string | null = null
   private audioServicePath: string | null = null
   private voiceBridgePath: string | null = null
@@ -47,7 +49,9 @@ export class VoiceService extends EventEmitter {
     const servicePath = path.join(root, 'studio', 'audio-service', 'audio_service.py')
     if (!existsSync(servicePath)) {
       this.state = 'unavailable'
-      return { available: false, reason: 'audio_service.py not found — ensure studio/audio-service/ exists' }
+      this.reason = 'audio_service.py not found — ensure studio/audio-service/ exists'
+      this.emitStatus()
+      return { available: false, reason: this.reason }
     }
     this.audioServicePath = servicePath
 
@@ -59,41 +63,54 @@ export class VoiceService extends EventEmitter {
     const candidates = ['uv', 'python3', 'python']
     for (const cmd of candidates) {
       try {
-        const version = await runCommand(cmd, cmd === 'uv' ? ['python', '--version'] : ['--version'])
+        const version = await runCommand(cmd, this.getVersionArgs(cmd))
         if (version) {
-          // Check voice_bridge importable
+          // Check the actual audio-service import surface, not just voice_bridge.
           const importArgs = cmd === 'uv'
-            ? ['run', 'python', '-c', 'import voice_bridge; print("OK")']
-            : ['-c', 'import voice_bridge; print("OK")']
+            ? this.getUvPythonArgs(['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")'])
+            : ['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")']
 
           const env: Record<string, string> = { ...(process.env as Record<string, string>) }
           if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath
 
-          const result = await runCommandWithEnv(cmd, importArgs, env)
+          const result = await runCommandWithEnv(cmd, importArgs, env, this.getPythonWorkingDirectory(cmd))
           if (result.includes('OK')) {
             this.pythonCmd = cmd
             this.state = 'stopped'
+            this.reason = undefined
+            this.emitStatus()
             return { available: true }
           } else {
+            this.state = 'unavailable'
+            this.reason = 'Voice Python dependencies are missing — install numpy, uvicorn, fastapi, and voice_bridge'
+            this.emitStatus()
             return {
               available: false,
-              reason: 'voice_bridge package not importable — run: pip install -e <voice-bridge-path>',
+              reason: this.reason,
             }
           }
         }
-      } catch {
+      } catch (error) {
+        this.reason = normalizeProbeError(error)
         // try next
       }
     }
 
     this.state = 'unavailable'
-    return { available: false, reason: 'Python not found — install Python 3.12+ and try again' }
+    if (!this.reason) {
+      this.reason = 'Python not found — install Python 3.12+ and try again'
+    }
+    this.emitStatus()
+    return { available: false, reason: this.reason }
   }
 
   /** Start the audio service sidecar. Resolves with port when ready. */
   async start(): Promise<{ port: number }> {
     if (this.state === 'ready' && this.port !== null) {
       return { port: this.port }
+    }
+    if (this.startPromise) {
+      return this.startPromise
     }
     if (this.state === 'unavailable') {
       throw new Error('Voice sidecar unavailable — run probe() first')
@@ -106,9 +123,10 @@ export class VoiceService extends EventEmitter {
 
     this.intentionalStop = false
     this.state = 'starting'
+    this.reason = undefined
     this.emitStatus()
 
-    return new Promise((resolve, reject) => {
+    this.startPromise = new Promise((resolve, reject) => {
       const env: NodeJS.ProcessEnv = { ...process.env }
       if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath!
 
@@ -117,7 +135,7 @@ export class VoiceService extends EventEmitter {
       let args: string[]
       if (this.pythonCmd === 'uv') {
         cmd = 'uv'
-        args = ['run', 'python', this.audioServicePath!]
+        args = this.getUvPythonArgs([this.audioServicePath!])
       } else {
         cmd = this.pythonCmd!
         args = [this.audioServicePath!]
@@ -126,6 +144,7 @@ export class VoiceService extends EventEmitter {
       const proc = spawn(cmd, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env,
+        cwd: this.getPythonWorkingDirectory(cmd),
       })
 
       this.proc = proc
@@ -140,7 +159,9 @@ export class VoiceService extends EventEmitter {
 
       let stdoutBuf = ''
       const timeout = setTimeout(() => {
-        reject(new Error('Voice sidecar startup timeout (60s) — model loading may have failed'))
+        this.reason = 'Voice sidecar startup timeout (60s) — model loading may have failed'
+        this.startPromise = null
+        reject(new Error(this.reason))
         this.state = 'error'
         this.emitStatus()
         proc.kill('SIGKILL')
@@ -156,12 +177,15 @@ export class VoiceService extends EventEmitter {
             const port = parseInt(trimmed.split('=')[1], 10)
             clearTimeout(timeout)
             this.port = port
+            this.startPromise = null
             this.state = 'ready'
             this.emitStatus()
             resolve({ port })
           } else if (trimmed.startsWith('VOICE_SERVICE_ERROR ')) {
             clearTimeout(timeout)
             const msg = trimmed.slice('VOICE_SERVICE_ERROR '.length)
+            this.reason = msg
+            this.startPromise = null
             this.state = 'error'
             this.emitStatus()
             reject(new Error(`Voice sidecar error: ${msg}`))
@@ -174,9 +198,13 @@ export class VoiceService extends EventEmitter {
         const wasReady = this.state === 'ready'
         this.port = null
         this.proc = null
+        this.startPromise = null
 
         if (!this.intentionalStop) {
           console.warn(`[voice-service] sidecar exited unexpectedly (code=${code}, signal=${signal})`)
+          if (!this.reason) {
+            this.reason = `Voice sidecar exited unexpectedly (code=${code}, signal=${signal})`
+          }
           this.state = 'error'
           this.emitStatus()
           if (wasReady) {
@@ -193,6 +221,8 @@ export class VoiceService extends EventEmitter {
         }
       })
     })
+
+    return this.startPromise
   }
 
   /** Stop the sidecar gracefully. */
@@ -202,6 +232,7 @@ export class VoiceService extends EventEmitter {
       this.restartTimer = null
     }
     this.intentionalStop = true
+    this.startPromise = null
     if (!this.proc) return
     this.proc.kill('SIGTERM')
     // Give 3s to exit gracefully then SIGKILL
@@ -217,21 +248,60 @@ export class VoiceService extends EventEmitter {
     })
     this.port = null
     this.state = 'stopped'
+    this.reason = undefined
     this.emitStatus()
   }
 
   /** Get the current voice service status snapshot. */
   getStatus(): VoiceServiceStatus {
     return {
-      available: this.state !== 'unavailable',
+      available: this.state !== 'unavailable' && this.reason === undefined,
       state: this.state,
       port: this.port,
+      reason: this.reason,
     }
   }
 
   private emitStatus(): void {
     this.emit('status', this.getStatus())
   }
+
+  private getVersionArgs(cmd: string): string[] {
+    return cmd === 'uv' ? ['--version'] : ['--version']
+  }
+
+  private getUvPythonArgs(pythonArgs: string[]): string[] {
+    const args = ['run']
+    if (this.voiceBridgePath) {
+      args.push('--project', this.voiceBridgePath)
+    }
+    args.push('python', ...pythonArgs)
+    return args
+  }
+
+  private getPythonWorkingDirectory(cmd: string): string | undefined {
+    if (cmd === 'uv' && this.voiceBridgePath) {
+      return this.voiceBridgePath
+    }
+    return undefined
+  }
+}
+
+function normalizeProbeError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes("No module named 'numpy'")) {
+    return 'Python dependency missing: numpy'
+  }
+  if (message.includes("No module named 'uvicorn'")) {
+    return 'Python dependency missing: uvicorn'
+  }
+  if (message.includes("No module named 'fastapi'")) {
+    return 'Python dependency missing: fastapi'
+  }
+  if (message.includes("No module named 'voice_bridge'")) {
+    return 'Python dependency missing: voice_bridge'
+  }
+  return message
 }
 
 // ---------------------------------------------------------------------------

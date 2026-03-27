@@ -10,6 +10,7 @@ import {
   Plus,
   Settings,
   PanelLeft,
+  PanelLeftClose,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -210,11 +211,19 @@ export function Sidebar({
   return (
     <>
       <div className="flex flex-col h-full w-full min-w-0 border-r border-border bg-bg-secondary overflow-hidden">
-        {/* New Session button */}
-        <div className="px-3 pb-2 flex-shrink-0">
+        {/* Header actions */}
+        <div className="px-3 py-2 flex-shrink-0 flex items-center gap-2">
+          <button
+            onClick={onToggleCollapse}
+            title="Collapse sidebar (⌘B)"
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => void handleNewSession()}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover border border-border hover:border-border-active transition-colors"
+            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover border border-border hover:border-border-active transition-colors min-w-0"
           >
             <Plus className="w-4 h-4 flex-shrink-0" />
             <span>New Session</span>

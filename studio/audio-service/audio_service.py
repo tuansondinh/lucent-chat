@@ -475,6 +475,10 @@ def main() -> None:
     server = uvicorn.Server(config)
 
     async def _run() -> None:
+        if not config.loaded:
+            config.load()
+        server.lifespan = config.lifespan_class(config)
+
         # Start the server (sets up socket but does not block yet)
         await server.startup()
 

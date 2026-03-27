@@ -17,7 +17,6 @@
 import { useEffect, useCallback, useState, useRef, type ReactNode } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
-import { PanelLeft, PanelLeftClose } from 'lucide-react'
 import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
 import { deleteFileTreeStore } from './store/file-tree-store'
 import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
@@ -443,19 +442,12 @@ export default function App() {
         className="flex h-11 flex-shrink-0 items-center border-b border-border bg-bg-secondary"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        {/* Traffic-light spacer + sidebar toggle */}
-        <div className="flex items-center pl-20 pr-2 gap-1 flex-shrink-0">
-          <button
-            onClick={handleToggleSidebar}
-            title={sidebarCollapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          >
-            {sidebarCollapsed ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+        <div className="pl-20 flex-shrink-0" />
 
-        <div className="flex-1" />
+        {/* App name */}
+        <div className="flex-1 text-sm font-semibold text-text-secondary">
+          Lucent Chat
+        </div>
 
         {/* Agent health / status */}
         <div
