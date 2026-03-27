@@ -9,6 +9,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "test": "node --test test/*.test.mjs",
+    "build:pwa": "vite build --config vite.pwa.config.ts",
+    "serve:pwa": "vite preview --config vite.pwa.config.ts",
     "pack": "electron-builder --dir",
     "dist": "npm run build && electron-builder -wml",
     "dist:mac": "npm run build && electron-builder -m",
@@ -19,6 +21,8 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
+    "qrcode.react": "^4.2.0",
+    "ws": "^8.18.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "node-pty": "^1.0.0",

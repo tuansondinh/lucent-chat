@@ -30,6 +30,19 @@ export interface AppSettings {
   onboardingComplete?: boolean
   /** Push-to-talk shortcut for pane-scoped voice input. */
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
+
+  // ---------------------------------------------------------------------------
+  // Remote Access (PWA / Tailscale)
+  // ---------------------------------------------------------------------------
+
+  /** Whether the WebBridgeServer is enabled. */
+  remoteAccessEnabled?: boolean
+  /** Port for the WebBridgeServer (default: 8788). */
+  remoteAccessPort?: number
+  /** Bearer token for WebBridgeServer authentication. Auto-generated on first use. */
+  remoteAccessToken?: string
+  /** Whether to run `tailscale serve` to expose the server via HTTPS. */
+  tailscaleServeEnabled?: boolean
 }
 
 // ============================================================================
@@ -41,6 +54,9 @@ const DEFAULTS: AppSettings = {
   fontSize: 14,
   sidebarCollapsed: true,
   voicePttShortcut: 'space',
+  remoteAccessEnabled: false,
+  remoteAccessPort: 8788,
+  tailscaleServeEnabled: false,
 }
 
 // ============================================================================

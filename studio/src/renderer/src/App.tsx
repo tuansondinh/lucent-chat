@@ -21,6 +21,7 @@ import { toast, Toaster } from 'sonner'
 import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
 import { getFileTreeStore, deleteFileTreeStore } from './store/file-tree-store'
 import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
+import { getBridge } from './lib/bridge'
 import { ChatPane } from './components/ChatPane'
 import { Sidebar, type SidebarView } from './components/Sidebar'
 import { VoiceDownloadBanner } from './components/VoiceDownloadBanner'
@@ -111,7 +112,7 @@ function renderLayoutNode(
 // ============================================================================
 
 export default function App() {
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   // Pane layout state
   const { layout, activePaneId, setActivePane } = usePanesStore()

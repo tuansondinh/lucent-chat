@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useVoiceStore } from '../store/voice-store'
+import { getBridge } from './bridge'
 
 // ============================================================================
 // Constants
@@ -193,7 +194,7 @@ interface UseVoiceReturn {
 
 export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoiceOptions): UseVoiceReturn {
   const voiceStore = useVoiceStore
-  const bridge = window.bridge
+  const bridge = getBridge()
   const isVoiceOwner = useVoiceStore((state) => state.active && state.activePaneId === _activePaneId)
 
   // Refs for mutable audio/WS state (not React state — avoids re-render churn)

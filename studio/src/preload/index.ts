@@ -392,5 +392,7 @@ const bridge = {
 
 console.log('[studio] preload loaded')
 contextBridge.exposeInMainWorld('bridge', bridge)
+// Signal to renderer that it is running inside Electron (not a PWA)
+contextBridge.exposeInMainWorld('__ELECTRON__', true)
 
 export type Bridge = typeof bridge

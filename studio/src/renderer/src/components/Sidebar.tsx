@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { getPaneStore } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
+import { getBridge } from '../lib/bridge'
 import { FileTree } from './FileTree'
 import { ScrollArea } from './ui/scroll-area'
 import {
@@ -94,7 +95,7 @@ export function Sidebar({
   const { currentModel } = getPaneStore(activePaneId)()
   const changedFiles = getFileTreeStore(activePaneId)((s) => s.changedFiles)
   const [sessions, setSessions] = useState<Session[]>([])
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   // -- Rename dialog state
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)

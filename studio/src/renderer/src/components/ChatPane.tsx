@@ -16,6 +16,7 @@ import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -40,7 +41,7 @@ function ThinkingBubble() {
 function PaneFooter({ paneId }: { paneId: string }) {
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
-  const bridge = window.bridge
+  const bridge = getBridge()
   const [branchListLoading, setBranchListLoading] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
   const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null)
@@ -213,7 +214,7 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut,
     projectRoot,
   } = store()
 
-  const bridge = window.bridge
+  const bridge = getBridge()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement>(null)
   const inputRef = useRef<ChatInputHandle>(null)

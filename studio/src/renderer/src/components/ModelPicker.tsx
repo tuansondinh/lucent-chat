@@ -20,6 +20,7 @@ import { ScrollArea } from './ui/scroll-area'
 import { usePanesStore, getPaneStore } from '../store/pane-store'
 import { cn } from '../lib/utils'
 import { formatModelDisplay, formatProviderName, getModelRefFromState } from '../lib/models'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // Types
@@ -48,7 +49,7 @@ export function ModelPicker({ open, onOpenChange, paneId }: Props) {
   const { activePaneId } = usePanesStore()
   const targetPaneId = paneId ?? activePaneId
   const { currentModel } = getPaneStore(targetPaneId)()
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   const [models, setModels] = useState<Model[]>([])
   const [loading, setLoading] = useState(false)

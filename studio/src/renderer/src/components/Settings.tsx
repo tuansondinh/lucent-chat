@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { getBridge } from '../lib/bridge'
 import {
   Settings as SettingsIcon,
   Key,
@@ -27,6 +28,9 @@ import {
   Lock,
   LogIn,
   X,
+  Wifi,
+  Copy,
+  RefreshCw,
 } from 'lucide-react'
 import {
   Dialog,
@@ -56,7 +60,7 @@ interface SettingsProps {
   onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
 }
 
-type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts'
+type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts' | 'remote-access'
 
 interface Model {
   provider: string
@@ -97,7 +101,8 @@ const TABS: TabItem[] = [
   { id: 'general',   label: 'General',   icon: <SettingsIcon className="w-3.5 h-3.5" /> },
   { id: 'apikeys',   label: 'API Keys',  icon: <Key          className="w-3.5 h-3.5" /> },
   { id: 'models',    label: 'Models',    icon: <Cpu          className="w-3.5 h-3.5" /> },
-  { id: 'shortcuts', label: 'Shortcuts', icon: <Keyboard     className="w-3.5 h-3.5" /> },
+  { id: 'shortcuts',     label: 'Shortcuts',     icon: <Keyboard className="w-3.5 h-3.5" /> },
+  { id: 'remote-access', label: 'Remote Access', icon: <Wifi    className="w-3.5 h-3.5" /> },
 ]
 
 const VOICE_SHORTCUT_OPTIONS = [
@@ -126,7 +131,7 @@ function sleep(ms: number): Promise<void> {
 // ============================================================================
 
 export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShortcutChange }: SettingsProps) {
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   const [activeTab, setActiveTab] = useState<Tab>('general')
 
@@ -140,6 +145,15 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
+
+  // ---- Remote Access state ----
+  const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false)
+  const [remoteAccessPort, setRemoteAccessPort] = useState(8788)
+  const [remoteAccessToken, setRemoteAccessToken] = useState('')
+  const [tailscaleServeEnabled, setTailscaleServeEnabled] = useState(false)
+  const [showRemoteToken, setShowRemoteToken] = useState(false)
+  const [remoteCopied, setRemoteCopied] = useState(false)
+  const [tailscaleUrl, setTailscaleUrl] = useState<string | null>(null)
 
   // Debounce timer ref for font size saves
   const fontSizeDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -212,6 +226,11 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
         } else {
           setDefaultModel('')
         }
+        // Remote Access
+        if (typeof s.remoteAccessEnabled === 'boolean') setRemoteAccessEnabled(s.remoteAccessEnabled)
+        if (typeof s.remoteAccessPort === 'number') setRemoteAccessPort(s.remoteAccessPort)
+        if (typeof s.remoteAccessToken === 'string') setRemoteAccessToken(s.remoteAccessToken)
+        if (typeof s.tailscaleServeEnabled === 'boolean') setTailscaleServeEnabled(s.tailscaleServeEnabled)
       })
       .catch(() => {})
 
@@ -255,6 +274,38 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
     onVoicePttShortcutChange(value)
     bridge.setSettings({ voicePttShortcut: value }).catch(() => {})
   }, [bridge, onVoicePttShortcutChange])
+
+  // Remote Access handlers
+  const handleRemoteAccessToggle = useCallback((enabled: boolean) => {
+    setRemoteAccessEnabled(enabled)
+    bridge.setSettings({ remoteAccessEnabled: enabled }).catch(() => {})
+  }, [bridge])
+
+  const handleRemoteAccessPortChange = useCallback((port: number) => {
+    setRemoteAccessPort(port)
+    bridge.setSettings({ remoteAccessPort: port }).catch(() => {})
+  }, [bridge])
+
+  const handleTailscaleServeToggle = useCallback((enabled: boolean) => {
+    setTailscaleServeEnabled(enabled)
+    bridge.setSettings({ tailscaleServeEnabled: enabled }).catch(() => {})
+  }, [bridge])
+
+  const handleRotateToken = useCallback(() => {
+    // Generate a new token client-side (random 32-char hex)
+    const newToken = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    setRemoteAccessToken(newToken)
+    bridge.setSettings({ remoteAccessToken: newToken }).catch(() => {})
+  }, [bridge])
+
+  const handleCopyToken = useCallback(() => {
+    navigator.clipboard.writeText(remoteAccessToken).then(() => {
+      setRemoteCopied(true)
+      setTimeout(() => setRemoteCopied(false), 2000)
+    }).catch(() => {})
+  }, [remoteAccessToken])
 
   // -------------------------------------------------------------------------
   // Render helpers
@@ -325,6 +376,23 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
               <ShortcutsTab
                 voicePttShortcut={localVoicePttShortcut}
                 onVoicePttShortcutChange={handleVoicePttShortcutChange}
+              />
+            )}
+            {activeTab === 'remote-access' && (
+              <RemoteAccessTab
+                enabled={remoteAccessEnabled}
+                port={remoteAccessPort}
+                token={remoteAccessToken}
+                tailscaleEnabled={tailscaleServeEnabled}
+                tailscaleUrl={tailscaleUrl}
+                showToken={showRemoteToken}
+                copied={remoteCopied}
+                onToggle={handleRemoteAccessToggle}
+                onPortChange={handleRemoteAccessPortChange}
+                onTailscaleToggle={handleTailscaleServeToggle}
+                onRotateToken={handleRotateToken}
+                onCopyToken={handleCopyToken}
+                onToggleShowToken={() => setShowRemoteToken((v) => !v)}
               />
             )}
           </div>
@@ -480,7 +548,7 @@ interface ProvidersSectionProps {
 }
 
 function ProvidersSection({ providerStatuses, onRefresh }: ProvidersSectionProps) {
-  const bridge = window.bridge
+  const bridge = getBridge()
 
   const [expandedProvider, setExpandedProvider] = useState<string | null>(null)
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
@@ -1162,6 +1230,209 @@ function Field({
       {hint && (
         <p className="text-xs text-text-tertiary">{hint}</p>
       )}
+    </div>
+  )
+}
+
+// ============================================================================
+// RemoteAccessTab
+// ============================================================================
+
+interface RemoteAccessTabProps {
+  enabled: boolean
+  port: number
+  token: string
+  tailscaleEnabled: boolean
+  tailscaleUrl: string | null
+  showToken: boolean
+  copied: boolean
+  onToggle: (enabled: boolean) => void
+  onPortChange: (port: number) => void
+  onTailscaleToggle: (enabled: boolean) => void
+  onRotateToken: () => void
+  onCopyToken: () => void
+  onToggleShowToken: () => void
+}
+
+function RemoteAccessTab({
+  enabled,
+  port,
+  token,
+  tailscaleEnabled,
+  tailscaleUrl,
+  showToken,
+  copied,
+  onToggle,
+  onPortChange,
+  onTailscaleToggle,
+  onRotateToken,
+  onCopyToken,
+  onToggleShowToken,
+}: RemoteAccessTabProps) {
+  const localUrl = `http://localhost:${port}`
+
+  return (
+    <div className="p-6 space-y-8">
+      <Section title="Remote Access">
+        <Field
+          label="Enable Remote Access"
+          hint="Allow PWA clients (e.g. your phone) to connect to this instance over the network."
+        >
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => onToggle(!enabled)}
+            className={cn(
+              'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg-primary',
+              enabled ? 'bg-accent' : 'bg-bg-tertiary border border-border',
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                enabled ? 'translate-x-4' : 'translate-x-0.5',
+              )}
+            />
+          </button>
+        </Field>
+
+        {enabled && (
+          <>
+            <Field label="Server Port" hint="Port the bridge server listens on (restart required after change).">
+              <Input
+                type="number"
+                min={1024}
+                max={65535}
+                value={port}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  if (!isNaN(v) && v >= 1024 && v <= 65535) onPortChange(v)
+                }}
+                className="w-32 h-7 text-xs font-mono"
+              />
+            </Field>
+
+            <Field label="Local URL">
+              <div className="flex items-center gap-2">
+                <code className="text-xs font-mono text-text-secondary bg-bg-tertiary px-2 py-1 rounded border border-border select-all">
+                  {localUrl}
+                </code>
+              </div>
+            </Field>
+
+            <Field
+              label="Bearer Token"
+              hint="Clients must present this token in the Authorization header. Keep it secret."
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex-1 relative">
+                  <Input
+                    type={showToken ? 'text' : 'password'}
+                    value={token || '(not set — save settings to generate)'}
+                    readOnly
+                    className="pr-8 text-xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={onToggleShowToken}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
+                  >
+                    {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  </button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onCopyToken}
+                  className="h-7 text-xs gap-1.5 flex-shrink-0"
+                >
+                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onRotateToken}
+                  className="h-7 text-xs gap-1.5 flex-shrink-0"
+                  title="Rotate token (disconnects all existing sessions)"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Rotate
+                </Button>
+              </div>
+            </Field>
+          </>
+        )}
+      </Section>
+
+      {enabled && (
+        <Section title="Tailscale Tunnel">
+          <Field
+            label="Expose via Tailscale HTTPS"
+            hint="Runs `tailscale serve` to give this instance a public HTTPS URL accessible on your tailnet."
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={tailscaleEnabled}
+              onClick={() => onTailscaleToggle(!tailscaleEnabled)}
+              className={cn(
+                'relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none',
+                tailscaleEnabled ? 'bg-accent' : 'bg-bg-tertiary border border-border',
+              )}
+            >
+              <span
+                className={cn(
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  tailscaleEnabled ? 'translate-x-4' : 'translate-x-0.5',
+                )}
+              />
+            </button>
+          </Field>
+
+          {tailscaleEnabled && tailscaleUrl && (
+            <Field label="Tailscale HTTPS URL">
+              <div className="space-y-3">
+                <code className="block text-xs font-mono text-text-secondary bg-bg-tertiary px-2 py-1 rounded border border-border select-all">
+                  {tailscaleUrl}
+                </code>
+                <div className="text-xs text-text-tertiary">
+                  Scan the QR code below on your phone to open the PWA:
+                </div>
+                <div className="flex items-center justify-center p-4 bg-white rounded-lg w-36 h-36">
+                  {/* QR code placeholder — requires qrcode.react to be installed */}
+                  <div className="text-center text-gray-400 text-xs">
+                    <div className="text-2xl mb-1">QR</div>
+                    <div>qrcode.react</div>
+                  </div>
+                </div>
+              </div>
+            </Field>
+          )}
+
+          {tailscaleEnabled && !tailscaleUrl && (
+            <div className="text-xs text-text-tertiary bg-bg-tertiary border border-border rounded p-3">
+              Tailscale URL will appear here once the tunnel is active. Make sure Tailscale is installed and signed in.
+            </div>
+          )}
+        </Section>
+      )}
+
+      <Section title="Connecting from your phone">
+        <div className="text-xs text-text-secondary space-y-2 bg-bg-tertiary rounded-lg p-4 border border-border">
+          <p className="font-medium text-text-primary">How to connect:</p>
+          <ol className="list-decimal list-inside space-y-1 text-text-tertiary">
+            <li>Enable Remote Access above and note the server URL</li>
+            <li>Open the URL on your phone and enter the Bearer Token when prompted</li>
+            <li>Or use the Tailscale HTTPS URL if on your tailnet</li>
+            <li>Bookmark the page and add it to your home screen as a PWA</li>
+          </ol>
+          <p className="text-text-tertiary pt-1">
+            The PWA provides read access to your agent sessions. Terminal and folder picker are not available remotely.
+          </p>
+        </div>
+      </Section>
     </div>
   )
 }

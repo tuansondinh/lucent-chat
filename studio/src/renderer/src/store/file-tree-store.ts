@@ -10,6 +10,7 @@
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
 import type { GitChangedFile } from '../../../preload'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // Types
@@ -80,7 +81,7 @@ function createFileTreeStore(paneId: string): FileTreeStore {
       })
 
       try {
-        const result = await window.bridge.fsListDir(paneId, relativePath)
+        const result = await getBridge().fsListDir(paneId, relativePath)
         const entries: DirEntry[] = result.entries
 
         set((s) => {
@@ -120,7 +121,7 @@ function createFileTreeStore(paneId: string): FileTreeStore {
       })
 
       try {
-        const result = await window.bridge.fsListDir(paneId, relativePath)
+        const result = await getBridge().fsListDir(paneId, relativePath)
         const entries: DirEntry[] = result.entries
 
         set((s) => {
@@ -167,7 +168,7 @@ function createFileTreeStore(paneId: string): FileTreeStore {
 
     refreshModifiedFiles: async () => {
       try {
-        const files = await window.bridge.gitChangedFiles(paneId)
+        const files = await getBridge().gitChangedFiles(paneId)
         set({
           changedFiles: files,
           changedFilesMap: new Map(files.map((file) => [file.path, file])),

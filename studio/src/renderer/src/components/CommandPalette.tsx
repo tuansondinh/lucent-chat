@@ -11,6 +11,7 @@ import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
 import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, FileText } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
 import { getPaneStore } from '../store/pane-store'
+import { getBridge } from '../lib/bridge'
 
 // ============================================================================
 // Types
@@ -78,7 +79,7 @@ export function CommandPalette({
   useEffect(() => {
     if (!open || loadedData) return
 
-    const bridge = window.bridge
+    const bridge = getBridge()
 
     Promise.allSettled([
       bridge.getSessions(activePaneId).then((list) => setSessions(list as Session[])),
