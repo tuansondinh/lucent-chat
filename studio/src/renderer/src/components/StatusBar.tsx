@@ -1,9 +1,10 @@
 /**
  * StatusBar — fixed bar at the bottom of the app.
  *
- * Shows: current model name | current session name | health dot + status
+ * Shows: current model name | voice indicator (when active) | session name | health dot + status
  */
 
+import { Mic } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
 
 interface HealthDotProps {
@@ -27,9 +28,13 @@ interface Props {
   sessionName: string
   health: string
   onOpenModelPicker?: () => void
+  // Voice indicator props
+  voiceActive?: boolean
+  voiceSpeaking?: boolean
+  voiceTtsPlaying?: boolean
 }
 
-export function StatusBar({ model, sessionName, health, onOpenModelPicker }: Props) {
+export function StatusBar({ model, sessionName, health, onOpenModelPicker, voiceActive, voiceSpeaking, voiceTtsPlaying }: Props) {
   const healthLabel = health === 'unknown' ? 'connecting' : health
 
   return (
@@ -44,8 +49,18 @@ export function StatusBar({ model, sessionName, health, onOpenModelPicker }: Pro
         {formatModelDisplay(model, { includeProvider: true })}
       </button>
 
-      {/* Center: session name */}
-      <span className="truncate max-w-[200px] text-center">{sessionName || 'New session'}</span>
+      {/* Center: voice indicator (when active) + session name */}
+      <div className="flex items-center gap-2">
+        {voiceActive && (
+          <div className="flex items-center gap-1 text-accent">
+            <Mic className={`w-3 h-3 ${voiceSpeaking ? 'animate-pulse' : ''}`} />
+            <span className="text-[10px]">
+              {voiceTtsPlaying ? 'Speaking' : voiceSpeaking ? 'Listening...' : 'Voice'}
+            </span>
+          </div>
+        )}
+        <span className="truncate max-w-[200px] text-center">{sessionName || 'New session'}</span>
+      </div>
 
       {/* Right: health */}
       <div className="flex items-center gap-1.5">

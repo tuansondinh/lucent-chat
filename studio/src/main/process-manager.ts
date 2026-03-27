@@ -107,9 +107,21 @@ export class ProcessManager extends EventEmitter {
     })
   }
 
-  /** Stub for future voice sidecar — does nothing in Phase 2. */
-  spawnSidecar(): void {
-    console.log('[process-manager] sidecar stub — not implemented in Phase 2')
+  /** Spawn a voice sidecar process and register it under the 'sidecar' key. */
+  spawnSidecar(cmd: string, args: string[], env?: Record<string, string>): ChildProcess {
+    const proc = spawn(cmd, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : process.env,
+      detached: false,
+    })
+    const managed = this.processes.get('sidecar')!
+    managed.proc = proc
+    return proc
+  }
+
+  /** Get the sidecar ChildProcess (may be null if not running). */
+  getSidecarProcess(): ChildProcess | null {
+    return this.processes.get('sidecar')?.proc ?? null
   }
 
   /** Update a process state and emit events. */

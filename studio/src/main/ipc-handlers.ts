@@ -13,6 +13,7 @@ import type { PaneManager } from './pane-manager.js'
 import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
 import type { AuthService } from './auth-service.js'
+import type { VoiceService } from './voice-service.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -26,6 +27,7 @@ export function registerIpcHandlers(
   settingsService: SettingsService,
   terminalManager: TerminalManager,
   authService: AuthService,
+  voiceService: VoiceService,
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
 ): void {
@@ -189,6 +191,32 @@ export function registerIpcHandlers(
 
   ipcMain.handle('cmd:terminal-destroy', () => {
     terminalManager.destroy('main')
+  })
+
+  // --------------------------------------------------------------------------
+  // Voice — not pane-specific (global sidecar)
+  // --------------------------------------------------------------------------
+
+  ipcMain.handle('cmd:voice-probe', async () => {
+    return voiceService.probe()
+  })
+
+  ipcMain.handle('cmd:voice-start', async () => {
+    return voiceService.start()
+  })
+
+  ipcMain.handle('cmd:voice-stop', async () => {
+    return voiceService.stop()
+  })
+
+  ipcMain.handle('cmd:voice-status', () => {
+    return voiceService.getStatus()
+  })
+
+  // Forward voice status events to renderer
+  voiceService.on('status', (status) => {
+    const win = getMainWindow()
+    pushEvent(win, 'event:voice-status', status)
   })
 
   void getMainWindow // referenced by pushEvent callers in index.ts

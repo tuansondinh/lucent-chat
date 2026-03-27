@@ -13,6 +13,8 @@ import { ChatInput } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
 import { getPaneStore } from '../store/pane-store'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
+import { useVoice } from '../lib/useVoice'
+import { useVoiceStore } from '../store/voice-store'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -87,6 +89,13 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
   const scrollContainerRef = useRef<HTMLElement>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
 
+  // Voice integration — app-global store, but forwarding is scoped to this pane
+  const voiceStore = useVoiceStore()
+  const { toggleVoice, stopTts, feedAgentChunk, flushTts } = useVoice({
+    onTranscript: (text) => void handleSubmit(text),
+    activePaneId: paneId,
+  })
+
   // Auto-scroll when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -98,10 +107,14 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
       bridge.onAgentChunk(({ paneId: pid, turn_id, text }) => {
         if (pid !== paneId) return
         store.getState().appendChunk(turn_id, text)
+        // Forward chunk to TTS sentence accumulator when voice is active on this pane
+        if (isActive && useVoiceStore.getState().active) feedAgentChunk(text, turn_id)
       }),
       bridge.onAgentDone(({ paneId: pid, turn_id, full_text }) => {
         if (pid !== paneId) return
         store.getState().finalizeMessage(turn_id, full_text)
+        // Flush remaining TTS buffer at end of turn
+        if (isActive && useVoiceStore.getState().active) flushTts(turn_id)
       }),
       bridge.onToolStart(({ paneId: pid, turn_id, tool, input }) => {
         if (pid !== paneId) return
@@ -303,6 +316,14 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
             onAbort={handleAbort}
             isGenerating={isGenerating}
             disabled={inputDisabled}
+            voiceAvailable={voiceStore.available}
+            voiceActive={voiceStore.active}
+            isSpeaking={voiceStore.speaking}
+            isTtsPlaying={voiceStore.ttsPlaying}
+            partialTranscript={voiceStore.partialTranscript}
+            unavailableReason={voiceStore.unavailableReason}
+            onVoiceToggle={toggleVoice}
+            onStopTts={stopTts}
           />
         </div>
       </div>
