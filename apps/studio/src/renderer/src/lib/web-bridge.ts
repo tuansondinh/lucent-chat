@@ -15,20 +15,55 @@ import type { Bridge } from '../../../preload/index'
 type EventCallback = (data: unknown) => void
 
 // ---------------------------------------------------------------------------
+// Connection status observable — for reconnecting banner UI (Task 9)
+// ---------------------------------------------------------------------------
+
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'failed' | 'reauth'
+
+type StatusCallback = (status: ConnectionStatus) => void
+
+// ---------------------------------------------------------------------------
 // Internal WebSocket event bus
 // ---------------------------------------------------------------------------
 
 class WebEventBus {
   private ws: WebSocket | null = null
   private listeners = new Map<string, Set<EventCallback>>()
+  private statusListeners = new Set<StatusCallback>()
   private token: string
   private baseUrl: string
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectAttempt = 0
+  private status: ConnectionStatus = 'connected'
+  private hasConnectedOnce = false
+
+  private static readonly BASE_DELAY = 1_000
+  private static readonly MAX_DELAY = 30_000
+
+  private getDelay(): number {
+    return Math.min(
+      WebEventBus.BASE_DELAY * Math.pow(2, this.reconnectAttempt),
+      WebEventBus.MAX_DELAY,
+    )
+  }
 
   constructor(baseUrl: string, token: string) {
     this.baseUrl = baseUrl
     this.token = token
     this.connect()
+  }
+
+  private setStatus(next: ConnectionStatus): void {
+    if (this.status === next) return
+    this.status = next
+    this.statusListeners.forEach((cb) => cb(next))
+  }
+
+  onStatusChange(cb: StatusCallback): () => void {
+    this.statusListeners.add(cb)
+    // Emit current status immediately so subscriber is in sync
+    cb(this.status)
+    return () => this.statusListeners.delete(cb)
   }
 
   private connect(): void {
@@ -39,11 +74,19 @@ class WebEventBus {
       this.ws.addEventListener('open', () => {
         // Authenticate immediately after connect
         this.ws?.send(JSON.stringify({ type: 'auth', token: this.token }))
+        this.reconnectAttempt = 0
+        this.hasConnectedOnce = true
+        this.setStatus('connected')
       })
 
       this.ws.addEventListener('message', (ev) => {
         try {
-          const msg = JSON.parse(ev.data as string) as { event: string; data: unknown }
+          const msg = JSON.parse(ev.data as string) as { event: string; data: unknown; error?: string }
+          if (msg.event === 'auth:failed') {
+            // Token rejected — show re-auth prompt, don't keep reconnecting
+            this.setStatus('reauth')
+            return
+          }
           if (msg.event) {
             this.emit(msg.event, msg.data)
           }
@@ -53,15 +96,26 @@ class WebEventBus {
       })
 
       this.ws.addEventListener('close', () => {
-        // Reconnect after 2s
-        this.reconnectTimer = setTimeout(() => this.connect(), 2_000)
+        if (this.status === 'reauth') return // Don't retry after auth failure
+        if (this.hasConnectedOnce) {
+          this.setStatus('reconnecting')
+        }
+        const delay = this.getDelay()
+        this.reconnectAttempt += 1
+        this.reconnectTimer = setTimeout(() => this.connect(), delay)
       })
 
       this.ws.addEventListener('error', () => {
         this.ws?.close()
       })
     } catch {
-      this.reconnectTimer = setTimeout(() => this.connect(), 2_000)
+      if (this.status === 'reauth') return
+      if (this.hasConnectedOnce) {
+        this.setStatus('reconnecting')
+      }
+      const delay = this.getDelay()
+      this.reconnectAttempt += 1
+      this.reconnectTimer = setTimeout(() => this.connect(), delay)
     }
   }
 
@@ -101,16 +155,23 @@ export class WebBridge implements Bridge {
   }
 
   // -------------------------------------------------------------------------
+  // Connection status (for reconnecting banner) — Task 9
+  // -------------------------------------------------------------------------
+
+  onConnectionStatusChange(cb: (status: ConnectionStatus) => void): () => void {
+    return this.bus.onStatusChange(cb)
+  }
+
+  // -------------------------------------------------------------------------
   // Internal command helper
   // -------------------------------------------------------------------------
 
   private async cmd<T>(name: string, ...args: unknown[]): Promise<T> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
     const res = await fetch(`${this.baseUrl}/api/cmd/${name}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
-      },
+      headers,
       body: JSON.stringify({ args }),
     })
     if (!res.ok) {
@@ -205,8 +266,15 @@ export class WebBridge implements Bridge {
   }
 
   setWindowTitle(_title: string): Promise<void> {
-    // No-op in PWA context
     return Promise.resolve()
+  }
+
+  setWindowWidth(_minWidth: number): Promise<void> {
+    return Promise.resolve()
+  }
+
+  onAppShortcut(_cb: (data: { action: 'new-session' | 'toggle-file-viewer' }) => void): () => void {
+    return () => {}
   }
 
   validateAndSaveProviderKey(

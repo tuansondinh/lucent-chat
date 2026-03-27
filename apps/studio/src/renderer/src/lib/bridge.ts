@@ -34,6 +34,21 @@ function resolveWebBridgeConfig(): { server: string; token: string } {
     // Persist for future reloads
     localStorage.setItem('lc_bridge_server', serverParam)
     localStorage.setItem('lc_bridge_token', tokenParam)
+
+    // Task 8: Strip auth params from URL bar + history so the token is not
+    // visible to the user or stored in browser history after deep-link bootstrap.
+    try {
+      const cleanUrl = new URL(window.location.href)
+      cleanUrl.searchParams.delete('server')
+      cleanUrl.searchParams.delete('token')
+      const cleanHref = cleanUrl.searchParams.toString()
+        ? `${cleanUrl.pathname}?${cleanUrl.searchParams.toString()}`
+        : cleanUrl.pathname
+      window.history.replaceState({}, '', cleanHref)
+    } catch {
+      // history API may be unavailable in some test environments — safe to ignore
+    }
+
     return { server: serverParam, token: tokenParam }
   }
 
@@ -60,9 +75,10 @@ export function getBridge(): Bridge {
     return _bridge
   }
 
-  // PWA mode
+  // PWA mode — localhost connections skip token auth
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   const { server, token } = resolveWebBridgeConfig()
-  _bridge = new WebBridge(server, token)
+  _bridge = new WebBridge(server, isLocalhost ? '' : token)
   return _bridge
 }
 

@@ -19,6 +19,9 @@
 
 import http from 'node:http'
 import { EventEmitter } from 'node:events'
+import { join, extname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 
 // Dynamically import ws so this file can be parsed without ws installed at compile time.
 // ws is listed as a runtime dependency.
@@ -36,6 +39,23 @@ export interface WebBridgeServerOptions {
   dispatchCmd: (name: string, args: unknown[]) => Promise<unknown>
   /** Optional Tailscale HTTPS origin for CORS allowlist. */
   tailscaleOrigin?: string
+  /** Optional directory of static files (PWA build) to serve at /. */
+  staticDir?: string
+}
+
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json',
 }
 
 // Commands blocked for remote (PWA) clients
@@ -55,6 +75,11 @@ function isCmdAllowed(name: string): boolean {
   if (BLOCKED_CMDS.has(name)) return false
   if (BLOCKED_PREFIXES.some((p) => name.startsWith(p))) return false
   return true
+}
+
+function isLocalhostRequest(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? ''
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
 }
 
 function isOriginAllowed(origin: string | undefined, tailscaleOrigin?: string): boolean {
@@ -149,6 +174,7 @@ export class WebBridgeServer extends EventEmitter {
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const origin = req.headers.origin as string | undefined
+    const url = req.url ?? ''
 
     // CORS preflight
     if (req.method === 'OPTIONS') {
@@ -162,12 +188,16 @@ export class WebBridgeServer extends EventEmitter {
       return
     }
 
-    // Auth check
-    const authHeader = req.headers.authorization ?? ''
-    if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== this.options.token) {
-      res.writeHead(401, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Unauthorized' }))
-      return
+    // Auth check — localhost and tailscale-proxied connections skip token validation.
+    // tailscale serve proxies remote requests to localhost, so isLocalhostRequest covers both.
+    // Only API endpoints require a token; static assets are open (network auth via Tailscale).
+    if (!isLocalhostRequest(req) && url.startsWith('/api/')) {
+      const authHeader = req.headers.authorization ?? ''
+      if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== this.options.token) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        return
+      }
     }
 
     // CORS
@@ -178,7 +208,6 @@ export class WebBridgeServer extends EventEmitter {
     }
 
     // Route: POST /api/cmd/:name
-    const url = req.url ?? ''
     const cmdMatch = url.match(/^\/api\/cmd\/([^/?]+)/)
     if (req.method === 'POST' && cmdMatch) {
       this.handleCommand(cmdMatch[1], req, res, origin)
@@ -192,8 +221,39 @@ export class WebBridgeServer extends EventEmitter {
       return
     }
 
+    // Static file serving (PWA)
+    if (req.method === 'GET' && this.options.staticDir) {
+      this.serveStatic(url, res).catch(() => {
+        res.writeHead(500)
+        res.end()
+      })
+      return
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Not found' }))
+  }
+
+  private async serveStatic(url: string, res: http.ServerResponse): Promise<void> {
+    const staticDir = this.options.staticDir!
+    const pathname = url.split('?')[0]
+    let filePath = join(staticDir, pathname === '/' ? 'index.html' : pathname)
+    // Prevent path traversal
+    if (!filePath.startsWith(staticDir)) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    if (!existsSync(filePath)) filePath = join(staticDir, 'index.html')
+    try {
+      const content = await readFile(filePath)
+      const contentType = MIME_TYPES[extname(filePath)] ?? 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': contentType })
+      res.end(content)
+    } catch {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Not found' }))
+    }
   }
 
   private handleCommand(

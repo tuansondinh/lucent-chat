@@ -299,8 +299,6 @@ app.whenReady().then(async () => {
 
   const startWebBridgeServer = async (): Promise<void> => {
     const currentSettings = settingsService.get()
-    if (!currentSettings.remoteAccessEnabled) return
-
     const port = currentSettings.remoteAccessPort ?? 8788
     let token = currentSettings.remoteAccessToken
 
@@ -317,16 +315,53 @@ app.whenReady().then(async () => {
     const dispatchCmd = async (name: string, args: unknown[]): Promise<unknown> => {
       // Route remote bridge commands to local services.
       // This mirrors a subset of the IPC handlers — only safe, non-terminal commands.
+      const pane = () => paneManager?.getPane(args[0] as string)
+      const root = () => pane()?.projectRoot
       switch (name) {
+        // Settings
         case 'get-settings': return settingsService.get()
         case 'set-settings': return settingsService.save(args[0] as Record<string, unknown>)
+        // Pane lifecycle
         case 'pane-list': return paneManager?.getPaneIds() ?? []
-        case 'get-models': return paneManager?.getPane(args[0] as string)?.agentBridge.getModels()
-        case 'get-state': return paneManager?.getPane(args[0] as string)?.agentBridge.getState()
-        case 'get-sessions': return paneManager?.getPane(args[0] as string)?.sessionService.listSessions() ?? []
-        case 'get-messages': return paneManager?.getPane(args[0] as string)?.sessionService.getMessages() ?? []
-        case 'prompt': return paneManager?.getPane(args[0] as string)?.orchestrator.submitTurn(args[1] as string, 'text')
-        case 'abort': return paneManager?.getPane(args[0] as string)?.orchestrator.abort()
+        case 'pane-create': { const p = await paneManager!.createPane(settingsService, () => {}); return { paneId: p.id } }
+        case 'pane-close': return paneManager?.destroyPane(args[0] as string)
+        // Agent
+        case 'prompt': return pane()?.orchestrator.submitTurn(args[1] as string, 'text')
+        case 'abort': return pane()?.orchestrator.abort()
+        case 'get-state': return pane()?.agentBridge.getState()
+        case 'get-models': return pane()?.agentBridge.getAvailableModels()
+        case 'switch-model': return pane()?.agentBridge.setModel(args[1] as string, args[2] as string)
+        case 'new-session': return pane()?.agentBridge.newSession()
+        case 'get-health': return pane()?.processManager.getStates() ?? {}
+        // Sessions
+        case 'get-sessions': return pane()?.sessionService.listSessions() ?? []
+        case 'get-messages': return pane()?.sessionService.getMessages() ?? []
+        case 'switch-session': return pane()?.sessionService.switchSession(args[1] as string, pane()!.orchestrator)
+        case 'rename-session': return pane()?.sessionService.renameSession(args[1] as string)
+        case 'delete-session': return pane()?.sessionService.deleteSession(args[1] as string)
+        // Provider auth
+        case 'get-provider-auth-status': return authService.getProviderStatuses()
+        case 'get-provider-catalog': return authService.getProviderCatalog()
+        case 'validate-and-save-provider-key': return authService.validateAndSaveApiKey(args[0] as string, args[1] as string)
+        case 'remove-provider-key': return authService.removeApiKey(args[0] as string)
+        // Pane info
+        case 'get-pane-info': return { paneId: args[0], projectRoot: pane()?.projectRoot ?? process.cwd() }
+        case 'set-pane-root': { const p2 = pane(); if (!p2) throw new Error('Unknown pane'); await paneManager!.restartPaneAgent(args[0] as string, args[1] as string); return { projectRoot: args[1] } }
+        // File system
+        case 'fs-list-dir': return root() ? fileService.listDirectory(root()!, args[1] as string) : { entries: [], truncated: false }
+        case 'fs-read-file': return root() ? fileService.readFile(root()!, args[1] as string) : null
+        // Git
+        case 'git-branch': return root() ? gitService.getBranch(root()!) : null
+        case 'git-list-branches': return root() ? gitService.listBranches(root()!) : { current: null, branches: [] }
+        case 'git-checkout-branch': return root() ? gitService.checkoutBranch(root()!, args[1] as string) : null
+        case 'git-project-root': return root() ?? process.cwd()
+        case 'git-modified-files': return root() ? gitService.getModifiedFiles(root()!) : []
+        case 'git-changed-files': return root() ? gitService.getChangedFiles(root()!) : []
+        case 'git-file-diff': return root() ? gitService.getFileDiff(root()!, args[1] as string) : null
+        // No-ops for remote context
+        case 'open-external': return null
+        case 'set-window-title': return null
+        case 'set-window-width': return null
         default: throw new Error(`Command '${name}' not supported via remote bridge`)
       }
     }
@@ -336,10 +371,15 @@ app.whenReady().then(async () => {
       return undefined
     }).catch(() => undefined)
 
+    const pwaDir = app.isPackaged
+      ? join(process.resourcesPath, 'pwa')
+      : join(__dirname, '../../dist/pwa')
+
     webBridgeServer = new WebBridgeServer({
       token,
       dispatchCmd,
       tailscaleOrigin,
+      staticDir: pwaDir,
     })
 
     try {

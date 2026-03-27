@@ -1,7 +1,6 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { BridgeSetup } from './components/BridgeSetup'
 import './styles/index.css'
 
 // ---------------------------------------------------------------------------
@@ -39,14 +38,14 @@ if (!rootElement) {
 function Root() {
   // In Electron, window.__ELECTRON__ is set by the preload — skip setup.
   const isElectron = Boolean((window as Window & { __ELECTRON__?: unknown }).__ELECTRON__)
-  // Localhost connections are trusted without a token
-  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  const hasToken = Boolean(localStorage.getItem('lc_bridge_token'))
-
-  const [connected, setConnected] = useState(isElectron || isLocalhost || hasToken)
-
-  if (!connected) {
-    return <BridgeSetup onConnect={() => setConnected(true)} />
+  // For non-Electron (PWA/browser), use the page's own origin as the server URL.
+  // tailscale serve proxies to localhost so no token is needed.
+  if (!isElectron) {
+    const stored = localStorage.getItem('lc_bridge_server')
+    if (!stored || stored !== window.location.origin) {
+      localStorage.setItem('lc_bridge_server', window.location.origin)
+    }
+    localStorage.removeItem('lc_bridge_token')
   }
 
   return <App />
