@@ -1,10 +1,10 @@
 /**
  * StatusBar — fixed bar at the bottom of the app.
  *
- * Shows: current model name | voice indicator (when active) | session name | health dot + status
+ * Shows: current model name | voice indicator | subagent count | session name | health dot + status
  */
 
-import { Mic, FileText } from 'lucide-react'
+import { Mic, FileText, Bot } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
 
 interface HealthDotProps {
@@ -34,6 +34,8 @@ interface Props {
   voiceActive?: boolean
   voiceSpeaking?: boolean
   voiceTtsPlaying?: boolean
+  /** Number of currently running subagents. */
+  activeSubagentCount?: number
 }
 
 export function StatusBar({
@@ -46,6 +48,7 @@ export function StatusBar({
   voiceActive,
   voiceSpeaking,
   voiceTtsPlaying,
+  activeSubagentCount = 0,
 }: Props) {
   const healthLabel = health === 'unknown' ? 'connecting' : health
 
@@ -69,6 +72,12 @@ export function StatusBar({
             <span className="text-[10px]">
               {voiceTtsPlaying ? 'Speaking' : voiceSpeaking ? 'Listening...' : 'Voice'}
             </span>
+          </div>
+        )}
+        {activeSubagentCount > 0 && (
+          <div className="flex items-center gap-1 text-accent/80" title={`${activeSubagentCount} active subagent${activeSubagentCount !== 1 ? 's' : ''}`}>
+            <Bot className="w-2.5 h-2.5 animate-pulse" />
+            <span className="text-[10px]">{activeSubagentCount}</span>
           </div>
         )}
         <span className="truncate max-w-[180px] text-center">{sessionName || 'New session'}</span>

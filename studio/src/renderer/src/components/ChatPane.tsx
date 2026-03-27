@@ -211,6 +211,9 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut,
     setSessionName,
     currentModel,
     projectRoot,
+    addSubagentBlock,
+    updateSubagentStatus,
+    activeSubagentCount,
   } = store()
 
   const bridge = window.bridge
@@ -428,6 +431,22 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut,
         store.getState().addErrorMessage(message)
         toast.error(message)
       }),
+      // Subagent events — optional (bridge may not have these methods in older preloads)
+      ...(bridge.onSubagentState ? [
+        bridge.onSubagentState(({ turn_id, subagentId, status }) => {
+          const s = store.getState()
+          if (status === 'running') {
+            // Will be added via onSubagentChunk or a separate spawn event
+          } else {
+            s.updateSubagentStatus(turn_id, subagentId, status as 'running' | 'done' | 'error', Date.now())
+          }
+        }),
+      ] : []),
+      ...(bridge.onSubagentDone ? [
+        bridge.onSubagentDone(({ turn_id, subagentId }) => {
+          store.getState().updateSubagentStatus(turn_id, subagentId, 'done', Date.now())
+        }),
+      ] : []),
     ]
 
     // Fetch initial state for this pane
