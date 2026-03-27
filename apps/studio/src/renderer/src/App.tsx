@@ -32,6 +32,7 @@ import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { Terminal } from './components/Terminal'
 import { FileViewer } from './components/FileViewer'
+import { StatusBar } from './components/StatusBar'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 
 const MIN_FILE_VIEWER_WIDTH = 360
@@ -131,6 +132,7 @@ export default function App() {
     isGenerating: activePaneGenerating,
     isCompacting: activePaneCompacting,
     autoCompactionEnabled: activePaneAutoCompactionEnabled,
+    activeSubagentCount: activePaneSubagentCount,
   } = activePaneStore()
 
   // Voice store (global, not per-pane) — select only needed state to avoid re-renders
@@ -808,6 +810,14 @@ export default function App() {
           </>
         )}
       </PanelGroup>
+
+      {/* Global status bar */}
+      <StatusBar
+        model={activePaneModel}
+        sessionName={activePaneSessionName}
+        health={activePaneHealth}
+        activeSubagentCount={activePaneSubagentCount ?? 0}
+      />
 
       {/* Model picker dialog */}
       <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />

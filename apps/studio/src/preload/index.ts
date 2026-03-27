@@ -383,6 +383,61 @@ const bridge = {
   },
 
   // -------------------------------------------------------------------------
+  // Subagent commands — pane-scoped
+  // -------------------------------------------------------------------------
+
+  /** Spawn a subagent for a parent turn. Returns subagentId. */
+  subagentSpawn: (paneId: string, parentTurnId: string, agentType: string, prompt: string): Promise<string> =>
+    ipcRenderer.invoke('cmd:subagent-spawn', paneId, parentTurnId, agentType, prompt),
+
+  /** List all tracked subagents. */
+  subagentList: (paneId: string): Promise<Array<{ id: string; parentTurnId: string; agentType: string; prompt: string; status: string; startedAt: number; endedAt?: number }>> =>
+    ipcRenderer.invoke('cmd:subagent-list', paneId),
+
+  /** Abort a subagent by ID. */
+  subagentAbort: (paneId: string, subagentId: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:subagent-abort', paneId, subagentId),
+
+  // -------------------------------------------------------------------------
+  // Subagent events (main → renderer)
+  // -------------------------------------------------------------------------
+
+  /** Subagent streaming chunk. */
+  onSubagentChunk: (cb: (data: { paneId: string; turn_id: string; subagentId: string; text: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:subagent-chunk', handler)
+    return () => ipcRenderer.removeListener('event:subagent-chunk', handler)
+  },
+
+  /** Subagent tool call started. */
+  onSubagentToolStart: (cb: (data: { paneId: string; turn_id: string; subagentId: string; tool: string; input: unknown }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:subagent-tool-start', handler)
+    return () => ipcRenderer.removeListener('event:subagent-tool-start', handler)
+  },
+
+  /** Subagent tool call ended. */
+  onSubagentToolEnd: (cb: (data: { paneId: string; turn_id: string; subagentId: string; tool: string; output: unknown; isError: boolean }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:subagent-tool-end', handler)
+    return () => ipcRenderer.removeListener('event:subagent-tool-end', handler)
+  },
+
+  /** Subagent completed. */
+  onSubagentDone: (cb: (data: { paneId: string; turn_id: string; subagentId: string; full_text: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:subagent-done', handler)
+    return () => ipcRenderer.removeListener('event:subagent-done', handler)
+  },
+
+  /** Subagent status changed. */
+  onSubagentState: (cb: (data: { paneId: string; turn_id: string; subagentId: string; status: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:subagent-state', handler)
+    return () => ipcRenderer.removeListener('event:subagent-state', handler)
+  },
+
+  // -------------------------------------------------------------------------
   // Voice — not pane-specific (sidecar is app-global)
   // Phase 2 wires the main-process IPC handlers; these are the renderer-side stubs.
   // -------------------------------------------------------------------------

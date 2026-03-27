@@ -7,7 +7,7 @@
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
-import { type ChatMessage, type AgentHealth, type ContentBlock } from './chat'
+import { type ChatMessage, type AgentHealth, type ContentBlock, type SubagentBlock } from './chat'
 
 // ============================================================================
 // Open file tab model
@@ -98,6 +98,12 @@ export interface PaneChatState {
   setSessionName: (name: string) => void
   /** Add a file to the recent files list (most recent first, capped at 10). */
   addRecentFile: (relativePath: string) => void
+  /** Add a new subagent block to a turn's assistant message. */
+  addSubagentBlock: (turn_id: string, subagentId: string, agentType: string, prompt: string) => void
+  /** Update the status of a subagent block. */
+  updateSubagentStatus: (turn_id: string, subagentId: string, status: 'running' | 'done' | 'error', endedAt?: number) => void
+  /** Number of active subagents in this pane. */
+  activeSubagentCount: number
 }
 
 // ============================================================================
@@ -163,6 +169,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionPath: null,
     currentSessionName: '',
     recentFiles: [],
+    activeSubagentCount: 0,
 
     addUserMessage: (text, turn_id) =>
       set((s) => ({
@@ -528,6 +535,50 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
       set((s) => {
         const filtered = s.recentFiles.filter((p) => p !== relativePath)
         return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
+      }),
+
+    addSubagentBlock: (turn_id, subagentId, agentType, prompt) =>
+      set((s) => {
+        let messages = ensureAssistantMessage(s.messages, turn_id)
+        messages = messages.map((m) => {
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          const block: SubagentBlock = {
+            type: 'subagent',
+            id: subagentId,
+            agentType,
+            prompt,
+            status: 'running',
+            startedAt: Date.now(),
+            children: [],
+          }
+          return { ...m, contentBlocks: [...m.contentBlocks, block] }
+        })
+        const activeSubagentCount = messages.reduce((acc, msg) => {
+          return acc + msg.contentBlocks.filter(
+            (b) => b.type === 'subagent' && (b as SubagentBlock).status === 'running'
+          ).length
+        }, 0)
+        return { messages, activeSubagentCount }
+      }),
+
+    updateSubagentStatus: (turn_id, subagentId, status, endedAt) =>
+      set((s) => {
+        const messages = s.messages.map((m) => {
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          const contentBlocks = m.contentBlocks.map((b) => {
+            if (b.type === 'subagent' && b.id === subagentId) {
+              return { ...b, status, ...(endedAt !== undefined ? { endedAt } : {}) } as SubagentBlock
+            }
+            return b
+          })
+          return { ...m, contentBlocks }
+        })
+        const activeSubagentCount = messages.reduce((acc, msg) => {
+          return acc + msg.contentBlocks.filter(
+            (b) => b.type === 'subagent' && (b as SubagentBlock).status === 'running'
+          ).length
+        }, 0)
+        return { messages, activeSubagentCount }
       }),
   }))
 }

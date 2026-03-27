@@ -257,6 +257,84 @@ export class ProcessManager extends EventEmitter {
     }, delay)
   }
 
+  /**
+   * Spawn an arbitrary named child process (for subagents, etc.).
+   * Unlike the 'agent'/'sidecar' slots, named processes do NOT auto-restart.
+   * Returns the ChildProcess so the caller can attach stdio listeners.
+   */
+  spawnNamedProcess(
+    name: string,
+    cmd: string,
+    args: string[],
+    opts: { cwd?: string; env?: Record<string, string> } = {},
+  ): import('node:child_process').ChildProcess {
+    // Kill any existing process with this name first
+    if (this.processes.has(name)) {
+      void this.killNamed(name)
+    }
+
+    const proc = spawn(cmd, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: opts.cwd ?? process.cwd(),
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+    })
+
+    const managed: ManagedProcess = {
+      name,
+      proc,
+      state: 'starting',
+      backoffMs: BACKOFF_INITIAL_MS,
+      restartTimer: null,
+      intentionalKill: false,
+      cwd: opts.cwd,
+      extraEnv: opts.env,
+    }
+    this.processes.set(name, managed)
+
+    proc.on('spawn', () => {
+      console.log(`[process-manager] named process "${name}" spawned (pid=${proc.pid})`)
+      this.setState(name, 'ready')
+    })
+
+    proc.on('error', (err) => {
+      console.error(`[process-manager] named process "${name}" error: ${err.message}`)
+      this.setState(name, 'crashed')
+      managed.proc = null
+      // Emit so callers (SubagentManager) can clean up
+      this.emit('named-process-error', name, err)
+    })
+
+    proc.on('exit', (code, signal) => {
+      console.log(`[process-manager] named process "${name}" exited (code=${code}, signal=${signal})`)
+      managed.proc = null
+      if (!managed.intentionalKill) {
+        this.setState(name, 'crashed')
+        this.emit('named-process-exit', name, code, signal)
+      } else {
+        this.setState(name, 'stopped')
+        this.processes.delete(name)
+      }
+    })
+
+    return proc
+  }
+
+  /** Kill a dynamically spawned named process and remove it from the map. */
+  async killNamed(name: string): Promise<void> {
+    const managed = this.processes.get(name)
+    if (!managed) return
+    managed.intentionalKill = true
+    await this.killProcess(name)
+    this.processes.delete(name)
+  }
+
+  /** Get the ChildProcess for a named process, or null if not running. */
+  getNamedProcess(name: string): import('node:child_process').ChildProcess | null {
+    // Only return for dynamically spawned named processes (not 'agent'/'sidecar')
+    if (name === 'agent' || name === 'sidecar') return null
+    return this.processes.get(name)?.proc ?? null
+  }
+
   /** Gracefully shut down all managed processes. */
   async shutdownAll(): Promise<void> {
     console.log('[process-manager] shutting down all processes')

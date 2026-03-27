@@ -15,10 +15,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
-import type { ChatMessage as ChatMsg, ContentBlock } from '../store/chat'
+import type { ChatMessage as ChatMsg, ContentBlock, SubagentBlock as SubagentBlockType } from '../store/chat'
 import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
+import { SubagentBlock, UnknownBlockFallback } from './SubagentBlock'
 import {
   ChevronRight,
   ChevronDown,
@@ -703,8 +704,15 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
                       <ToolCallItem tc={block} />
                     </div>
                   )
+                case 'subagent':
+                  return (
+                    <SubagentBlock key={block.id} block={block as SubagentBlockType} />
+                  )
                 default:
-                  return null
+                  // Forward-compat: render unknown block types as collapsed info blocks
+                  return (
+                    <UnknownBlockFallback key={block.id} block={block as { type: string; id: string; [key: string]: unknown }} />
+                  )
               }
             })}
           </div>
