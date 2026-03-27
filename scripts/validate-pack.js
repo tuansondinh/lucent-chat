@@ -46,6 +46,7 @@ try {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    maxBuffer: 100 * 1024 * 1024, // 100MB buffer for large tarball
   });
   const tarballName = packOutput.trim().split('\n').pop();
   tarball = join(ROOT, tarballName);
@@ -64,9 +65,8 @@ try {
 
   const requiredFiles = [
     'dist/loader.js',
-    'packages/runtime/dist/index.js',
-    'scripts/link-workspace-packages.cjs',
-    'dist/web/standalone/server.js',
+    'packages/runtime/bundle/entrypoint.js',
+    'packages/runtime/bundle/node',
   ];
 
   let missing = false;
@@ -104,34 +104,31 @@ try {
     process.exit(1);
   }
 
-  // --- Verify @lc/* packages resolved correctly post-install ---
-  // This catches the Windows-style failure where symlinkSync fails silently and
-  // node_modules/@lc/ is never populated, causing ERR_MODULE_NOT_FOUND at runtime.
-  console.log('==> Verifying @lc/* workspace package resolution...');
-  const installedRoot = join(installDir, 'node_modules', 'gsd-pi');
-  const criticalPkgs = ['runtime'];
-  let resolutionFailed = false;
-  for (const pkg of criticalPkgs) {
-    const pkgPath = join(installedRoot, 'node_modules', '@lc', pkg);
-    const fallbackPath = join(installedRoot, 'packages', pkg);
-    if (!existsSync(pkgPath)) {
-      if (existsSync(fallbackPath)) {
-        console.log(`    MISSING symlink/copy: node_modules/@lc/${pkg} (packages/${pkg} exists — postinstall may not have run)`);
-      } else {
-        console.log(`    MISSING: node_modules/@lc/${pkg} (packages/${pkg} also absent — package is broken)`);
-      }
-      resolutionFailed = true;
+  // --- Verify runtime bundle is present and valid ---
+  // The runtime bundle is self-contained with entrypoint, node binary, and dependencies.
+  console.log('==> Verifying runtime bundle is present...');
+  const installedRoot = join(installDir, 'node_modules', 'voice-bridge-desktop');
+  const bundlePaths = [
+    'packages/runtime/bundle/entrypoint.js',
+    'packages/runtime/bundle/node',
+  ];
+  let bundleCheckFailed = false;
+  for (const bundlePath of bundlePaths) {
+    const fullPath = join(installedRoot, bundlePath);
+    if (!existsSync(fullPath)) {
+      console.log(`    MISSING: ${bundlePath}`);
+      bundleCheckFailed = true;
     }
   }
-  if (resolutionFailed) {
-    console.log('ERROR: @lc/* packages are not resolvable after install.');
-    console.log('    This will cause ERR_MODULE_NOT_FOUND on first run (especially on Windows).');
+  if (bundleCheckFailed) {
+    console.log('ERROR: Runtime bundle files are missing from tarball.');
+    console.log('    The bundle must include entrypoint.js and the node binary.');
     process.exit(1);
   }
-  console.log('    @lc/* packages are resolvable.');
+  console.log('    Runtime bundle is present.');
 
   // --- Run the binary to confirm end-to-end resolution ---
-  console.log('==> Running installed binary (gsd -v)...');
+  console.log('==> Running installed binary (voice-bridge-desktop -v)...');
   const loaderPath = join(installedRoot, 'dist', 'loader.js');
   try {
     const versionOutput = execSync(`node "${loaderPath}" -v`, {
@@ -140,13 +137,13 @@ try {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 15000,
     }).trim();
-    console.log(`    gsd -v => ${versionOutput}`);
+    console.log(`    voice-bridge-desktop -v => ${versionOutput}`);
     if (!versionOutput.match(/^\d+\.\d+\.\d+/)) {
       console.log('ERROR: gsd -v returned unexpected output (expected a version string).');
       process.exit(1);
     }
   } catch (err) {
-    console.log('ERROR: Running gsd -v failed after install.');
+    console.log('ERROR: Running loader -v failed after install.');
     if (err.stdout) console.log(err.stdout);
     if (err.stderr) console.log(err.stderr);
     process.exit(1);
