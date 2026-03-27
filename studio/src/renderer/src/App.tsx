@@ -18,6 +18,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { Terminal } from './components/Terminal'
+import { FileViewer } from './components/FileViewer'
 
 function ThinkingBubble() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
     agentHealth,
     isGenerating,
     currentModel,
+    viewedFile,
     scrollPositions,
     appendChunk,
     finalizeMessage,
@@ -70,10 +72,21 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [fileViewerOpen, setFileViewerOpen] = useState(false)
 
   // Current session tracking (path + name)
   const [currentSessionPath, setCurrentSessionPath] = useState<string | null>(null)
   const [currentSessionName, setCurrentSessionName] = useState<string>('')
+
+  // -------------------------------------------------------------------------
+  // Auto-open file viewer when a file is viewed via tool call
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (viewedFile !== null) {
+      setFileViewerOpen(true)
+    }
+  }, [viewedFile])
 
   // -------------------------------------------------------------------------
   // Load persisted settings on mount
@@ -187,6 +200,13 @@ export default function App() {
       if (e.metaKey && e.key === '`') {
         e.preventDefault()
         setTerminalOpen((v) => !v)
+        return
+      }
+
+      // Cmd+Shift+F — toggle file viewer panel (always works, even in inputs)
+      if (e.metaKey && e.shiftKey && e.key === 'F') {
+        e.preventDefault()
+        setFileViewerOpen((v) => !v)
         return
       }
 
@@ -358,21 +378,45 @@ export default function App() {
                   onOpenModelPicker={() => setModelPickerOpen(true)}
                   onOpenSettings={() => setSettingsOpen(true)}
                 />
-                <div className="flex-1 flex flex-col min-h-0 min-w-0">
-                  <ChatColumn
-                    messages={messages}
-                    agentHealth={agentHealth}
-                    isGenerating={isGenerating}
-                    currentModel={currentModel}
-                    sidebarCollapsed={true}
-                    inputDisabled={inputDisabled}
-                    suggestions={suggestions}
-                    messagesEndRef={messagesEndRef}
-                    scrollContainerRef={scrollContainerRef}
-                    onSubmit={(t, img) => void handleSubmit(t, img)}
-                    onAbort={handleAbort}
-                  />
-                </div>
+                {fileViewerOpen ? (
+                  <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
+                    <Panel className="flex flex-col min-h-0 min-w-0">
+                      <ChatColumn
+                        messages={messages}
+                        agentHealth={agentHealth}
+                        isGenerating={isGenerating}
+                        currentModel={currentModel}
+                        sidebarCollapsed={true}
+                        inputDisabled={inputDisabled}
+                        suggestions={suggestions}
+                        messagesEndRef={messagesEndRef}
+                        scrollContainerRef={scrollContainerRef}
+                        onSubmit={(t, img) => void handleSubmit(t, img)}
+                        onAbort={handleAbort}
+                      />
+                    </Panel>
+                    <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                    <Panel defaultSize="35%" minSize="20%" maxSize="60%" className="flex flex-col min-h-0 min-w-0">
+                      <FileViewer onClose={() => setFileViewerOpen(false)} />
+                    </Panel>
+                  </PanelGroup>
+                ) : (
+                  <div className="flex-1 flex flex-col min-h-0 min-w-0">
+                    <ChatColumn
+                      messages={messages}
+                      agentHealth={agentHealth}
+                      isGenerating={isGenerating}
+                      currentModel={currentModel}
+                      sidebarCollapsed={true}
+                      inputDisabled={inputDisabled}
+                      suggestions={suggestions}
+                      messagesEndRef={messagesEndRef}
+                      scrollContainerRef={scrollContainerRef}
+                      onSubmit={(t, img) => void handleSubmit(t, img)}
+                      onAbort={handleAbort}
+                    />
+                  </div>
+                )}
               </>
             )}
 
@@ -407,6 +451,14 @@ export default function App() {
                     onAbort={handleAbort}
                   />
                 </Panel>
+                {fileViewerOpen && (
+                  <>
+                    <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                    <Panel defaultSize="35%" minSize="20%" maxSize="60%" className="flex flex-col min-h-0 min-w-0">
+                      <FileViewer onClose={() => setFileViewerOpen(false)} />
+                    </Panel>
+                  </>
+                )}
               </PanelGroup>
             )}
           </div>
@@ -473,9 +525,9 @@ interface ChatColumnProps {
   sidebarCollapsed: boolean
   inputDisabled: boolean
   suggestions: string[]
-  messagesEndRef: React.RefObject<HTMLDivElement>
+  messagesEndRef: React.RefObject<HTMLDivElement | null>
   /** Ref attached to the scrollable messages container. */
-  scrollContainerRef: React.RefObject<HTMLElement>
+  scrollContainerRef: React.RefObject<HTMLElement | null>
   onSubmit: (text: string, imageDataUrl?: string) => void
   onAbort: () => void
 }
@@ -514,7 +566,7 @@ function ChatColumn({
       </header>
 
       {/* Messages area */}
-      <main ref={scrollContainerRef as React.RefObject<HTMLElement>} className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
+      <main ref={scrollContainerRef as React.RefObject<HTMLElement | null>} className="flex-1 overflow-y-auto px-4 py-4 min-h-0">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="text-2xl font-semibold text-text-primary">Lucent Chat</div>
