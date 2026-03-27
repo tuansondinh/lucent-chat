@@ -96,6 +96,7 @@ export class Orchestrator extends EventEmitter {
       return
     }
     this.setTurnState(this.currentTurn, 'aborted')
+    this.emit('voice-abort') // renderer listens to stop TTS
     try {
       await this.agentBridge.abort()
     } catch (err: any) {
@@ -107,6 +108,16 @@ export class Orchestrator extends EventEmitter {
   /** Get the current turn (may be null). */
   getCurrentTurn(): Turn | null {
     return this.currentTurn
+  }
+
+  /**
+   * Set voice-specific turn phase. Only affects voice-input turns.
+   * Called by the voice service layer (Phase 2) to reflect sidecar state.
+   */
+  setVoicePhase(phase: 'listening' | 'transcribing' | 'speaking' | 'playback_pending'): void {
+    if (this.currentTurn && this.currentTurn.input_type === 'voice') {
+      this.setTurnState(this.currentTurn, phase)
+    }
   }
 
   // =========================================================================

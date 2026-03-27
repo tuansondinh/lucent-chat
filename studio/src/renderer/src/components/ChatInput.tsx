@@ -1,19 +1,43 @@
 /**
- * ChatInput — text input bar with submit and stop buttons.
+ * ChatInput — text input bar with submit, stop, and voice buttons.
  * Enter submits, Shift+Enter inserts a newline.
  * Supports pasting images from clipboard with a preview thumbnail.
+ * When voice is active, shows mic status and a partial transcript preview.
  */
 
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent, type ClipboardEvent } from 'react'
+import { Mic, MicOff, Volume2 } from 'lucide-react'
 
 interface Props {
   onSubmit: (text: string, imageDataUrl?: string) => void
   onAbort: () => void
   isGenerating: boolean
   disabled?: boolean
+  // Voice props
+  voiceAvailable?: boolean
+  voiceActive?: boolean
+  isSpeaking?: boolean
+  isTtsPlaying?: boolean
+  partialTranscript?: string
+  unavailableReason?: string | null
+  onVoiceToggle?: () => void
+  onStopTts?: () => void
 }
 
-export function ChatInput({ onSubmit, onAbort, isGenerating, disabled }: Props) {
+export function ChatInput({
+  onSubmit,
+  onAbort,
+  isGenerating,
+  disabled,
+  voiceAvailable = false,
+  voiceActive = false,
+  isSpeaking = false,
+  isTtsPlaying = false,
+  partialTranscript = '',
+  unavailableReason = null,
+  onVoiceToggle,
+  onStopTts,
+}: Props) {
   const [value, setValue] = useState('')
   const [pastedImage, setPastedImage] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -65,8 +89,32 @@ export function ChatInput({ onSubmit, onAbort, isGenerating, disabled }: Props) 
 
   const canSubmit = (value.trim() || pastedImage) && !disabled
 
+  // Mic button appearance depends on voice state
+  const micButtonClass = (() => {
+    if (!voiceAvailable) {
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary opacity-40 cursor-not-allowed'
+    }
+    if (isTtsPlaying) {
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
+    }
+    if (voiceActive && isSpeaking) {
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-green-500/20 border border-green-500/60 text-green-400 hover:bg-green-500/30 transition-colors animate-pulse'
+    }
+    if (voiceActive) {
+      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
+    }
+    return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors'
+  })()
+
   return (
     <div className="border-t border-border bg-bg-primary px-4 py-3">
+      {/* Partial transcript preview — shown when voice is active and capturing */}
+      {voiceActive && partialTranscript && (
+        <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
+          {partialTranscript}
+        </div>
+      )}
+
       {/* Image preview thumbnail */}
       {pastedImage && (
         <div className="mb-2 flex items-start gap-2">
@@ -105,6 +153,30 @@ export function ChatInput({ onSubmit, onAbort, isGenerating, disabled }: Props) 
             'disabled:opacity-50 disabled:cursor-not-allowed',
           ].join(' ')}
         />
+
+        {/* Mic / TTS button */}
+        <button
+          onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
+          disabled={!voiceAvailable}
+          title={
+            !voiceAvailable
+              ? (unavailableReason ?? 'Voice unavailable')
+              : isTtsPlaying
+                ? 'Stop speaking'
+                : voiceActive
+                  ? 'Stop voice mode'
+                  : 'Start voice mode'
+          }
+          className={micButtonClass}
+        >
+          {isTtsPlaying ? (
+            <Volume2 className="w-4 h-4" />
+          ) : voiceActive ? (
+            <Mic className="w-4 h-4" />
+          ) : (
+            <MicOff className="w-4 h-4" />
+          )}
+        </button>
 
         {isGenerating ? (
           <button

@@ -16,6 +16,7 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'reac
 import { toast, Toaster } from 'sonner'
 import { useChatStore } from './store/chat'
 import { usePanesStore, getPaneStore, deletePaneStore } from './store/pane-store'
+import { useVoiceStore } from './store/voice-store'
 import { ChatPane } from './components/ChatPane'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -46,6 +47,9 @@ export default function App() {
     currentSessionName: activePaneSessionName,
     isGenerating: activePaneGenerating,
   } = activePaneStore()
+
+  // Voice state for StatusBar indicator
+  const { active: voiceActive, speaking: voiceSpeaking, ttsPlaying: voiceTtsPlaying } = useVoiceStore()
 
   // -------------------------------------------------------------------------
   // UI state
@@ -98,6 +102,30 @@ export default function App() {
     if (!settingsLoaded) return
     bridge.setSettings({ sidebarCollapsed }).catch(() => {})
   }, [sidebarCollapsed, settingsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -------------------------------------------------------------------------
+  // Voice service probe + status subscription
+  // Phase 2 wires the main-process side; these calls are graceful no-ops until then.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    // Initial probe — check if sidecar is available
+    bridge.voiceProbe()
+      .then(({ available, reason }) => {
+        useVoiceStore.getState().setAvailable(available, reason ?? null)
+      })
+      .catch(() => {})
+
+    // Subscribe to ongoing voice status events
+    const unsub = bridge.onVoiceStatus((data) => {
+      const vs = useVoiceStore.getState()
+      vs.setSidecarState(data.state as ReturnType<typeof useVoiceStore.getState>['sidecarState'])
+      vs.setPort(data.port)
+      vs.setAvailable(data.state === 'ready' || data.available)
+    })
+
+    return unsub
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Sync native window title with active pane's session name
@@ -405,6 +433,9 @@ export default function App() {
         sessionName={activePaneSessionName}
         health={activePaneHealth}
         onOpenModelPicker={() => setModelPickerOpen(true)}
+        voiceActive={voiceActive}
+        voiceSpeaking={voiceSpeaking}
+        voiceTtsPlaying={voiceTtsPlaying}
       />
 
       {/* Model picker dialog */}

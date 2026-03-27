@@ -10,6 +10,7 @@ import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
 import { TerminalManager } from './terminal-manager.js'
 import { AuthService } from './auth-service.js'
+import { VoiceService } from './voice-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -19,6 +20,7 @@ let tray: Tray | null = null
 let processManager: ProcessManager | null = null
 let terminalManager: TerminalManager | null = null
 let paneManager: PaneManager | null = null
+let voiceService: VoiceService | null = null
 
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
@@ -115,6 +117,10 @@ app.whenReady().then(async () => {
   // 3. Process Manager
   processManager = new ProcessManager()
 
+  // 3a. Voice Service — project root is 3 levels up from studio/dist/main at runtime
+  voiceService = new VoiceService(() => join(__dirname, '..', '..', '..'))
+  voiceService.probe().catch((err: Error) => console.warn('[voice] probe failed:', err.message))
+
   // 4. Agent Bridge
   const agentBridge = new AgentBridge()
 
@@ -204,6 +210,7 @@ app.whenReady().then(async () => {
     settingsService,
     terminalManager,
     authService,
+    voiceService!,
     restartAllAgents,
     () => mainWindow
   )
@@ -252,6 +259,8 @@ app.on('before-quit', (e) => {
     void (async () => {
       try {
         terminalManager?.destroyAll()
+        // Stop voice sidecar first (non-blocking 3s grace)
+        await voiceService?.stop()
         // Shutdown non-pane-0 panes first
         await paneManager?.shutdownAll()
         // Then shutdown pane-0's process manager

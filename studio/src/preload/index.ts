@@ -242,6 +242,40 @@ const bridge = {
     ipcRenderer.on('event:text-block-end', handler)
     return () => ipcRenderer.removeListener('event:text-block-end', handler)
   },
+
+  // -------------------------------------------------------------------------
+  // Voice — not pane-specific (sidecar is app-global)
+  // Phase 2 wires the main-process IPC handlers; these are the renderer-side stubs.
+  // -------------------------------------------------------------------------
+
+  /** Check whether Python and voice_bridge are available on this machine. */
+  voiceProbe: (): Promise<{ available: boolean; reason?: string }> =>
+    ipcRenderer.invoke('cmd:voice-probe'),
+
+  /** Start the audio service sidecar. Resolves with the port it bound to. */
+  voiceStart: (): Promise<{ port: number }> =>
+    ipcRenderer.invoke('cmd:voice-start'),
+
+  /** Stop the audio service sidecar. */
+  voiceStop: (): Promise<void> =>
+    ipcRenderer.invoke('cmd:voice-stop'),
+
+  /** Get the current voice service status snapshot. */
+  voiceStatus: (): Promise<{ available: boolean; state: string; port: number | null }> =>
+    ipcRenderer.invoke('cmd:voice-status'),
+
+  // -------------------------------------------------------------------------
+  // Voice events (main → renderer)
+  // -------------------------------------------------------------------------
+
+  /** Subscribe to voice service status changes. Returns unsubscribe function. */
+  onVoiceStatus: (
+    cb: (data: { available: boolean; state: string; port: number | null }) => void,
+  ): (() => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, data: { available: boolean; state: string; port: number | null }) => cb(data)
+    ipcRenderer.on('event:voice-status', handler)
+    return () => ipcRenderer.removeListener('event:voice-status', handler)
+  },
 }
 
 
