@@ -17,16 +17,16 @@ let tarball = null;
 let installDir = null;
 
 try {
-  // --- Guard: workspace packages must not have @gsd/* cross-deps ---
-  console.log('==> Checking workspace packages for @gsd/* cross-deps...');
-  const workspaces = ['native', 'pi-agent-core', 'pi-ai', 'pi-coding-agent', 'pi-tui'];
+  // --- Guard: workspace packages must not have @lc/* cross-deps ---
+  console.log('==> Checking workspace packages for @lc/* cross-deps...');
+  const workspaces = ['native', 'agent-core', 'ai', 'runtime', 'tui'];
   let crossFailed = false;
 
   for (const ws of workspaces) {
     const pkgPath = join(ROOT, 'packages', ws, 'package.json');
     if (!existsSync(pkgPath)) continue;
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-    const deps = Object.keys(pkg.dependencies || {}).filter(d => d.startsWith('@gsd/'));
+    const deps = Object.keys(pkg.dependencies || {}).filter(d => d.startsWith('@lc/'));
     if (deps.length) {
       console.log(`    LEAKED in ${ws}: ${deps.join(', ')}`);
       crossFailed = true;
@@ -34,11 +34,11 @@ try {
   }
 
   if (crossFailed) {
-    console.log('ERROR: Workspace packages have @gsd/* cross-dependencies.');
+    console.log('ERROR: Workspace packages have @lc/* cross-dependencies.');
     console.log('    These cause 404s when npm resolves them from the registry.');
     process.exit(1);
   }
-  console.log('    No @gsd/* cross-dependencies.');
+  console.log('    No @lc/* cross-dependencies.');
 
   // --- Pack tarball ---
   console.log('==> Packing tarball...');
@@ -64,7 +64,7 @@ try {
 
   const requiredFiles = [
     'dist/loader.js',
-    'packages/pi-coding-agent/dist/index.js',
+    'packages/runtime/dist/index.js',
     'scripts/link-workspace-packages.cjs',
     'dist/web/standalone/server.js',
   ];
@@ -104,31 +104,31 @@ try {
     process.exit(1);
   }
 
-  // --- Verify @gsd/* packages resolved correctly post-install ---
+  // --- Verify @lc/* packages resolved correctly post-install ---
   // This catches the Windows-style failure where symlinkSync fails silently and
-  // node_modules/@gsd/ is never populated, causing ERR_MODULE_NOT_FOUND at runtime.
-  console.log('==> Verifying @gsd/* workspace package resolution...');
+  // node_modules/@lc/ is never populated, causing ERR_MODULE_NOT_FOUND at runtime.
+  console.log('==> Verifying @lc/* workspace package resolution...');
   const installedRoot = join(installDir, 'node_modules', 'gsd-pi');
-  const criticalPkgs = ['pi-coding-agent'];
+  const criticalPkgs = ['runtime'];
   let resolutionFailed = false;
   for (const pkg of criticalPkgs) {
-    const pkgPath = join(installedRoot, 'node_modules', '@gsd', pkg);
+    const pkgPath = join(installedRoot, 'node_modules', '@lc', pkg);
     const fallbackPath = join(installedRoot, 'packages', pkg);
     if (!existsSync(pkgPath)) {
       if (existsSync(fallbackPath)) {
-        console.log(`    MISSING symlink/copy: node_modules/@gsd/${pkg} (packages/${pkg} exists — postinstall may not have run)`);
+        console.log(`    MISSING symlink/copy: node_modules/@lc/${pkg} (packages/${pkg} exists — postinstall may not have run)`);
       } else {
-        console.log(`    MISSING: node_modules/@gsd/${pkg} (packages/${pkg} also absent — package is broken)`);
+        console.log(`    MISSING: node_modules/@lc/${pkg} (packages/${pkg} also absent — package is broken)`);
       }
       resolutionFailed = true;
     }
   }
   if (resolutionFailed) {
-    console.log('ERROR: @gsd/* packages are not resolvable after install.');
+    console.log('ERROR: @lc/* packages are not resolvable after install.');
     console.log('    This will cause ERR_MODULE_NOT_FOUND on first run (especially on Windows).');
     process.exit(1);
   }
-  console.log('    @gsd/* packages are resolvable.');
+  console.log('    @lc/* packages are resolvable.');
 
   // --- Run the binary to confirm end-to-end resolution ---
   console.log('==> Running installed binary (gsd -v)...');

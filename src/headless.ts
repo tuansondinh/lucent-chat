@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { resolve } from 'node:path'
 import { ChildProcess } from 'node:child_process'
 
-import { RpcClient } from '@gsd/pi-coding-agent'
+import { RpcClient } from '@lc/runtime'
 import { loadAndValidateAnswerFile, AnswerInjector } from './headless-answers.js'
 
 import {

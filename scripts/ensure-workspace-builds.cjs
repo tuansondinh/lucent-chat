@@ -28,10 +28,10 @@ if (process.env.CI === 'true' || process.env.CI === '1') process.exit(0)
 // Order matters: dependencies must build before dependents.
 const WORKSPACE_PACKAGES = [
   'native',
-  'pi-tui',
-  'pi-ai',
-  'pi-agent-core',
-  'pi-coding-agent',
+  'tui',
+  'ai',
+  'agent-core',
+  'runtime',
 ]
 
 const missing = []

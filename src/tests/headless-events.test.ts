@@ -5,7 +5,7 @@
  * the headless orchestrator to reduce stdout noise for orchestrators.
  *
  * Uses extracted parsing logic (mirrors headless.ts) to avoid
- * transitive @gsd/native import that breaks in test environment.
+ * transitive @lc/native import that breaks in test environment.
  */
 
 import test from 'node:test'

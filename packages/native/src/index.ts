@@ -1,5 +1,5 @@
 /**
- * @gsd/native — High-performance Rust modules exposed via N-API.
+ * @lc/native — High-performance Rust modules exposed via N-API.
  *
  * Modules:
  * - clipboard: native clipboard access (text + image)

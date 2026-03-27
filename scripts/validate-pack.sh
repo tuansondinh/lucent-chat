@@ -10,13 +10,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
-# --- Guard: workspace packages must not have @gsd/* cross-deps ---
-echo "==> Checking workspace packages for @gsd/* cross-deps..."
+# --- Guard: workspace packages must not have @lc/* cross-deps ---
+echo "==> Checking workspace packages for @lc/* cross-deps..."
 CROSS_FAILED=0
-for ws_pkg in native pi-agent-core pi-ai pi-coding-agent pi-tui; do
+for ws_pkg in native agent-core ai runtime tui; do
   RESULT=$(node -e "
     const pkg = require('./packages/${ws_pkg}/package.json');
-    const deps = Object.keys(pkg.dependencies || {}).filter(d => d.startsWith('@gsd/'));
+    const deps = Object.keys(pkg.dependencies || {}).filter(d => d.startsWith('@lc/'));
     if (deps.length) { console.log(deps.join(', ')); process.exit(1); }
   " 2>&1) || {
     echo "    LEAKED in ${ws_pkg}: $RESULT"
@@ -25,11 +25,11 @@ for ws_pkg in native pi-agent-core pi-ai pi-coding-agent pi-tui; do
   }
 done
 if [ "$CROSS_FAILED" = "1" ]; then
-  echo "ERROR: Workspace packages have @gsd/* cross-dependencies."
+  echo "ERROR: Workspace packages have @lc/* cross-dependencies."
   echo "    These cause 404s when npm resolves them from the registry."
   exit 1
 fi
-echo "    No @gsd/* cross-dependencies."
+echo "    No @lc/* cross-dependencies."
 
 # --- Pack tarball ---
 echo "==> Packing tarball..."
@@ -52,7 +52,7 @@ TAR_LIST=$(mktemp)
 tar tzf "$TARBALL" > "$TAR_LIST" 2>/dev/null
 
 MISSING=0
-for required in dist/loader.js packages/pi-coding-agent/dist/index.js scripts/link-workspace-packages.cjs; do
+for required in dist/loader.js packages/runtime/dist/index.js scripts/link-workspace-packages.cjs; do
   if ! grep -q "package/${required}" "$TAR_LIST"; then
     echo "    MISSING: $required"
     MISSING=1

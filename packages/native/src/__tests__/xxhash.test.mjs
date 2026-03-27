@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { xxHash32, xxHash32Fallback } from "@gsd/native/xxhash";
+import { xxHash32, xxHash32Fallback } from "@lc/native/xxhash";
 
 /**
  * Reference values computed from the pure-JS xxHash32 implementation

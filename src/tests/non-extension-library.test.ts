@@ -57,7 +57,7 @@ describe('isNonExtensionLibrary — defense-in-depth for #1709', () => {
       const libDir = join(root, 'cmux')
       mkdirSync(libDir)
       writeFileSync(join(libDir, 'package.json'), JSON.stringify({
-        name: '@gsd/cmux',
+        name: '@lc/cmux',
         description: 'cmux integration library — used by other extensions, not an extension itself',
         pi: {}
       }))

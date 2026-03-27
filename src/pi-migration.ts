@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { AuthStorage, AuthCredential } from '@gsd/pi-coding-agent'
+import type { AuthStorage, AuthCredential } from '@lc/runtime'
 
 const PI_AUTH_PATH = join(homedir(), '.pi', 'agent', 'auth.json')
 const PI_SETTINGS_PATH = join(homedir(), '.pi', 'agent', 'settings.json')

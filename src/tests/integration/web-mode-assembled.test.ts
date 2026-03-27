@@ -20,7 +20,7 @@ const {
   dispatchBrowserSlashCommand,
   getBrowserSlashCommandTerminalNotice,
 } = await import("../../../web/lib/browser-slash-command-dispatch.ts");
-const { AuthStorage } = await import("@gsd/pi-coding-agent");
+const { AuthStorage } = await import("@lc/runtime");
 
 // ---------------------------------------------------------------------------
 // Test infrastructure (shared with web-mode-onboarding.test.ts)

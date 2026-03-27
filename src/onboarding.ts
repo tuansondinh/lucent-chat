@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AuthStorage } from '@gsd/pi-coding-agent'
+import type { AuthStorage } from '@lc/runtime'
 import { renderLogo } from './logo.js'
 import { agentDir } from './app-paths.js'
 

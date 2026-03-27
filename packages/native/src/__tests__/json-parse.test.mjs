@@ -25,7 +25,7 @@ for (const candidate of candidates) {
 }
 
 if (!native) {
-  console.error("Native addon not found. Run `npm run build:native -w @gsd/native` first.");
+  console.error("Native addon not found. Run `npm run build:native -w @lc/native` first.");
   process.exit(1);
 }
 

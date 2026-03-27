@@ -56,7 +56,7 @@ describe('resolveExtensionEntries', () => {
     const dir = makeTempDir()
     try {
       writeFileSync(join(dir, 'package.json'), JSON.stringify({
-        name: '@gsd/cmux',
+        name: '@lc/cmux',
         pi: {}
       }))
       writeFileSync(join(dir, 'index.js'), 'export function utility() {}')

@@ -13,7 +13,7 @@
  *   npx tsx scripts/preview-dashboard.ts --narrow      # force 80 cols
  */
 
-import { truncateToWidth, visibleWidth } from "@gsd/pi-tui";
+import { truncateToWidth, visibleWidth } from "@lc/tui";
 import { makeUI, GLYPH, INDENT } from "../src/resources/extensions/shared/mod.js";
 
 // ── Minimal ANSI color theme (no Theme class dependency) ────────────────

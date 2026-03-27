@@ -7,11 +7,11 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	Theme,
-} from "@gsd/pi-coding-agent";
+} from "@lc/runtime";
 import {
 	truncateToWidth,
 	visibleWidth,
-} from "@gsd/pi-tui";
+} from "@lc/tui";
 
 import {
 	processes,

@@ -31,15 +31,15 @@ Test suite for Studio (Electron + React). Keep `node:test` for main, add vitest 
 - [x] Settings/auth — validation, `restartAllAgents()` side effects
 - [x] Main entry — startup wiring, app relaunch state persistence
 
-### Phase 3: Renderer — complexity: standard — parallel-group: A
-- [ ] Stores: `pane-store`, `file-tree-store` — CRUD, session switch, multi-pane isolation
-- [ ] `ChatPane` + `ChatMessage` + `ChatInput` — streaming, disabled states, tool calls
-- [ ] `App` — multi-pane create/close/focus, keyboard shortcuts
-- [ ] `Sidebar` + `StatusBar` — session list, agent health
-- [ ] `FileTree` + `FileViewer` — git status, diff view
-- [ ] `Settings` + `Onboarding` — form validation, auth fail UI
-- [ ] `Terminal` — xterm wiring, resize
-- [ ] Event listener cleanup on unmount
+### Phase 3: Renderer — complexity: standard — parallel-group: A ✅
+- [x] Stores: `pane-store`, `file-tree-store` — CRUD, session switch, multi-pane isolation
+- [x] `ChatPane` + `ChatMessage` + `ChatInput` — streaming, disabled states, tool calls
+- [x] `App` — multi-pane create/close/focus, keyboard shortcuts
+- [x] `Sidebar` + `StatusBar` — session list, agent health
+- [x] `FileTree` + `FileViewer` — git status, diff view
+- [x] `Settings` + `Onboarding` — form validation, auth fail UI
+- [x] `Terminal` — xterm wiring, resize
+- [x] Event listener cleanup on unmount
 
 ### Phase 4: CI + Coverage — complexity: simple
 - [ ] Parallel test execution, coverage gates (80% branch services, 100% IPC contract)

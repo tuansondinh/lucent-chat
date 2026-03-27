@@ -1,5 +1,5 @@
 {
-  "name": "@gsd/native",
+  "name": "@lc/native",
   "version": "0.1.0",
   "description": "Native Rust bindings for GSD \u2014 high-performance native modules via N-API",
   "type": "module",

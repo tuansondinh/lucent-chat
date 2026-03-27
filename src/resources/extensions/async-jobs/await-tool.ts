@@ -5,7 +5,7 @@
  * If omitted, waits for any running job to complete.
  */
 
-import type { ToolDefinition } from "@gsd/pi-coding-agent";
+import type { ToolDefinition } from "@lc/runtime";
 import { Type } from "@sinclair/typebox";
 import type { AsyncJobManager, Job } from "./job-manager.js";
 

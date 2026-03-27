@@ -2,14 +2,14 @@
 /**
  * link-workspace-packages.cjs
  *
- * Creates node_modules/@gsd/* symlinks pointing to packages/* directories.
+ * Creates node_modules/@lc/* symlinks pointing to packages/* directories.
  *
  * During development, npm workspaces creates these automatically. But in the
  * published tarball, workspace packages are shipped under packages/ (via the
- * "files" field) and the @gsd/* imports in compiled code need node_modules/@gsd/*
+ * "files" field) and the @lc/* imports in compiled code need node_modules/@lc/*
  * to resolve. This script bridges the gap.
  *
- * Runs as part of postinstall (before any ESM code that imports @gsd/*).
+ * Runs as part of postinstall (before any ESM code that imports @lc/*).
  *
  * On Windows without Developer Mode or administrator rights, creating symlinks
  * (even NTFS junctions) can fail with EPERM. In that case we fall back to
@@ -20,27 +20,27 @@ const { resolve, join } = require('path')
 
 const root = resolve(__dirname, '..')
 const packagesDir = join(root, 'packages')
-const nodeModulesGsd = join(root, 'node_modules', '@gsd')
+const nodeModulesLc = join(root, 'node_modules', '@lc')
 
 // Map directory names to package names
 const packageMap = {
   'native': 'native',
-  'pi-agent-core': 'pi-agent-core',
-  'pi-ai': 'pi-ai',
-  'pi-coding-agent': 'pi-coding-agent',
-  'pi-tui': 'pi-tui',
+  'agent-core': 'agent-core',
+  'ai': 'ai',
+  'runtime': 'runtime',
+  'tui': 'tui',
 }
 
-// Ensure @gsd scope directory exists
-if (!existsSync(nodeModulesGsd)) {
-  mkdirSync(nodeModulesGsd, { recursive: true })
+// Ensure @lc scope directory exists
+if (!existsSync(nodeModulesLc)) {
+  mkdirSync(nodeModulesLc, { recursive: true })
 }
 
 let linked = 0
 let copied = 0
 for (const [dir, name] of Object.entries(packageMap)) {
   const source = join(packagesDir, dir)
-  const target = join(nodeModulesGsd, name)
+  const target = join(nodeModulesLc, name)
 
   if (!existsSync(source)) continue
 
@@ -50,7 +50,7 @@ for (const [dir, name] of Object.entries(packageMap)) {
       const stat = lstatSync(target)
       if (stat.isSymbolicLink()) {
         const linkTarget = readlinkSync(target)
-        if (resolve(join(nodeModulesGsd, linkTarget)) === source || linkTarget === source) {
+        if (resolve(join(nodeModulesLc, linkTarget)) === source || linkTarget === source) {
           continue // Already correct
         }
         unlinkSync(target) // Wrong target, relink

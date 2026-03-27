@@ -10,7 +10,7 @@ import { StringDecoder } from "node:string_decoder";
 const repoRoot = process.cwd();
 const bridge = await import("../web/bridge-service.ts");
 const onboarding = await import("../web/onboarding-service.ts");
-const { AuthStorage } = await import("@gsd/pi-coding-agent");
+const { AuthStorage } = await import("@lc/runtime");
 const commandRoute = await import("../../web/app/api/session/command/route.ts");
 const eventsRoute = await import("../../web/app/api/session/events/route.ts");
 

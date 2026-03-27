@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from "@gsd/pi-coding-agent";
+import type { ExtensionAPI } from "@lc/runtime";
 import { Type } from "@sinclair/typebox";
-import { StringEnum } from "@gsd/pi-ai";
+import { StringEnum } from "@lc/ai";
 import {
 	diffCompactStates,
 } from "../core.js";

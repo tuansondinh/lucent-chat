@@ -1,7 +1,7 @@
 // Barrel — TUI-dependent exports.
 // Import from here when your code needs makeUI, showInterviewRound,
 // showNextAction, or showConfirm.  These all have a transitive dependency
-// on @gsd/pi-tui and must not be imported from shared/mod.
+// on @lc/tui and must not be imported from shared/mod.
 
 export { makeUI } from "./ui.js";
 export type { UI } from "./ui.js";

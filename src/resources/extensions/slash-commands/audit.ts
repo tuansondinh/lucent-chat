@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@gsd/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@lc/runtime";
 
 export default function auditCommand(pi: ExtensionAPI) {
 	pi.registerCommand("audit", {
