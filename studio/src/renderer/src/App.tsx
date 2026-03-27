@@ -1,77 +1,208 @@
-import { BracketsCurly, Lightning, Palette } from '@phosphor-icons/react'
-import { colors, fonts, fontSizes } from './lib/theme/tokens'
+/**
+ * App — top-level chat interface.
+ *
+ * Wires window.bridge event listeners on mount and renders the chat UI.
+ * Text-only (Phase 2). Voice/TTS path reserved for Phase 4.
+ */
 
-const statusRows = [
-  { label: 'Shell', value: 'electron-vite + React 19', icon: Lightning },
-  { label: 'Theme', value: colors.accent, icon: Palette },
-  { label: 'Code', value: fonts.mono, icon: BracketsCurly }
-]
+import { useEffect, useRef } from 'react'
+import { useChatStore } from './store/chat'
+import { ChatMessage } from './components/ChatMessage'
+import { ChatInput } from './components/ChatInput'
+
+// ============================================================================
+// Health indicator dot
+// ============================================================================
+
+function HealthDot({ health }: { health: string }) {
+  const colorClass =
+    health === 'ready'
+      ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]'
+      : health === 'starting'
+        ? 'bg-accent shadow-[0_0_6px_rgba(212,160,78,0.6)] animate-pulse'
+        : health === 'crashed' || health === 'degraded'
+          ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]'
+          : 'bg-bg-tertiary'
+  return <span className={`h-2 w-2 rounded-full flex-shrink-0 ${colorClass}`} />
+}
+
+// ============================================================================
+// App
+// ============================================================================
 
 export default function App() {
+  const {
+    messages,
+    agentHealth,
+    isGenerating,
+    currentModel,
+    appendChunk,
+    finalizeMessage,
+    addUserMessage,
+    addToolCall,
+    finalizeToolCall,
+    setHealth,
+    addErrorMessage,
+    setModel,
+  } = useChatStore()
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const bridge = window.bridge
+
+  // Register bridge event listeners once on mount
+  useEffect(() => {
+    bridge.onAgentChunk(({ turn_id, text }) => {
+      appendChunk(turn_id, text)
+    })
+
+    bridge.onAgentDone(({ turn_id, full_text }) => {
+      finalizeMessage(turn_id, full_text)
+    })
+
+    bridge.onToolStart(({ turn_id, tool, input }) => {
+      addToolCall(turn_id, tool, input)
+    })
+
+    bridge.onToolEnd(({ turn_id, tool, output, isError }) => {
+      finalizeToolCall(turn_id, tool, output, isError)
+    })
+
+    bridge.onHealth((states) => {
+      setHealth(states)
+    })
+
+    bridge.onError(({ message }) => {
+      addErrorMessage(message)
+    })
+
+    // Fetch initial health + model state
+    bridge.getHealth().then(setHealth).catch(() => {})
+    bridge
+      .getState()
+      .then((state) => {
+        const model = state.model as { provider?: string; id?: string } | undefined
+        if (model?.id) {
+          setModel(`${model.provider ?? ''}/${model.id}`)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      bridge.removeAllListeners('event:agent-chunk')
+      bridge.removeAllListeners('event:agent-done')
+      bridge.removeAllListeners('event:tool-start')
+      bridge.removeAllListeners('event:tool-end')
+      bridge.removeAllListeners('event:health')
+      bridge.removeAllListeners('event:error')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  const handleSubmit = async (text: string) => {
+    try {
+      const turn_id = await bridge.prompt(text)
+      addUserMessage(text, turn_id)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send message'
+      addErrorMessage(msg)
+    }
+  }
+
+  const handleAbort = () => {
+    bridge.abort().catch(() => {})
+  }
+
+  const inputDisabled = agentHealth === 'crashed' || agentHealth === 'degraded'
+
+  const suggestions = [
+    'What can you help me with?',
+    'Show me the project structure',
+    'Read the README',
+    'What files are here?',
+  ]
+
   return (
-    <main className="min-h-screen bg-bg-primary text-text-primary">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col justify-center px-10 py-16">
-        <div className="grid gap-10 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-[28px] border border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-10 shadow-[0_24px_80px_rgba(0,0,0,0.35)] backdrop-blur-sm">
-            <div className="mb-8 inline-flex items-center gap-3 rounded-full border border-[color:var(--color-accent-muted)] bg-[color:var(--color-accent-muted)] px-4 py-2 text-xs font-medium uppercase tracking-[0.28em] text-accent">
-              <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_rgba(212,160,78,0.7)]" />
-              Studio bootstrap
-            </div>
+    <div className="flex h-screen flex-col bg-bg-primary text-text-primary select-none">
+      {/* Header */}
+      <header
+        className="flex items-center justify-between border-b border-border px-5 py-3 flex-shrink-0"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        {/* Traffic-light spacer (macOS hiddenInset titlebar) */}
+        <div className="w-20 flex-shrink-0" />
 
-            <h1 className="max-w-3xl text-[clamp(3.4rem,9vw,6.8rem)] font-semibold leading-[0.92] tracking-[-0.06em] text-balance text-text-primary">
-              GSD Studio ships with a dark shell that actually feels deliberate.
-            </h1>
-
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-text-secondary">
-              Inter drives the interface, JetBrains Mono handles code surfaces, and the warm amber system accent keeps the palette restrained instead of drifting into generic app chrome.
-            </p>
-
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
-              {statusRows.map(({ label, value, icon: Icon }) => (
-                <div key={label} className="rounded-2xl border border-border bg-bg-secondary/70 p-4">
-                  <div className="mb-4 flex items-center justify-between">
-                    <span className="text-xs uppercase tracking-[0.24em] text-text-tertiary">{label}</span>
-                    <Icon size={18} weight="duotone" className="text-accent" />
-                  </div>
-                  <p className="text-sm font-medium text-text-primary">{value}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <aside className="space-y-4 rounded-[28px] border border-border bg-bg-secondary/80 p-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-text-tertiary">Typography proof</p>
-              <p className="mt-3 text-2xl font-semibold text-text-primary">Inter 600 for hierarchy</p>
-              <p className="mt-2 text-sm leading-7 text-text-secondary">
-                The first task only validates the shell and token system. Three-column layout and primitives land in T02.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-[color:var(--color-accent-muted)] bg-[#120f09] p-5">
-              <p className="text-xs uppercase tracking-[0.24em] text-accent/80">Code surface</p>
-              <pre className="mt-4 overflow-x-auto rounded-xl border border-border bg-black/30 p-4 text-sm leading-7 text-[#f5deb3]">
-                <code>{`const studio = await window.studio.getStatus();\nif (!studio.connected) {\n  console.log('Renderer scaffold ready');\n}`}</code>
-              </pre>
-            </div>
-
-            <dl className="grid grid-cols-3 gap-3 text-sm">
-              <div className="rounded-2xl border border-border bg-bg-primary p-4">
-                <dt className="text-text-tertiary">Accent</dt>
-                <dd className="mt-2 font-medium text-accent">{colors.accent}</dd>
-              </div>
-              <div className="rounded-2xl border border-border bg-bg-primary p-4">
-                <dt className="text-text-tertiary">UI font</dt>
-                <dd className="mt-2 font-medium text-text-primary">{fontSizes.body}</dd>
-              </div>
-              <div className="rounded-2xl border border-border bg-bg-primary p-4">
-                <dt className="text-text-tertiary">Mono</dt>
-                <dd className="mt-2 font-mono text-[13px] text-text-primary">{fonts.mono}</dd>
-              </div>
-            </dl>
-          </aside>
+        <div className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <span>GSD Studio</span>
+          {currentModel && (
+            <span className="text-text-tertiary text-xs font-normal">
+              &middot; {currentModel}
+            </span>
+          )}
         </div>
+
+        <div
+          className="flex items-center gap-1.5 text-xs text-text-tertiary"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <HealthDot health={agentHealth} />
+          <span className="capitalize">
+            {agentHealth === 'unknown' ? 'connecting' : agentHealth}
+          </span>
+        </div>
+      </header>
+
+      {/* Messages area */}
+      <main className="flex-1 overflow-y-auto px-4 py-4">
+        {messages.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+            <div className="text-2xl font-semibold text-text-primary">GSD Studio</div>
+            <p className="text-sm text-text-secondary max-w-xs">
+              {agentHealth === 'ready'
+                ? 'Ask anything to get started.'
+                : agentHealth === 'starting'
+                  ? 'Agent is starting up...'
+                  : agentHealth === 'crashed'
+                    ? 'Agent crashed. Restarting automatically...'
+                    : 'Connecting to agent...'}
+            </p>
+            {agentHealth === 'ready' && (
+              <div className="mt-4 grid grid-cols-2 gap-2 max-w-md w-full">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => void handleSubmit(s)}
+                    disabled={inputDisabled || isGenerating}
+                    className="rounded-xl border border-border bg-bg-secondary px-3 py-2 text-xs text-text-secondary hover:border-border-active hover:text-text-primary transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mx-auto max-w-3xl">
+            {messages.map((msg) => (
+              <ChatMessage key={msg.id} message={msg} />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </main>
+
+      {/* Input bar */}
+      <div className="flex-shrink-0 mx-auto w-full max-w-3xl">
+        <ChatInput
+          onSubmit={(t) => void handleSubmit(t)}
+          onAbort={handleAbort}
+          isGenerating={isGenerating}
+          disabled={inputDisabled}
+        />
       </div>
-    </main>
+    </div>
   )
 }

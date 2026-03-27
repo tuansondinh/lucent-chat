@@ -1,0 +1,206 @@
+/**
+ * ProcessManager — manages child processes (agent, future sidecar) with
+ * readiness states, exponential-backoff restart, and graceful shutdown.
+ */
+
+import { EventEmitter } from 'node:events'
+import { type ChildProcess, spawn } from 'node:child_process'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+export type ProcessState = 'stopped' | 'starting' | 'ready' | 'degraded' | 'crashed'
+
+interface ManagedProcess {
+  name: string
+  proc: ChildProcess | null
+  state: ProcessState
+  backoffMs: number
+  restartTimer: ReturnType<typeof setTimeout> | null
+  intentionalKill: boolean
+}
+
+const BACKOFF_INITIAL_MS = 1_000
+const BACKOFF_MAX_MS = 30_000
+const KILL_GRACE_MS = 3_000
+
+/** Path to the agent entry point (built dist). */
+function resolveAgentPath(): string {
+  // __dirname at runtime is studio/dist/main (after electron-vite build).
+  // Going up 3 levels: dist/main → dist → studio → voice-bridge-desktop (project root).
+  const projectRoot = join(__dirname, '..', '..', '..')
+  return join(projectRoot, 'dist', 'loader.js')
+}
+
+export class ProcessManager extends EventEmitter {
+  private processes = new Map<string, ManagedProcess>()
+
+  constructor() {
+    super()
+    this.processes.set('agent', {
+      name: 'agent',
+      proc: null,
+      state: 'stopped',
+      backoffMs: BACKOFF_INITIAL_MS,
+      restartTimer: null,
+      intentionalKill: false,
+    })
+    this.processes.set('sidecar', {
+      name: 'sidecar',
+      proc: null,
+      state: 'stopped',
+      backoffMs: BACKOFF_INITIAL_MS,
+      restartTimer: null,
+      intentionalKill: false,
+    })
+  }
+
+  /** Spawn the Pi SDK agent in RPC mode. */
+  spawnAgent(): void {
+    const entry = resolveAgentPath()
+    console.log(`[process-manager] spawning agent: node ${entry} --mode rpc`)
+
+    const managed = this.processes.get('agent')!
+    managed.intentionalKill = false
+
+    const proc = spawn('node', [entry, '--mode', 'rpc'], {
+      stdio: ['pipe', 'pipe', 'inherit'],
+      detached: true,
+    })
+
+    managed.proc = proc
+    this.setState('agent', 'starting')
+
+    proc.on('spawn', () => {
+      console.log(`[process-manager] agent spawned (pid=${proc.pid})`)
+    })
+
+    proc.on('error', (err) => {
+      console.error(`[process-manager] agent process error: ${err.message}`)
+      this.setState('agent', 'crashed')
+      managed.proc = null
+      if (!managed.intentionalKill) {
+        this.scheduleRestart('agent')
+      }
+    })
+
+    proc.on('exit', (code, signal) => {
+      console.log(`[process-manager] agent exited (code=${code}, signal=${signal})`)
+      managed.proc = null
+      if (!managed.intentionalKill) {
+        this.setState('agent', 'crashed')
+        this.scheduleRestart('agent')
+      } else {
+        this.setState('agent', 'stopped')
+      }
+    })
+  }
+
+  /** Stub for future voice sidecar — does nothing in Phase 2. */
+  spawnSidecar(): void {
+    console.log('[process-manager] sidecar stub — not implemented in Phase 2')
+  }
+
+  /** Update a process state and emit events. */
+  setState(name: string, state: ProcessState): void {
+    const managed = this.processes.get(name)
+    if (!managed) return
+    managed.state = state
+    console.log(`[process-manager] ${name} state → ${state}`)
+    this.emit('state-change', name, state)
+    this.emit('health', this.getStates())
+    if (state === 'ready') {
+      // Reset backoff on successful start
+      managed.backoffMs = BACKOFF_INITIAL_MS
+      this.emit('restarted', name)
+    }
+  }
+
+  /** Get the agent ChildProcess (may be null if not running). */
+  getAgentProcess(): ChildProcess | null {
+    return this.processes.get('agent')?.proc ?? null
+  }
+
+  /** Get a snapshot of all process states. */
+  getStates(): Record<string, ProcessState> {
+    const result: Record<string, ProcessState> = {}
+    for (const [name, managed] of this.processes) {
+      result[name] = managed.state
+    }
+    return result
+  }
+
+  /** Kill a named process gracefully (SIGTERM → 3s → SIGKILL). */
+  async killProcess(name: string): Promise<void> {
+    const managed = this.processes.get(name)
+    if (!managed?.proc) return
+
+    managed.intentionalKill = true
+    const proc = managed.proc
+
+    return new Promise<void>((resolve) => {
+      const forceKillTimer = setTimeout(() => {
+        if (proc.exitCode === null) {
+          console.log(`[process-manager] force-killing ${name} (SIGKILL)`)
+          proc.kill('SIGKILL')
+        }
+        resolve()
+      }, KILL_GRACE_MS)
+
+      proc.once('exit', () => {
+        clearTimeout(forceKillTimer)
+        resolve()
+      })
+
+      proc.kill('SIGTERM')
+    })
+  }
+
+  /** Kill an entire process group by pid (for tool subprocess cleanup). */
+  async killProcessGroup(pid: number): Promise<void> {
+    try {
+      process.kill(-pid, 'SIGTERM')
+      await new Promise((resolve) => setTimeout(resolve, KILL_GRACE_MS))
+      try {
+        process.kill(-pid, 'SIGKILL')
+      } catch {
+        // Group already gone
+      }
+    } catch (err: any) {
+      console.warn(`[process-manager] killProcessGroup(${pid}) failed: ${err.message}`)
+    }
+  }
+
+  /** Restart a process with exponential backoff. */
+  private scheduleRestart(name: string): void {
+    const managed = this.processes.get(name)
+    if (!managed) return
+
+    if (managed.restartTimer) {
+      clearTimeout(managed.restartTimer)
+    }
+
+    const delay = managed.backoffMs
+    console.log(`[process-manager] restarting ${name} in ${delay}ms`)
+
+    managed.restartTimer = setTimeout(() => {
+      managed.restartTimer = null
+      // Double the backoff for next time, capped at max
+      managed.backoffMs = Math.min(managed.backoffMs * 2, BACKOFF_MAX_MS)
+      if (name === 'agent') {
+        this.spawnAgent()
+        this.emit('agent-restarting')
+      }
+    }, delay)
+  }
+
+  /** Gracefully shut down all managed processes. */
+  async shutdownAll(): Promise<void> {
+    console.log('[process-manager] shutting down all processes')
+    const kills = Array.from(this.processes.keys()).map((name) => this.killProcess(name))
+    await Promise.all(kills)
+    console.log('[process-manager] all processes stopped')
+  }
+}

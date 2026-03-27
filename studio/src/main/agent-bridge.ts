@@ -1,0 +1,236 @@
+/**
+ * AgentBridge — typed RPC interface over the Pi SDK agent child process.
+ *
+ * Communicates via JSON lines on stdin/stdout (same protocol as RpcClient).
+ * Inlines a minimal JSONL line reader to avoid cross-package imports at runtime.
+ */
+
+import { EventEmitter } from 'node:events'
+import type { ChildProcess } from 'node:child_process'
+
+// ============================================================================
+// Types (local mirrors of rpc-types to avoid runtime cross-package imports)
+// ============================================================================
+
+export interface AgentState {
+  model?: { provider: string; id: string }
+  thinkingLevel: string
+  isStreaming: boolean
+  isCompacting: boolean
+  sessionFile?: string
+  sessionId: string
+  sessionName?: string
+  messageCount: number
+  pendingMessageCount: number
+  extensionsReady: boolean
+}
+
+export interface ModelInfo {
+  provider: string
+  id: string
+  contextWindow?: number
+  reasoning?: boolean
+}
+
+// ============================================================================
+// Inline JSONL helpers (avoids runtime import from packages/*)
+// ============================================================================
+
+function attachLineReader(
+  stream: NodeJS.ReadableStream,
+  onLine: (line: string) => void
+): () => void {
+  let buf = ''
+  const onData = (chunk: Buffer | string) => {
+    buf += chunk.toString('utf8')
+    let idx: number
+    while ((idx = buf.indexOf('\n')) !== -1) {
+      const line = buf.slice(0, idx).trim()
+      buf = buf.slice(idx + 1)
+      if (line) onLine(line)
+    }
+  }
+  stream.on('data', onData)
+  return () => stream.removeListener('data', onData)
+}
+
+function serializeJsonLine(obj: unknown): string {
+  return JSON.stringify(obj) + '\n'
+}
+
+// ============================================================================
+// AgentBridge
+// ============================================================================
+
+export class AgentBridge extends EventEmitter {
+  private proc: ChildProcess | null = null
+  private stopReading: (() => void) | null = null
+  private pendingRequests = new Map<
+    string,
+    { resolve: (r: any) => void; reject: (e: Error) => void }
+  >()
+  private requestId = 0
+
+  /** Attach to a newly spawned agent process. */
+  attach(proc: ChildProcess): void {
+    this.proc = proc
+
+    if (!proc.stdout) {
+      console.error('[agent-bridge] process has no stdout pipe')
+      return
+    }
+
+    this.stopReading = attachLineReader(proc.stdout, (line) => {
+      this.handleLine(line)
+    })
+
+    proc.once('exit', (code, signal) => {
+      console.log(`[agent-bridge] agent process exited (code=${code}, signal=${signal})`)
+      this.stopReading?.()
+      this.stopReading = null
+      this.proc = null
+
+      // Reject all in-flight requests
+      const reason = signal ? `signal ${signal}` : `code ${code}`
+      const err = new Error(`Agent process exited unexpectedly (${reason})`)
+      for (const [id, pending] of this.pendingRequests) {
+        this.pendingRequests.delete(id)
+        pending.reject(err)
+      }
+    })
+  }
+
+  /** Detach from the current process (called before re-attaching to a new one). */
+  detach(): void {
+    this.stopReading?.()
+    this.stopReading = null
+    this.proc = null
+    // Reject pending requests
+    const err = new Error('AgentBridge detached')
+    for (const [id, pending] of this.pendingRequests) {
+      this.pendingRequests.delete(id)
+      pending.reject(err)
+    }
+  }
+
+  /** Subscribe to events from the agent (AgentEvent / AgentSessionEvent). */
+  onAgentEvent(handler: (event: any) => void): () => void {
+    this.on('agent-event', handler)
+    return () => this.off('agent-event', handler)
+  }
+
+  // =========================================================================
+  // RPC commands
+  // =========================================================================
+
+  /** Send a user prompt. Returns immediately; events stream asynchronously. */
+  async prompt(text: string): Promise<void> {
+    await this.send({ type: 'prompt', message: text })
+  }
+
+  /** Abort the current generation. */
+  async abort(): Promise<void> {
+    await this.send({ type: 'abort' })
+  }
+
+  /** Change model. */
+  async setModel(provider: string, modelId: string): Promise<void> {
+    await this.send({ type: 'set_model', provider, modelId })
+  }
+
+  /** Start a new session. */
+  async newSession(): Promise<{ cancelled: boolean }> {
+    const resp = await this.send({ type: 'new_session' })
+    return this.getData(resp)
+  }
+
+  /** Switch to a saved session file. */
+  async switchSession(sessionPath: string): Promise<{ cancelled: boolean }> {
+    const resp = await this.send({ type: 'switch_session', sessionPath })
+    return this.getData(resp)
+  }
+
+  /** Get current session state. */
+  async getState(): Promise<AgentState> {
+    const resp = await this.send({ type: 'get_state' })
+    return this.getData(resp)
+  }
+
+  /** Get all messages in current session. */
+  async getMessages(): Promise<any[]> {
+    const resp = await this.send({ type: 'get_messages' })
+    return this.getData<{ messages: any[] }>(resp).messages
+  }
+
+  /** Set a display name for the current session. */
+  async setSessionName(name: string): Promise<void> {
+    await this.send({ type: 'set_session_name', name })
+  }
+
+  /** List available models. */
+  async getAvailableModels(): Promise<ModelInfo[]> {
+    const resp = await this.send({ type: 'get_available_models' })
+    return this.getData<{ models: ModelInfo[] }>(resp).models
+  }
+
+  // =========================================================================
+  // Internal
+  // =========================================================================
+
+  private handleLine(line: string): void {
+    let data: any
+    try {
+      data = JSON.parse(line)
+    } catch {
+      // Ignore non-JSON
+      return
+    }
+
+    // Check for a response correlated to a pending request
+    if (data.type === 'response' && data.id && this.pendingRequests.has(data.id)) {
+      const pending = this.pendingRequests.get(data.id)!
+      this.pendingRequests.delete(data.id)
+      pending.resolve(data)
+      return
+    }
+
+    // Otherwise treat as an event and broadcast
+    this.emit('agent-event', data)
+  }
+
+  private send(command: Record<string, unknown>): Promise<any> {
+    if (!this.proc?.stdin) {
+      return Promise.reject(new Error('AgentBridge: no agent process attached'))
+    }
+
+    const id = `req_${++this.requestId}`
+    const fullCommand = { ...command, id }
+
+    return new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id)
+        reject(new Error(`AgentBridge: timeout waiting for response to ${command.type as string}`))
+      }, 30_000)
+
+      this.pendingRequests.set(id, {
+        resolve: (resp) => {
+          clearTimeout(timeout)
+          resolve(resp)
+        },
+        reject: (err) => {
+          clearTimeout(timeout)
+          reject(err)
+        },
+      })
+
+      this.proc!.stdin!.write(serializeJsonLine(fullCommand))
+    })
+  }
+
+  private getData<T = any>(response: any): T {
+    if (!response.success) {
+      throw new Error(response.error ?? 'Unknown RPC error')
+    }
+    return response.data as T
+  }
+}

@@ -1,8 +1,8 @@
-import type { StudioBridge } from './index'
+import type { Bridge } from './index'
 
 declare global {
   interface Window {
-    studio: StudioBridge
+    bridge: Bridge
   }
 }
 
