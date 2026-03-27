@@ -38,6 +38,22 @@ const bridge = {
   getSessions: (): Promise<Array<{ path: string; name: string; modified: number }>> =>
     ipcRenderer.invoke('cmd:get-sessions'),
 
+  /** Delete a saved session by file path. */
+  deleteSession: (path: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:delete-session', path),
+
+  /** Get formatted message history for the current session. */
+  getMessages: (): Promise<Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>> =>
+    ipcRenderer.invoke('cmd:get-messages'),
+
+  /** Get current app settings. */
+  getSettings: (): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('cmd:get-settings'),
+
+  /** Persist a partial settings update. Returns the full updated settings. */
+  setSettings: (settings: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    ipcRenderer.invoke('cmd:set-settings', settings),
+
   /** List available models. */
   getModels: (): Promise<Array<{ provider: string; id: string }>> =>
     ipcRenderer.invoke('cmd:get-models'),
@@ -54,39 +70,58 @@ const bridge = {
   // Events (main → renderer)
   // -------------------------------------------------------------------------
 
-  /** Streaming text chunk from the agent. */
-  onAgentChunk: (cb: (data: { turn_id: string; text: string }) => void): void =>
-    void ipcRenderer.on('event:agent-chunk', (_e, data) => cb(data)),
+  /** Streaming text chunk from the agent. Returns unsubscribe function. */
+  onAgentChunk: (cb: (data: { turn_id: string; text: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:agent-chunk', handler)
+    return () => ipcRenderer.removeListener('event:agent-chunk', handler)
+  },
 
-  /** Turn complete — full accumulated text. */
-  onAgentDone: (cb: (data: { turn_id: string; full_text: string }) => void): void =>
-    void ipcRenderer.on('event:agent-done', (_e, data) => cb(data)),
+  /** Turn complete — full accumulated text. Returns unsubscribe function. */
+  onAgentDone: (cb: (data: { turn_id: string; full_text: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:agent-done', handler)
+    return () => ipcRenderer.removeListener('event:agent-done', handler)
+  },
 
-  /** Tool execution started. */
-  onToolStart: (cb: (data: { turn_id: string; tool: string; input: unknown }) => void): void =>
-    void ipcRenderer.on('event:tool-start', (_e, data) => cb(data)),
+  /** Tool execution started. Returns unsubscribe function. */
+  onToolStart: (cb: (data: { turn_id: string; tool: string; input: unknown }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:tool-start', handler)
+    return () => ipcRenderer.removeListener('event:tool-start', handler)
+  },
 
-  /** Tool execution ended. */
+  /** Tool execution ended. Returns unsubscribe function. */
   onToolEnd: (
     cb: (data: { turn_id: string; tool: string; output: unknown; isError: boolean }) => void
-  ): void => void ipcRenderer.on('event:tool-end', (_e, data) => cb(data)),
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:tool-end', handler)
+    return () => ipcRenderer.removeListener('event:tool-end', handler)
+  },
 
-  /** Turn state changed. */
-  onTurnState: (cb: (data: { turn_id: string; state: string }) => void): void =>
-    void ipcRenderer.on('event:turn-state', (_e, data) => cb(data)),
+  /** Turn state changed. Returns unsubscribe function. */
+  onTurnState: (cb: (data: { turn_id: string; state: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:turn-state', handler)
+    return () => ipcRenderer.removeListener('event:turn-state', handler)
+  },
 
-  /** Process health update. */
-  onHealth: (cb: (data: Record<string, string>) => void): void =>
-    void ipcRenderer.on('event:health', (_e, data) => cb(data)),
+  /** Process health update. Returns unsubscribe function. */
+  onHealth: (cb: (data: Record<string, string>) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:health', handler)
+    return () => ipcRenderer.removeListener('event:health', handler)
+  },
 
-  /** Error from main process. */
-  onError: (cb: (data: { source: string; message: string }) => void): void =>
-    void ipcRenderer.on('event:error', (_e, data) => cb(data)),
-
-  /** Remove all listeners for a given channel. */
-  removeAllListeners: (channel: string): void =>
-    void ipcRenderer.removeAllListeners(channel),
+  /** Error from main process. Returns unsubscribe function. */
+  onError: (cb: (data: { source: string; message: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:error', handler)
+    return () => ipcRenderer.removeListener('event:error', handler)
+  },
 }
+
 
 console.log('[studio] preload loaded')
 contextBridge.exposeInMainWorld('bridge', bridge)

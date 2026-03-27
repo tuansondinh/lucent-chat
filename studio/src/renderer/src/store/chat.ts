@@ -185,8 +185,13 @@ export const useChatStore = create<ChatState>((set) => ({
     set((s) => ({
       messages: s.messages.map((m) => {
         if (m.turn_id === turn_id && m.role === 'assistant') {
+          // Find the first unfinished call with this tool name (FIFO order).
+          // This correctly handles the case where the same tool is called
+          // multiple times in a single turn (e.g., two 'read' calls).
+          let matched = false
           const toolCalls = m.toolCalls.map((tc) => {
-            if (tc.tool === tool && !tc.done) {
+            if (tc.tool === tool && !tc.done && !matched) {
+              matched = true
               return { ...tc, output, isError, done: true }
             }
             return tc

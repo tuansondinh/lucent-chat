@@ -1,0 +1,112 @@
+/**
+ * SettingsService — persists app-level settings to disk.
+ *
+ * Settings file: ~/.voice-bridge-desktop/settings.json
+ * File permissions: 0o600 (contains API keys).
+ */
+
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface AppSettings {
+  /** Default model to use when starting the app. */
+  defaultModel?: { provider: string; modelId: string }
+  /** UI theme — only dark for now. */
+  theme: 'dark'
+  /** Editor/chat font size in px. */
+  fontSize: number
+  /** Tavily API key for web search tools. */
+  tavilyApiKey?: string
+  /** Whether the session sidebar is collapsed. */
+  sidebarCollapsed: boolean
+  /** Last window bounds for position/size restore. */
+  windowBounds?: { x: number; y: number; width: number; height: number }
+}
+
+// ============================================================================
+// Defaults
+// ============================================================================
+
+const DEFAULTS: AppSettings = {
+  theme: 'dark',
+  fontSize: 14,
+  sidebarCollapsed: false,
+}
+
+// ============================================================================
+// SettingsService
+// ============================================================================
+
+export class SettingsService {
+  private readonly settingsPath: string
+  private settings: AppSettings
+
+  constructor() {
+    const dir = join(homedir(), '.voice-bridge-desktop')
+    this.settingsPath = join(dir, 'settings.json')
+    this.settings = { ...DEFAULTS }
+    this.ensureDir(dir)
+  }
+
+  // =========================================================================
+  // Public API
+  // =========================================================================
+
+  /**
+   * Load settings from disk synchronously, apply defaults, and return them.
+   * Safe to call at startup before the event loop is busy.
+   */
+  load(): AppSettings {
+    try {
+      const raw = readFileSync(this.settingsPath, 'utf8')
+      const parsed = JSON.parse(raw) as Partial<AppSettings>
+      // Merge stored values over defaults (shallow)
+      this.settings = { ...DEFAULTS, ...parsed }
+    } catch {
+      // File may not exist yet — use defaults
+      this.settings = { ...DEFAULTS }
+    }
+    return this.settings
+  }
+
+  /**
+   * Merge a partial settings object into the current settings and write to disk.
+   * File is written with 0o600 permissions to protect API keys.
+   */
+  save(partial: Partial<AppSettings>): void {
+    this.settings = { ...this.settings, ...partial }
+    const json = JSON.stringify(this.settings, null, 2)
+    writeFileSync(this.settingsPath, json, { encoding: 'utf8', mode: 0o600 })
+  }
+
+  /**
+   * Return current in-memory settings (does not re-read from disk).
+   */
+  get(): AppSettings {
+    return this.settings
+  }
+
+  // =========================================================================
+  // Private helpers
+  // =========================================================================
+
+  /**
+   * Ensure the settings directory exists (create if missing).
+   */
+  private ensureDir(dir: string): void {
+    try {
+      mkdirSync(dir, { recursive: true })
+      // Best-effort chmod on the directory
+      try { chmodSync(dir, 0o700) } catch { /* ignore */ }
+    } catch (err: any) {
+      if (err?.code !== 'EEXIST') {
+        console.warn('[settings-service] could not create settings dir:', err?.message)
+      }
+    }
+  }
+}

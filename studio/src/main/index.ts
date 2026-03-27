@@ -5,6 +5,8 @@ import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator } from './orchestrator.js'
 import { registerIpcHandlers, pushEvent } from './ipc-handlers.js'
+import { SessionService } from './session-service.js'
+import { SettingsService } from './settings-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -21,12 +23,14 @@ declare module 'electron' {
 }
 app.isQuitting = false
 
-function createWindow(): BrowserWindow {
-  const preload = join(__dirname, '../preload/index.mjs')
+function createWindow(savedBounds?: { x: number; y: number; width: number; height: number }): BrowserWindow {
+  const preload = join(__dirname, '../preload/index.cjs')
 
   const window = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: savedBounds?.width ?? 1400,
+    height: savedBounds?.height ?? 900,
+    x: savedBounds?.x,
+    y: savedBounds?.y,
     minWidth: 1100,
     minHeight: 720,
     backgroundColor: '#0a0a0a',
@@ -55,6 +59,11 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  // Open DevTools in dev mode to debug rendering issues
+  if (process.env.ELECTRON_RENDERER_URL) {
+    window.webContents.openDevTools()
+  }
+
   console.log('[studio] window created')
   return window
 }
@@ -82,14 +91,31 @@ function buildTrayMenu(agentState: string): Electron.Menu {
 }
 
 app.whenReady().then(async () => {
-  // 1. Create window
-  mainWindow = createWindow()
+  // 1. Settings — load first so we can restore window bounds
+  const settingsService = new SettingsService()
+  const settings = settingsService.load()
 
-  // 2. Process Manager
+  // 2. Create window (restore saved bounds if available)
+  mainWindow = createWindow(settings.windowBounds)
+
+  // Persist window bounds on move/resize
+  const saveBounds = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const b = mainWindow.getBounds()
+    settingsService.save({ windowBounds: { x: b.x, y: b.y, width: b.width, height: b.height } })
+  }
+  mainWindow.on('resize', saveBounds)
+  mainWindow.on('move', saveBounds)
+
+  // 3. Process Manager
   processManager = new ProcessManager()
 
-  // 3. Agent Bridge
+  // 4. Agent Bridge
   const agentBridge = new AgentBridge()
+
+  // 5. Session Service
+  const sessionService = new SessionService(agentBridge)
+  await sessionService.loadActiveSessionId()
 
   // Helper: attach bridge to the current agent process and probe readiness
   const attachAgentBridge = () => {
@@ -109,7 +135,7 @@ app.whenReady().then(async () => {
       })
   }
 
-  // 4. Spawn agent and attach
+  // 6. Spawn agent and attach
   processManager.spawnAgent()
   attachAgentBridge()
 
@@ -118,7 +144,7 @@ app.whenReady().then(async () => {
     setTimeout(attachAgentBridge, 200)
   })
 
-  // 5. Orchestrator
+  // 7. Orchestrator
   const orchestrator = new Orchestrator(agentBridge, {
     onChunk: (d) => pushEvent(mainWindow, 'event:agent-chunk', d),
     onDone: (d) => pushEvent(mainWindow, 'event:agent-done', d),
@@ -128,15 +154,22 @@ app.whenReady().then(async () => {
     onError: (d) => pushEvent(mainWindow, 'event:error', d),
   })
 
-  // 6. IPC handlers
-  registerIpcHandlers(orchestrator, agentBridge, processManager, () => mainWindow)
+  // 8. IPC handlers
+  registerIpcHandlers(
+    orchestrator,
+    agentBridge,
+    processManager,
+    () => mainWindow,
+    sessionService,
+    settingsService
+  )
 
-  // 7. Forward health events to renderer
+  // 9. Forward health events to renderer
   processManager.on('health', (states: Record<string, string>) => {
     pushEvent(mainWindow, 'event:health', states)
   })
 
-  // 8. System tray
+  // 10. System tray
   // Minimal 16×16 transparent PNG as placeholder icon
   const iconDataUrl =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/' +

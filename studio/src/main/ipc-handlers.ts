@@ -6,56 +6,14 @@
  */
 
 import { ipcMain, type BrowserWindow } from 'electron'
-import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
-import { homedir } from 'node:os'
 import type { Orchestrator } from './orchestrator.js'
 import type { AgentBridge } from './agent-bridge.js'
 import type { ProcessManager } from './process-manager.js'
+import type { SessionService } from './session-service.js'
+import type { SettingsService } from './settings-service.js'
 
-// ============================================================================
-// Session file listing
-// ============================================================================
-
-export interface SessionFile {
-  path: string
-  name: string
-  modified: number
-}
-
-async function listSessions(): Promise<SessionFile[]> {
-  const sessionsBase = join(homedir(), '.pi', 'agent', 'sessions')
-  const results: SessionFile[] = []
-
-  async function walk(dir: string): Promise<void> {
-    let entries: Awaited<ReturnType<typeof readdir>>
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        await walk(fullPath)
-      } else if (entry.isFile() && entry.name.endsWith('.json')) {
-        try {
-          const info = await stat(fullPath)
-          // Use the filename stem as display name (may be overridden by session name)
-          const name = entry.name.replace(/\.json$/, '')
-          results.push({ path: fullPath, name, modified: info.mtimeMs })
-        } catch {
-          // Skip files we can't stat
-        }
-      }
-    }
-  }
-
-  await walk(sessionsBase)
-  // Sort newest first
-  results.sort((a, b) => b.modified - a.modified)
-  return results
-}
+// Re-export SessionFile for consumers that imported it from here
+export type { SessionInfo as SessionFile } from './session-service.js'
 
 // ============================================================================
 // IPC registration
@@ -65,7 +23,9 @@ export function registerIpcHandlers(
   orchestrator: Orchestrator,
   agentBridge: AgentBridge,
   processManager: ProcessManager,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BrowserWindow | null,
+  sessionService: SessionService,
+  settingsService: SettingsService
 ): void {
   // --- Commands (renderer → main) ---
 
@@ -86,15 +46,23 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('cmd:switch-session', (_event, sessionPath: string) => {
-    return agentBridge.switchSession(sessionPath)
+    return sessionService.switchSession(sessionPath, orchestrator)
   })
 
   ipcMain.handle('cmd:rename-session', (_event, name: string) => {
-    return agentBridge.setSessionName(name)
+    return sessionService.renameSession(name)
   })
 
   ipcMain.handle('cmd:get-sessions', () => {
-    return listSessions()
+    return sessionService.listSessions()
+  })
+
+  ipcMain.handle('cmd:delete-session', (_event, path: string) => {
+    return sessionService.deleteSession(path)
+  })
+
+  ipcMain.handle('cmd:get-messages', () => {
+    return sessionService.getMessages()
   })
 
   ipcMain.handle('cmd:get-models', () => {
@@ -107,6 +75,15 @@ export function registerIpcHandlers(
 
   ipcMain.handle('cmd:get-health', () => {
     return processManager.getStates()
+  })
+
+  ipcMain.handle('cmd:get-settings', () => {
+    return settingsService.get()
+  })
+
+  ipcMain.handle('cmd:set-settings', (_event, partial: Record<string, unknown>) => {
+    settingsService.save(partial)
+    return settingsService.get()
   })
 
   void getMainWindow // used by pushEvent callers in index.ts
