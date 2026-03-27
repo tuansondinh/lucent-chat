@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events'
 import { type ChildProcess, spawn } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -32,10 +33,35 @@ const KILL_GRACE_MS = 3_000
 
 /** Path to the agent entry point (built dist). */
 function resolveAgentPath(): string {
+  const bundledRuntimeEntry = join(process.resourcesPath, 'runtime', 'dist', 'loader.js')
+  if (existsSync(bundledRuntimeEntry)) {
+    return bundledRuntimeEntry
+  }
+
   // __dirname at runtime is studio/dist/main (after electron-vite build).
   // Going up 3 levels: dist/main → dist → studio → voice-bridge-desktop (project root).
   const projectRoot = join(__dirname, '..', '..', '..')
   return join(projectRoot, 'dist', 'loader.js')
+}
+
+function resolveAgentCommand(entry: string): {
+  command: string
+  args: string[]
+  env: NodeJS.ProcessEnv
+} {
+  if (entry.startsWith(join(process.resourcesPath, 'runtime'))) {
+    return {
+      command: process.execPath,
+      args: [entry, '--mode', 'rpc'],
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    }
+  }
+
+  return {
+    command: 'node',
+    args: [entry, '--mode', 'rpc'],
+    env: process.env,
+  }
 }
 
 export class ProcessManager extends EventEmitter {
@@ -66,7 +92,8 @@ export class ProcessManager extends EventEmitter {
    */
   spawnAgent(cwd?: string, extraEnv?: Record<string, string>): void {
     const entry = resolveAgentPath()
-    console.log(`[process-manager] spawning agent: node ${entry} --mode rpc`)
+    const launch = resolveAgentCommand(entry)
+    console.log(`[process-manager] spawning agent: ${launch.command} ${launch.args.join(' ')}`)
 
     const managed = this.processes.get('agent')!
     managed.intentionalKill = false
@@ -78,11 +105,11 @@ export class ProcessManager extends EventEmitter {
       managed.extraEnv = extraEnv
     }
 
-    const proc = spawn('node', [entry, '--mode', 'rpc'], {
+    const proc = spawn(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'inherit'],
       detached: true,
       cwd: managed.cwd ?? process.cwd(),
-      env: { ...process.env, ...managed.extraEnv },
+      env: { ...launch.env, ...managed.extraEnv },
     })
 
     managed.proc = proc

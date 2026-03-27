@@ -3,8 +3,8 @@
  * renaming, and tracking the active session.
  */
 
-import { readdir, stat, unlink, readFile, writeFile, mkdir } from 'node:fs/promises'
-import { join, basename } from 'node:path'
+import { readdir, stat, unlink, readFile, writeFile, mkdir, realpath } from 'node:fs/promises'
+import { join, basename, extname, isAbsolute, relative } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBridge } from './agent-bridge.js'
 import type { Orchestrator } from './orchestrator.js'
@@ -32,6 +32,7 @@ export interface FormattedMessage {
 export class SessionService {
   /** Path to the file that persists the active session ID across launches. */
   private readonly activeSessionFile = join(homedir(), '.lucent', 'active-session')
+  private readonly sessionsBase = join(homedir(), '.lucent', 'agent', 'sessions')
 
   /** In-memory cache of the current active session path. */
   private activeSessionId: string | null = null
@@ -104,10 +105,11 @@ export class SessionService {
    * Rejects if the requested path is the currently active session.
    */
   async deleteSession(path: string): Promise<void> {
-    if (this.activeSessionId === path) {
+    const validatedPath = await this.validateSessionPath(path)
+    if (this.activeSessionId === validatedPath) {
       throw new Error('Cannot delete the active session — switch to another session first.')
     }
-    await unlink(path)
+    await unlink(validatedPath)
   }
 
   // =========================================================================
@@ -135,15 +137,16 @@ export class SessionService {
     path: string,
     orchestrator: Orchestrator
   ): Promise<{ cancelled: boolean }> {
+    const validatedPath = await this.validateSessionPath(path)
     // Abort current turn if in progress
     const currentTurn = orchestrator.getCurrentTurn()
     if (currentTurn && currentTurn.state === 'generating') {
       await orchestrator.abortCurrentTurn()
     }
 
-    const result = await this.agentBridge.switchSession(path)
+    const result = await this.agentBridge.switchSession(validatedPath)
     if (!result.cancelled) {
-      this.setActiveSessionId(path)
+      this.setActiveSessionId(validatedPath)
     }
     return result
   }
@@ -233,5 +236,17 @@ export class SessionService {
     }
 
     return result
+  }
+
+  private async validateSessionPath(targetPath: string): Promise<string> {
+    const realBase = await realpath(this.sessionsBase)
+    const realTarget = await realpath(targetPath)
+    const rel = relative(realBase, realTarget)
+
+    if (rel.startsWith('..') || isAbsolute(rel) || extname(realTarget) !== '.jsonl') {
+      throw new Error('Invalid session path')
+    }
+
+    return realTarget
   }
 }

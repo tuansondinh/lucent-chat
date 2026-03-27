@@ -17,6 +17,7 @@ WebSocket endpoint: ws://127.0.0.1:<port>/ws
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
 import struct
@@ -62,6 +63,7 @@ def _announce(msg: str) -> None:
 _vad_model: Any = None       # SileroVAD instance
 _whisper_model: Any = None   # pywhispercpp Model instance
 _tts_engine: Any = None      # BufferedTTSEngine instance
+_auth_token = os.environ.get("VOICE_SERVICE_TOKEN", "").strip()
 
 # Thread pool for blocking CPU work (Whisper + TTS)
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -363,6 +365,12 @@ async def _send_json(ws: WebSocket, payload: dict) -> None:
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
+    token = ws.query_params.get("token", "")
+    if not _auth_token or not hmac.compare_digest(token, _auth_token):
+        _log("Rejected websocket connection with invalid token")
+        await ws.close(code=1008)
+        return
+
     await ws.accept()
     _log("Client connected")
 

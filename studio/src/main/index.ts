@@ -1,5 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
@@ -62,6 +62,42 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
   } else {
     void window.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  const isAllowedNavigation = (targetUrl: string): boolean => {
+    if (rendererUrl) {
+      try {
+        return new URL(targetUrl).origin === new URL(rendererUrl).origin
+      } catch {
+        return false
+      }
+    }
+
+    const appFileUrl = pathToFileURL(join(__dirname, '../renderer/index.html')).toString()
+    return targetUrl === appFileUrl
+  }
+
+  window.webContents.on('will-navigate', (event, targetUrl) => {
+    if (!isAllowedNavigation(targetUrl)) {
+      event.preventDefault()
+    }
+  })
+
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
+  window.webContents.on('before-input-event', (event, input) => {
+    if (!input.meta || input.control || input.alt) return
+
+    if (!input.shift && input.code === 'KeyN') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'new-session' })
+      return
+    }
+
+    if (input.shift && input.code === 'KeyF') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'toggle-file-viewer' })
+    }
+  })
 
   // Window close → hide to tray (macOS). On other platforms, allow normal close.
   window.on('close', (e) => {

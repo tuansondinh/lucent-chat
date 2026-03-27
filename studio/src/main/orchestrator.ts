@@ -67,7 +67,19 @@ export class Orchestrator extends EventEmitter {
    * Submit a new turn (from text input or future voice transcript).
    * Returns the turn_id immediately; generation is asynchronous.
    */
-  submitTurn(text: string, inputType: 'voice' | 'text' = 'text'): string {
+  submitTurn(
+    text: string,
+    inputType: 'voice' | 'text' = 'text',
+    options?: { streamingBehavior?: 'steer' | 'followUp' },
+  ): string {
+    return this.submitTurnWithOptions(text, inputType, options)
+  }
+
+  submitTurnWithOptions(
+    text: string,
+    inputType: 'voice' | 'text' = 'text',
+    options?: { streamingBehavior?: 'steer' | 'followUp' },
+  ): string {
     const turn: Turn = {
       turn_id: randomUUID(),
       session_id: '',   // populated after get_state in future; empty is fine for Phase 2
@@ -75,6 +87,15 @@ export class Orchestrator extends EventEmitter {
       text,
       state: 'queued',
       created_at: Date.now(),
+    }
+
+    if (options?.streamingBehavior === 'followUp') {
+      this.setTurnState(turn, 'queued')
+      this.agentBridge.prompt(turn.text, options).catch((err: Error) => {
+        console.error('[orchestrator] queued prompt error:', err)
+        this.callbacks.onError({ source: 'agent', message: err.message })
+      })
+      return turn.turn_id
     }
 
     this.currentTurn = turn

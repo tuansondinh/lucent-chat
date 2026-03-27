@@ -16,6 +16,7 @@ import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
+import { Kbd, KbdGroup } from './ui/kbd'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -120,7 +121,7 @@ function PaneFooter({
   }, [paneId, bridge])
 
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-1 border-t border-border bg-bg-secondary text-[10px] text-text-tertiary flex-shrink-0 select-none">
+    <div className="flex items-center justify-between gap-3 px-3 py-1 border-t border-border bg-[#363636] text-[10px] text-text-primary flex-shrink-0 select-none">
       <div className="flex min-w-0 items-center gap-3">
         {/* Git branch selector */}
         <div className="flex min-w-0 items-center gap-1">
@@ -137,7 +138,7 @@ function PaneFooter({
               }}
               title="Switch git branch"
               disabled={Boolean(checkoutTarget) || (branches.length === 0 && branchListLoading)}
-              className="max-w-[180px] cursor-pointer appearance-none rounded-md border border-border bg-bg-primary py-1 pl-2 pr-6 text-[10px] text-text-secondary transition-colors hover:border-border-active hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-60"
+              className="max-w-[180px] cursor-pointer appearance-none rounded-md border border-white/10 bg-white/10 py-1 pl-2 pr-6 text-[10px] text-text-primary transition-colors hover:border-white/20 focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-60"
             >
               {gitBranch && !branches.includes(gitBranch) ? (
                 <option value={gitBranch}>{gitBranch}</option>
@@ -159,7 +160,7 @@ function PaneFooter({
         {/* Project root */}
         <button
           onClick={() => void handleChangeRoot()}
-          className="flex items-center gap-1 min-w-0 hover:text-text-primary transition-colors cursor-pointer"
+          className="flex items-center gap-1 min-w-0 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
           title="Change project root"
         >
           <Folder className="size-3 flex-shrink-0" />
@@ -175,7 +176,7 @@ function PaneFooter({
           onOpenModelPicker()
         }}
         title={formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })}
-        className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-tertiary transition-colors hover:text-text-secondary hover:bg-bg-hover"
+        className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
       >
         <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
         <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
@@ -198,8 +199,6 @@ interface ChatPaneProps {
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
   /** Whether assistant TTS playback is enabled globally. */
   voiceAudioEnabled: boolean
-  /** Persisted app-level audio toggle handler. */
-  onVoiceAudioEnabledChange: (enabled: boolean) => void
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
   /** Called to close this pane — undefined if this is the only pane. */
@@ -211,11 +210,17 @@ interface ChatPaneProps {
 const SPACE_HOLD_TO_TALK_DELAY_MS = 220
 const BRANCH_POLL_INTERVAL_MS = 3_000
 
-const suggestions = [
-  'What can you help me with?',
-  'Show me the project structure',
-  'Read the README',
-  'What files are here?',
+const keyboardShortcuts = [
+  { key: <><Kbd>⌘</Kbd><Kbd>K</Kbd></>, label: 'Command palette' },
+  { key: <><Kbd>hold</Kbd><Kbd>␣</Kbd></>, label: 'Push to talk' },
+  { key: <><Kbd>⌘</Kbd><Kbd>M</Kbd></>, label: 'Model picker' },
+  { key: <><Kbd>⌘</Kbd><Kbd>E</Kbd></>, label: 'File explorer' },
+  { key: <><Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd></>, label: 'File viewer' },
+  { key: <><Kbd>⌘</Kbd><Kbd>B</Kbd></>, label: 'Toggle sidebar' },
+  { key: <><Kbd>⌘</Kbd><Kbd>D</Kbd></>, label: 'Split pane' },
+  { key: <><Kbd>⌘</Kbd><Kbd>⌥</Kbd><Kbd>←</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd><Kbd>→</Kbd></>, label: 'Navigate panes' },
+  { key: <><Kbd>esc</Kbd></>, label: 'Interrupt' },
+  { key: <><Kbd>⌘</Kbd><Kbd>R</Kbd></>, label: 'Restart app' },
 ]
 
 // ============================================================================
@@ -228,7 +233,6 @@ export function ChatPane({
   sidebarCollapsed,
   voicePttShortcut,
   voiceAudioEnabled,
-  onVoiceAudioEnabledChange,
   onFocus,
   onClose,
   onOpenFile,
@@ -238,6 +242,9 @@ export function ChatPane({
     messages,
     agentHealth,
     isGenerating,
+    pendingMessageCount,
+    isCompacting,
+    autoCompactionEnabled,
     appendChunk,
     finalizeMessage,
     addUserMessage,
@@ -249,12 +256,15 @@ export function ChatPane({
     startTextBlock,
     finalizeTextBlock,
     setHealth,
+    setPendingMessageCount,
+    setCompactionState,
     addErrorMessage,
     setModel,
     loadHistory,
     setSessionPath,
     setSessionName,
     currentModel,
+    currentSessionPath,
     projectRoot,
   } = store()
 
@@ -267,6 +277,7 @@ export function ChatPane({
   const pttActivationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pttShortcutHeldRef = useRef(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
 
   // Voice integration — app-global store, but forwarding is scoped to this pane
   const voiceStore = useVoiceStore()
@@ -468,6 +479,15 @@ export function ChatPane({
         if (state === 'aborted' || state === 'idle') {
           store.getState().setGenerating(false)
         }
+        void bridge.getState(paneId)
+          .then((sessionState) => {
+            store.getState().setPendingMessageCount(typeof sessionState.pendingMessageCount === 'number' ? sessionState.pendingMessageCount : 0)
+            store.getState().setCompactionState(
+              sessionState.isCompacting === true,
+              sessionState.autoCompactionEnabled !== false,
+            )
+          })
+          .catch(() => {})
       }),
       bridge.onError(({ paneId: pid, message }) => {
         if (pid !== paneId) return
@@ -491,6 +511,8 @@ export function ChatPane({
         if (typeof state.sessionName === 'string' && state.sessionName) {
           store.getState().setSessionName(state.sessionName)
         }
+        store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
+        store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
       })
       .catch(() => {})
 
@@ -502,7 +524,7 @@ export function ChatPane({
   useEffect(() => {
     let cancelled = false
 
-    const syncPaneGitState = async () => {
+    const syncPaneStateMeta = async () => {
       try {
         const info = await bridge.getPaneInfo(paneId)
         if (cancelled) return
@@ -518,18 +540,23 @@ export function ChatPane({
         if (branch !== store.getState().gitBranch) {
           store.getState().setGitBranch(branch)
         }
+
+        const state = await bridge.getState(paneId)
+        if (cancelled) return
+        store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
+        store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
       } catch {
         // Ignore transient git state failures.
       }
     }
 
-    void syncPaneGitState()
+    void syncPaneStateMeta()
     const intervalId = setInterval(() => {
-      void syncPaneGitState()
+      void syncPaneStateMeta()
     }, BRANCH_POLL_INTERVAL_MS)
 
     const handleWindowFocus = () => {
-      void syncPaneGitState()
+      void syncPaneStateMeta()
     }
 
     window.addEventListener('focus', handleWindowFocus)
@@ -540,21 +567,45 @@ export function ChatPane({
     }
   }, [bridge, paneId, store])
 
+  const isReplyAudioPlaying = voiceOwnedByThisPane && voiceStore.ttsPlaying
+  const isAssistantBusy = isGenerating || isReplyAudioPlaying
+
   // Submit handler
   const handleSubmit = useCallback(async (text: string, imageDataUrl?: string) => {
+    const displayText = text || '[image]'
+    const fullText = imageDataUrl
+      ? (text ? `${text}\n[image: ${imageDataUrl}]` : `[image: ${imageDataUrl}]`)
+      : text
+
+    if (isAssistantBusy) {
+      if (queuedPrompt) return
+      setQueuedPrompt({ label: displayText, text, imageDataUrl })
+      return
+    }
+
     try {
-      const fullText = imageDataUrl
-        ? (text ? `${text}\n[image: ${imageDataUrl}]` : `[image: ${imageDataUrl}]`)
-        : text
       const turn_id = await bridge.prompt(paneId, fullText)
-      store.getState().addUserMessage(text || '[image]', turn_id)
+      store.getState().addUserMessage(displayText, turn_id)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to send message'
       store.getState().addErrorMessage(msg)
     }
-  }, [paneId, bridge, store])
+  }, [paneId, bridge, store, isAssistantBusy, queuedPrompt])
+
+  useEffect(() => {
+    if (!queuedPrompt || isAssistantBusy) return
+
+    const nextPrompt = queuedPrompt
+    setQueuedPrompt(null)
+    void handleSubmit(nextPrompt.text, nextPrompt.imageDataUrl)
+  }, [queuedPrompt, isAssistantBusy, handleSubmit])
+
+  useEffect(() => {
+    setQueuedPrompt(null)
+  }, [currentSessionPath])
 
   const handleAbort = useCallback(() => {
+    setQueuedPrompt(null)
     store.getState().setGenerating(false)
     stopTts()
     bridge.abort(paneId).catch(() => {})
@@ -565,6 +616,16 @@ export function ChatPane({
     onFocus()
     await onOpenFile(paneId, relativePath)
   }, [onFocus, onOpenFile, paneId])
+
+  const handleEditQueuedMessage = useCallback(() => {
+    if (!queuedPrompt) return
+    inputRef.current?.setDraft(queuedPrompt.text, queuedPrompt.imageDataUrl ?? null)
+    setQueuedPrompt(null)
+  }, [queuedPrompt])
+
+  const handleClearQueuedMessage = useCallback(() => {
+    setQueuedPrompt(null)
+  }, [])
 
   useEffect(() => {
     const handleStopActivePane = (event: Event) => {
@@ -580,6 +641,8 @@ export function ChatPane({
   }, [handleAbort, isActive, paneId])
 
   const inputDisabled = agentHealth === 'crashed' || agentHealth === 'degraded'
+  const canQueueMessage = isAssistantBusy && !queuedPrompt
+  const queuedMessageLabel = queuedPrompt?.label ?? null
 
   const isOnlyPane = !onClose
 
@@ -611,16 +674,12 @@ export function ChatPane({
                     : 'Connecting to agent...'}
             </p>
             {agentHealth === 'ready' && (
-              <div className="mt-3 grid grid-cols-2 gap-2 max-w-md w-full">
-                {suggestions.map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => void handleSubmit(s)}
-                    disabled={inputDisabled || isGenerating}
-                    className="rounded-xl border border-border bg-bg-secondary px-3 py-1.5 text-xs text-text-secondary hover:border-border-active hover:text-text-primary transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {s}
-                  </button>
+              <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-2 max-w-md w-full">
+                {keyboardShortcuts.map((shortcut) => (
+                  <div key={shortcut.label} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-text-secondary">{shortcut.label}</span>
+                    <KbdGroup>{shortcut.key}</KbdGroup>
+                  </div>
                 ))}
               </div>
             )}
@@ -652,18 +711,21 @@ export function ChatPane({
             onSubmit={(t, img) => void handleSubmit(t, img)}
             onAbort={handleAbort}
             isGenerating={isGenerating}
+            canQueueMessage={canQueueMessage}
+            hasQueuedMessage={Boolean(queuedPrompt)}
+            queuedMessageLabel={queuedMessageLabel}
             disabled={inputDisabled}
             voiceAvailable={voiceStore.available}
             voiceActive={voiceOwnedByThisPane}
             voiceSidecarState={voiceStore.sidecarState}
             isSpeaking={voiceOwnedByThisPane ? voiceStore.speaking : false}
             isTtsPlaying={voiceOwnedByThisPane ? voiceStore.ttsPlaying : false}
-            voiceAudioEnabled={voiceAudioEnabled}
             partialTranscript={voiceOwnedByThisPane ? voiceStore.partialTranscript : ''}
             unavailableReason={voiceStore.unavailableReason}
             onVoiceToggle={toggleVoice}
             onStopTts={stopTts}
-            onVoiceAudioToggle={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
+            onEditQueuedMessage={handleEditQueuedMessage}
+            onClearQueuedMessage={handleClearQueuedMessage}
           />
         </div>
 

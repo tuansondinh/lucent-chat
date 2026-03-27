@@ -15,6 +15,7 @@ import { ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { execFile } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 
 type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
 
@@ -22,6 +23,7 @@ interface VoiceServiceStatus {
   available: boolean
   state: VoiceSidecarState
   port: number | null
+  token: string | null
   reason?: string
 }
 
@@ -30,13 +32,14 @@ export class VoiceService extends EventEmitter {
   private port: number | null = null
   private state: VoiceSidecarState = 'stopped'
   private reason: string | undefined
-  private startPromise: Promise<{ port: number }> | null = null
+  private startPromise: Promise<{ port: number; token: string }> | null = null
   private pythonCmd: string | null = null
   private audioServicePath: string | null = null
   private voiceBridgePath: string | null = null
-  private startupTimeoutMs = 60_000
+  private startupTimeoutMs = 300_000
   private intentionalStop = false
   private restartTimer: NodeJS.Timeout | null = null
+  private authToken: string | null = null
 
   constructor(private resolveProjectRoot: () => string) {
     super()
@@ -105,9 +108,12 @@ export class VoiceService extends EventEmitter {
   }
 
   /** Start the audio service sidecar. Resolves with port when ready. */
-  async start(): Promise<{ port: number }> {
+  async start(): Promise<{ port: number; token: string }> {
     if (this.state === 'ready' && this.port !== null) {
-      return { port: this.port }
+      if (!this.authToken) {
+        throw new Error('Voice sidecar token missing')
+      }
+      return { port: this.port, token: this.authToken }
     }
     if (this.startPromise) {
       return this.startPromise
@@ -129,6 +135,9 @@ export class VoiceService extends EventEmitter {
     this.startPromise = new Promise((resolve, reject) => {
       const env: NodeJS.ProcessEnv = { ...process.env }
       if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath!
+      const authToken = randomBytes(32).toString('hex')
+      env.VOICE_SERVICE_TOKEN = authToken
+      this.authToken = authToken
 
       // Spawn: for 'uv' use ['run', 'python', servicePath], otherwise [servicePath]
       let cmd: string
@@ -159,7 +168,7 @@ export class VoiceService extends EventEmitter {
 
       let stdoutBuf = ''
       const timeout = setTimeout(() => {
-        this.reason = 'Voice sidecar startup timeout (60s) — model loading may have failed'
+        this.reason = 'Voice sidecar startup timeout (5 min) — model loading may have failed'
         this.startPromise = null
         reject(new Error(this.reason))
         this.state = 'error'
@@ -180,7 +189,7 @@ export class VoiceService extends EventEmitter {
             this.startPromise = null
             this.state = 'ready'
             this.emitStatus()
-            resolve({ port })
+            resolve({ port, token: authToken })
           } else if (trimmed.startsWith('VOICE_SERVICE_ERROR ')) {
             clearTimeout(timeout)
             const msg = trimmed.slice('VOICE_SERVICE_ERROR '.length)
@@ -197,6 +206,7 @@ export class VoiceService extends EventEmitter {
         clearTimeout(timeout)
         const wasReady = this.state === 'ready'
         this.port = null
+        this.authToken = null
         this.proc = null
         this.startPromise = null
 
@@ -247,6 +257,7 @@ export class VoiceService extends EventEmitter {
       })
     })
     this.port = null
+    this.authToken = null
     this.state = 'stopped'
     this.reason = undefined
     this.emitStatus()
@@ -258,6 +269,7 @@ export class VoiceService extends EventEmitter {
       available: this.state !== 'unavailable' && this.reason === undefined,
       state: this.state,
       port: this.port,
+      token: this.authToken,
       reason: this.reason,
     }
   }

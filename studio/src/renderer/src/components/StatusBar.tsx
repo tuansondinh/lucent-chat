@@ -6,6 +6,7 @@
 
 import { Mic, FileText } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
+import { btn } from '../lib/theme'
 
 interface HealthDotProps {
   health: string
@@ -16,7 +17,7 @@ function HealthDot({ health }: HealthDotProps) {
     health === 'ready'
       ? 'bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]'
       : health === 'starting'
-        ? 'bg-accent shadow-[0_0_4px_rgba(212,160,78,0.5)] animate-pulse'
+        ? 'bg-accent shadow-[0_0_4px_rgba(249,115,22,0.5)] animate-pulse'
         : health === 'crashed' || health === 'degraded'
           ? 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.5)]'
           : 'bg-bg-tertiary'
@@ -47,7 +48,8 @@ export function StatusBar({
   voiceSpeaking,
   voiceTtsPlaying,
 }: Props) {
-  const healthLabel = health === 'unknown' ? 'connecting' : health
+  const APP_VERSION = '0.9.0'
+  const healthLabel = health === 'ready' ? `v${APP_VERSION}` : health === 'unknown' ? 'connecting' : health
 
   return (
     <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-bg-secondary text-[10px] text-text-tertiary flex-shrink-0">
@@ -55,7 +57,7 @@ export function StatusBar({
       <button
         onClick={onOpenModelPicker}
         title="Switch model (⌘M)"
-        className="truncate max-w-[160px] text-left hover:text-text-primary transition-colors cursor-pointer disabled:cursor-default"
+        className={`${btn.ghost} truncate max-w-[160px] text-left cursor-pointer disabled:cursor-default`}
         disabled={!onOpenModelPicker}
       >
         {formatModelDisplay(model, { includeProvider: true })}
@@ -75,7 +77,7 @@ export function StatusBar({
         <button
           onClick={onToggleFileViewer}
           title="Toggle file viewer (⌘⇧F)"
-          className="flex items-center gap-1 hover:text-text-primary transition-colors cursor-pointer disabled:cursor-default"
+          className={`${btn.ghost} flex items-center gap-1 cursor-pointer disabled:cursor-default`}
           disabled={!onToggleFileViewer}
         >
           <FileText className="w-2.5 h-2.5" />
@@ -86,7 +88,7 @@ export function StatusBar({
       {/* Right: health */}
       <div className="flex items-center gap-1.5">
         <HealthDot health={health} />
-        <span className="capitalize">{healthLabel}</span>
+        <span className={`capitalize ${health === 'ready' ? 'text-accent-gray' : ''}`}>{healthLabel}</span>
       </div>
     </div>
   )

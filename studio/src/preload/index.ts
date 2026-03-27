@@ -28,6 +28,27 @@ export interface GitFileDiff {
   diffText: string | null
 }
 
+export interface RendererSettings {
+  defaultModel?: { provider: string; modelId: string }
+  theme: 'dark'
+  fontSize: number
+  sidebarCollapsed: boolean
+  windowBounds?: { x: number; y: number; width: number; height: number }
+  onboardingComplete?: boolean
+  voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
+  voiceAudioEnabled?: boolean
+  voiceModelsDownloaded?: boolean
+  hasTavilyKey: boolean
+}
+
+export interface VoiceStatus {
+  available: boolean
+  state: string
+  port: number | null
+  token: string | null
+  reason?: string
+}
+
 /**
  * Bridge API exposed to the renderer via contextBridge.
  * Commands are invoked via ipcRenderer.invoke (returns Promise).
@@ -42,8 +63,8 @@ const bridge = {
   // -------------------------------------------------------------------------
 
   /** Submit a text prompt to a specific pane. Returns turn_id. */
-  prompt: (paneId: string, text: string): Promise<string> =>
-    ipcRenderer.invoke('cmd:prompt', paneId, text),
+  prompt: (paneId: string, text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<string> =>
+    ipcRenderer.invoke('cmd:prompt', paneId, text, options),
 
   /** Abort the current generation in a specific pane. */
   abort: (paneId: string): Promise<void> =>
@@ -110,11 +131,11 @@ const bridge = {
   // -------------------------------------------------------------------------
 
   /** Get current app settings. */
-  getSettings: (): Promise<Record<string, unknown>> =>
+  getSettings: (): Promise<RendererSettings> =>
     ipcRenderer.invoke('cmd:get-settings'),
 
   /** Persist a partial settings update. Returns the full updated settings. */
-  setSettings: (settings: Record<string, unknown>): Promise<Record<string, unknown>> =>
+  setSettings: (settings: Record<string, unknown>): Promise<RendererSettings> =>
     ipcRenderer.invoke('cmd:set-settings', settings),
 
   /** Open a URL in the system's default browser. Only http/https allowed. */
@@ -319,6 +340,13 @@ const bridge = {
     return () => ipcRenderer.removeListener('event:terminal-data', handler)
   },
 
+  /** App-level keyboard shortcuts forwarded by the main process. */
+  onAppShortcut: (cb: (data: { action: 'new-session' | 'toggle-file-viewer' }) => void): (() => void) => {
+    const handler = (_e: any, data: { action: 'new-session' | 'toggle-file-viewer' }) => cb(data)
+    ipcRenderer.on('event:app-shortcut', handler)
+    return () => ipcRenderer.removeListener('event:app-shortcut', handler)
+  },
+
   /** Thinking block started. Returns unsubscribe function. */
   onThinkingStart: (cb: (data: { paneId: string; turn_id: string }) => void): (() => void) => {
     const handler = (_e: any, data: any) => cb(data)
@@ -364,7 +392,7 @@ const bridge = {
     ipcRenderer.invoke('cmd:voice-probe'),
 
   /** Start the audio service sidecar. Resolves with the port it bound to. */
-  voiceStart: (): Promise<{ port: number }> =>
+  voiceStart: (): Promise<{ port: number; token: string }> =>
     ipcRenderer.invoke('cmd:voice-start'),
 
   /** Stop the audio service sidecar. */
@@ -372,7 +400,7 @@ const bridge = {
     ipcRenderer.invoke('cmd:voice-stop'),
 
   /** Get the current voice service status snapshot. */
-  voiceStatus: (): Promise<{ available: boolean; state: string; port: number | null }> =>
+  voiceStatus: (): Promise<VoiceStatus> =>
     ipcRenderer.invoke('cmd:voice-status'),
 
   // -------------------------------------------------------------------------
@@ -381,9 +409,9 @@ const bridge = {
 
   /** Subscribe to voice service status changes. Returns unsubscribe function. */
   onVoiceStatus: (
-    cb: (data: { available: boolean; state: string; port: number | null }) => void,
+    cb: (data: VoiceStatus) => void,
   ): (() => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: { available: boolean; state: string; port: number | null }) => cb(data)
+    const handler = (_e: Electron.IpcRendererEvent, data: VoiceStatus) => cb(data)
     ipcRenderer.on('event:voice-status', handler)
     return () => ipcRenderer.removeListener('event:voice-status', handler)
   },

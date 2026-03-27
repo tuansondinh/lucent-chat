@@ -50,9 +50,12 @@
   --color-text-primary: #e8e8e8;
   --color-text-secondary: #a8a8a8;
   --color-text-tertiary: #686868;
-  --color-accent: #f05c20;
-  --color-accent-hover: #f86e32;
-  --color-accent-muted: rgba(240, 92, 32, 0.15);
+  --color-accent: #f97316;
+  --color-accent-hover: #fb923c;
+  --color-accent-muted: rgba(249, 115, 22, 0.15);
+
+  --color-accent-gray: #95a5a6;
+  --color-accent-gray-muted: rgba(149, 165, 166, 0.15);
 
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -100,7 +103,7 @@ pre,
 }
 
 ::selection {
-  background: rgba(240, 92, 32, 0.30);
+  background: rgba(249, 115, 22, 0.30);
   color: var(--color-text-primary);
 }
 

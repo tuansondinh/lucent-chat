@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
 import type { ChatMessage as ChatMsg, ContentBlock } from '../store/chat'
 import { getMessageText } from '../store/chat'
@@ -141,25 +142,23 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
-  const [html, setHtml] = useState<string | null>(null)
+  const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
-    // Don't highlight very short or empty strings or during active streaming
-    // to avoid constant re-highlights; debounce by not highlighting mid-stream
-    // for blocks that are clearly incomplete (no closing ```)
     const doHighlight = async () => {
       try {
         const hl = await getHighlighter()
-        const result = hl.codeToHtml(code, {
-          lang: language || 'text',
-          theme: 'github-dark-default',
-        })
-        if (!cancelled) setHtml(result)
+        if (!cancelled) {
+          const tokenized = hl.codeToTokens(code, {
+            lang: language || 'text',
+            theme: 'github-dark-default',
+          })
+          setTokens(tokenized.tokens)
+        }
       } catch {
-        // Unknown language or error — fall back to plain text
-        if (!cancelled) setHtml(null)
+        if (!cancelled) setTokens(null)
       }
     }
 
@@ -180,13 +179,28 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
       </div>
 
       {/* Code content */}
-      {html ? (
-        <div
-          className="overflow-x-auto text-[13px] leading-6 [&_pre]:p-4 [&_pre]:m-0 [&_pre]:bg-transparent! [&_code]:bg-transparent!"
-          // Safe: Shiki output is sanitized HTML with no user-controlled URLs
-          // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+      {tokens ? (
+        <div className="overflow-x-auto p-4 text-[13px] leading-6 font-mono bg-[#0d1117]">
+          {tokens.map((lineTokens, i) => (
+            <div key={i} className="whitespace-pre">
+              {lineTokens.length === 0
+                ? '\n'
+                : lineTokens.map((token, j) => (
+                  <span
+                    key={j}
+                    style={{
+                      color: token.color,
+                      fontStyle: token.fontStyle != null && (token.fontStyle & 1) ? 'italic' : undefined,
+                      fontWeight: token.fontStyle != null && (token.fontStyle & 2) ? 'bold' : undefined,
+                      textDecoration: token.fontStyle != null && (token.fontStyle & 4) ? 'underline' : undefined,
+                    }}
+                  >
+                    {token.content}
+                  </span>
+                ))}
+            </div>
+          ))}
+        </div>
       ) : (
         <pre className="overflow-x-auto p-4 text-[13px] leading-6 text-text-primary font-mono bg-[#0d1117]">
           <code>{code}</code>
@@ -443,9 +457,10 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
           // ---- Links ----
           a({ href, children, ...props }) {
             if (!href) return <span {...props}>{children}</span>
+            const lowerHref = href.toLowerCase()
 
             // Block dangerous URLs
-            if (href.startsWith('javascript:') || href.startsWith('data:')) {
+            if (lowerHref.startsWith('javascript:') || lowerHref.startsWith('data:')) {
               return <span className="text-text-tertiary">{children}</span>
             }
 
@@ -460,7 +475,7 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
                 })
                 return
               }
-              if (href.startsWith('http://') || href.startsWith('https://')) {
+              if (lowerHref.startsWith('http://') || lowerHref.startsWith('https://')) {
                 // Use bridge IPC if available, else window.open
                 if (typeof window !== 'undefined' && (window as any).bridge?.openExternal) {
                   ;(window as any).bridge.openExternal(href).catch(console.error)

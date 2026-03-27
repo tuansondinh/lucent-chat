@@ -45,6 +45,9 @@ export interface PaneChatState {
   currentTurnId: string | null
   agentHealth: AgentHealth
   isGenerating: boolean
+  pendingMessageCount: number
+  isCompacting: boolean
+  autoCompactionEnabled: boolean
   currentModel: string
   /** Open file tabs — ordered list. */
   openFiles: OpenViewerItem[]
@@ -73,6 +76,8 @@ export interface PaneChatState {
   finalizeTextBlock: (turn_id: string) => void
   setHealth: (states: Record<string, string>) => void
   setGenerating: (value: boolean) => void
+  setPendingMessageCount: (value: number) => void
+  setCompactionState: (isCompacting: boolean, autoCompactionEnabled?: boolean) => void
   setModel: (model: string) => void
   addErrorMessage: (message: string) => void
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
@@ -146,6 +151,9 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentTurnId: null,
     agentHealth: 'unknown',
     isGenerating: false,
+    pendingMessageCount: 0,
+    isCompacting: false,
+    autoCompactionEnabled: true,
     currentModel: '',
     openFiles: [],
     activeFilePath: null,
@@ -390,6 +398,12 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setGenerating: (value) =>
       set({ isGenerating: value }),
 
+    setPendingMessageCount: (value) =>
+      set({ pendingMessageCount: Math.max(0, value) }),
+
+    setCompactionState: (isCompacting, autoCompactionEnabled = true) =>
+      set({ isCompacting, autoCompactionEnabled }),
+
     setModel: (model) =>
       set({ currentModel: model }),
 
@@ -425,6 +439,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         })),
         currentTurnId: null,
         isGenerating: false,
+        pendingMessageCount: 0,
       }),
 
     openFile: (file) =>

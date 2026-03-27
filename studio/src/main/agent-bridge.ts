@@ -17,6 +17,7 @@ export interface AgentState {
   thinkingLevel: string
   isStreaming: boolean
   isCompacting: boolean
+  autoCompactionEnabled?: boolean
   sessionFile?: string
   sessionId: string
   sessionName?: string
@@ -137,8 +138,8 @@ export class AgentBridge extends EventEmitter {
   // =========================================================================
 
   /** Send a user prompt. Returns immediately; events stream asynchronously. */
-  async prompt(text: string): Promise<void> {
-    await this.send({ type: 'prompt', message: text })
+  async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<void> {
+    await this.send({ type: 'prompt', message: text, streamingBehavior: options?.streamingBehavior })
   }
 
   /** Abort the current generation. */

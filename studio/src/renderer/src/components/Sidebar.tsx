@@ -18,6 +18,8 @@ import {
   Trash2,
   MessageSquare,
   Cpu,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import { getPaneStore } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
@@ -39,6 +41,7 @@ import {
 } from './ui/dialog'
 import { Input } from './ui/input'
 import { cn } from '../lib/utils'
+import { btn } from '../lib/theme'
 import { relativeTime } from '../lib/time'
 import { formatModelDisplay } from '../lib/models'
 import type { GitChangeStatus } from '../../../preload'
@@ -63,9 +66,13 @@ interface Props {
   activePaneId: string
   view: SidebarView
   onViewChange: (view: SidebarView) => void
-  onNewSession: () => void
+  onNewSession: () => Promise<void> | void
   onSwitchSession: (path: string) => void
   onRefresh: () => void
+  isCompacting?: boolean
+  autoCompactionEnabled?: boolean
+  voiceAudioEnabled: boolean
+  onVoiceAudioEnabledChange: (enabled: boolean) => void
   onOpenModelPicker?: () => void
   onOpenSettings?: () => void
   onExplorerFileOpen?: () => void
@@ -86,6 +93,10 @@ export function Sidebar({
   onNewSession,
   onSwitchSession,
   onRefresh,
+  isCompacting = false,
+  autoCompactionEnabled = true,
+  voiceAudioEnabled,
+  onVoiceAudioEnabledChange,
   onOpenModelPicker,
   onOpenSettings,
   onExplorerFileOpen,
@@ -126,11 +137,8 @@ export function Sidebar({
   // -------------------------------------------------------------------------
 
   const handleNewSession = async () => {
-    const result = await bridge.newSession(activePaneId)
-    if (!result.cancelled) {
-      await loadSessions()
-      onNewSession()
-    }
+    await onNewSession()
+    await loadSessions()
   }
 
   const handleSwitchSession = async (path: string) => {
@@ -189,15 +197,15 @@ export function Sidebar({
           <button
             onClick={onToggleCollapse}
             title="Expand sidebar (⌘B)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className={cn(btn.icon, 'w-7 h-7')}
           >
             <PanelLeft className="w-3.5 h-3.5" />
           </button>
 
           <button
             onClick={() => void handleNewSession()}
-            title="New session (⌘N)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            title="New session"
+            className={cn(btn.icon, 'w-7 h-7')}
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
@@ -208,7 +216,7 @@ export function Sidebar({
               onToggleCollapse()
             }}
             title="Open explorer (⌘E)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className={cn(btn.icon, 'w-7 h-7')}
           >
             <FolderOpen className="w-3.5 h-3.5" />
           </button>
@@ -219,25 +227,39 @@ export function Sidebar({
               onToggleCollapse()
             }}
             title="Open changes"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className={cn(btn.icon, 'w-7 h-7')}
           >
             <GitBranch className="w-3.5 h-3.5" />
           </button>
 
           <div className="flex-1" />
 
+          {isCompacting && (
+            <div
+              title="Compacting conversation context"
+              className="flex items-center justify-center w-7 h-7 rounded-lg bg-amber-500/15 text-amber-300"
+            >
+              <span className="text-[9px] font-semibold">CMP</span>
+            </div>
+          )}
+
           <button
-            onClick={onOpenModelPicker}
-            title="Switch model (⌘M)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            onClick={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
+            title={voiceAudioEnabled ? 'Turn speech audio off' : 'Turn speech audio on'}
+            className={cn(
+              'flex items-center justify-center w-7 h-7 rounded-lg transition-colors',
+              voiceAudioEnabled
+                ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                : 'text-text-tertiary hover:text-accent hover:bg-accent/10 active:bg-accent/20',
+            )}
           >
-            <Cpu className="w-3.5 h-3.5" />
+            {voiceAudioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
           </button>
 
           <button
             onClick={onOpenSettings}
             title="Settings (⌘,)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className={cn(btn.icon, 'w-7 h-7')}
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
@@ -254,14 +276,14 @@ export function Sidebar({
           <button
             onClick={onToggleCollapse}
             title="Collapse sidebar (⌘B)"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+            className={cn(btn.icon, 'w-8 h-8 flex-shrink-0')}
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
 
           <button
             onClick={() => void handleNewSession()}
-            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover border border-border hover:border-border-active transition-colors min-w-0"
+            className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-text-secondary hover:text-accent hover:bg-accent/10 border border-border hover:border-accent/40 transition-colors min-w-0"
           >
             <Plus className="w-4 h-4 flex-shrink-0" />
             <span>New Session</span>
@@ -275,7 +297,7 @@ export function Sidebar({
               className={cn(
                 'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
                 view === 'sessions'
-                  ? 'bg-bg-hover text-text-primary'
+                  ? 'bg-accent/15 text-accent'
                   : 'text-text-tertiary hover:text-text-secondary',
               )}
             >
@@ -287,7 +309,7 @@ export function Sidebar({
               className={cn(
                 'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
                 view === 'explorer'
-                  ? 'bg-bg-hover text-text-primary'
+                  ? 'bg-accent/15 text-accent'
                   : 'text-text-tertiary hover:text-text-secondary',
               )}
             >
@@ -299,7 +321,7 @@ export function Sidebar({
               className={cn(
                 'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors',
                 view === 'changes'
-                  ? 'bg-bg-hover text-text-primary'
+                  ? 'bg-accent/15 text-accent'
                   : 'text-text-tertiary hover:text-text-secondary',
               )}
             >
@@ -354,7 +376,7 @@ export function Sidebar({
                   <button
                     key={`${file.path}:${file.status}`}
                     onClick={() => { void onOpenDiff?.(activePaneId, file.path) }}
-                    className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                    className={cn(btn.ghost, 'flex items-center gap-2 rounded-lg px-2 py-2 text-left')}
                     title={file.path}
                   >
                     <span className={cn(
@@ -381,22 +403,29 @@ export function Sidebar({
 
         {/* Bottom area */}
         <div className="flex-shrink-0 border-t border-border px-3 py-2 flex items-center gap-2">
-          {/* Model indicator — clickable to open model picker */}
+          {(isCompacting || autoCompactionEnabled) && (
+            <div className="px-1 text-[10px] text-text-tertiary truncate flex-1">
+              {isCompacting ? 'Compacting context...' : 'Auto-compact on'}
+            </div>
+          )}
+
           <button
-            onClick={onOpenModelPicker}
-            title="Switch model (⌘M)"
-            className="flex-1 flex items-center gap-1.5 px-2 py-1 rounded-md text-left transition-colors hover:bg-bg-hover group min-w-0"
+            onClick={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
+            title={voiceAudioEnabled ? 'Turn speech audio off' : 'Turn speech audio on'}
+            className={cn(
+              'flex items-center justify-center w-7 h-7 rounded-lg border transition-colors flex-shrink-0',
+              voiceAudioEnabled
+                ? 'border-accent/40 bg-accent/15 text-accent hover:bg-accent/25'
+                : 'border-border text-text-tertiary hover:text-accent hover:bg-accent/10 hover:border-accent/40 active:bg-accent/20',
+            )}
           >
-            <Cpu className="w-3 h-3 flex-shrink-0 text-text-tertiary group-hover:text-text-primary transition-colors" />
-            <span className="text-[10px] text-text-tertiary group-hover:text-text-primary transition-colors truncate font-mono">
-              {formatModelDisplay(currentModel)}
-            </span>
+            {voiceAudioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
           </button>
 
           <button
             onClick={onOpenSettings}
             title="Settings (⌘,)"
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+            className={cn(btn.icon, 'w-7 h-7 flex-shrink-0')}
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -422,14 +451,14 @@ export function Sidebar({
           <DialogFooter>
             <button
               onClick={() => setRenameTarget(null)}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:text-text-primary hover:border-border-active transition-colors"
+              className={cn(btn.outline, 'px-3 py-1.5 text-sm')}
             >
               Cancel
             </button>
             <button
               onClick={() => void handleRenameConfirm()}
               disabled={!renameValue.trim()}
-              className="px-3 py-1.5 text-sm rounded-lg bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className={cn(btn.primary, 'px-3 py-1.5 text-sm disabled:opacity-40 disabled:cursor-not-allowed')}
             >
               Rename
             </button>
@@ -456,13 +485,13 @@ export function Sidebar({
           <DialogFooter>
             <button
               onClick={() => { setDeleteTarget(null); setDeleteError(null) }}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:text-text-primary hover:border-border-active transition-colors"
+              className={cn(btn.outline, 'px-3 py-1.5 text-sm')}
             >
               Cancel
             </button>
             <button
               onClick={() => void handleDeleteConfirm()}
-              className="px-3 py-1.5 text-sm rounded-lg bg-red-600/20 border border-red-600/40 text-red-400 hover:bg-red-600/30 transition-colors"
+              className={cn(btn.danger, 'px-3 py-1.5 text-sm')}
             >
               Delete
             </button>
@@ -510,7 +539,7 @@ function SessionItem({ session, isActive, onSelect, onRename, onDelete }: Sessio
         'group relative flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
         isActive
           ? 'bg-accent/15 border-l-2 border-accent text-text-primary pl-[6px]'
-          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
+          : 'text-text-secondary hover:bg-accent/10 hover:text-accent active:bg-accent/20',
       )}
       onClick={onSelect}
     >
@@ -531,7 +560,7 @@ function SessionItem({ session, isActive, onSelect, onRename, onDelete }: Sessio
           <button
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover flex-shrink-0 transition-colors',
+              cn(btn.icon, 'w-5 h-5 flex-shrink-0'),
               menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
             )}
           >

@@ -182,7 +182,7 @@ function WelcomeStep({ onGetStarted }: { onGetStarted: () => void }) {
       <div className="space-y-2">
         <h1 className="text-2xl font-bold text-text-primary">Welcome to Lucent Chat</h1>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Your desktop AI assistant — powered by Claude and designed for productivity.
+          Your desktop AI assistant for coding, research, and focused productivity.
           Let's get you set up in a few quick steps.
         </p>
       </div>
@@ -737,7 +737,9 @@ function TavilyStep({
         </div>
         <h2 className="text-xl font-semibold text-text-primary">Web Search</h2>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Optional: add a Tavily key to enable web search. You can skip and add it later in{' '}
+          Lucent Chat is an open-source AI client, so it does not ship with its own hosted web
+          search service. If you want the assistant to search the live web, add your own Tavily
+          API key here. You can skip this step and add it later in{' '}
           <kbd className="font-mono text-xs bg-bg-secondary border border-border rounded px-1 py-0.5 text-text-tertiary">
             ⌘,
           </kbd>{' '}
@@ -769,13 +771,18 @@ function TavilyStep({
           </button>
         </div>
         <p className="text-xs text-text-tertiary">
+          Tavily is the search provider Lucent currently integrates with for live web results.
           Get a free key at{' '}
           <a
             href="https://tavily.com"
             target="_blank"
             rel="noreferrer"
             className="text-accent hover:underline"
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              bridge.openExternal('https://tavily.com').catch(() => {})
+            }}
           >
             tavily.com
           </a>
@@ -825,11 +832,15 @@ function ReadyStep({ onFinish, saving }: { onFinish: () => void; saving: boolean
         </p>
         {[
           { key: '⌘K', tip: 'Open command palette' },
-          { key: '⌘N', tip: 'Start a new session' },
-          { key: '⌘M', tip: 'Switch AI model' },
+          { key: '⌘T', tip: 'Toggle the terminal panel' },
+          { key: '⌘D', tip: 'Split the active pane horizontally' },
+          { key: '⌘⇧D', tip: 'Split the active pane vertically' },
+          { key: '⌘⇧F', tip: 'Toggle the file viewer' },
+          { key: 'Hold SPACE', tip: 'Push to talk in the active pane' },
+          { key: '⌘,', tip: 'Open Settings' },
         ].map(({ key, tip }) => (
           <div key={key} className="flex items-center gap-3 text-sm">
-            <kbd className="font-mono text-xs bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-text-secondary w-10 text-center flex-shrink-0">
+            <kbd className="font-mono text-xs bg-bg-tertiary border border-border rounded px-1.5 py-0.5 text-text-secondary min-w-[5.5rem] text-center flex-shrink-0">
               {key}
             </kbd>
             <span className="text-text-secondary">{tip}</span>

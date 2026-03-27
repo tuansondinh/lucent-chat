@@ -5,7 +5,7 @@
  * File permissions: 0o600 (contains API keys).
  */
 
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -80,6 +80,10 @@ export class SettingsService {
       }
       // Merge stored values over defaults (shallow)
       this.settings = { ...DEFAULTS, ...parsed }
+      if (this.settings.voiceModelsDownloaded && !hasVoiceModelsDownloaded()) {
+        this.settings.voiceModelsDownloaded = false
+        this.save({ voiceModelsDownloaded: false })
+      }
     } catch {
       // File may not exist yet — use defaults
       this.settings = { ...DEFAULTS }
@@ -122,4 +126,15 @@ export class SettingsService {
       }
     }
   }
+}
+
+function hasVoiceModelsDownloaded(): boolean {
+  const home = homedir()
+
+  const requiredPaths = [
+    join(home, 'Library', 'Application Support', 'pywhispercpp', 'models', 'ggml-large-v3-turbo.bin'),
+    join(home, '.cache', 'huggingface', 'hub', 'models--hexgrad--Kokoro-82M'),
+  ]
+
+  return requiredPaths.every((modelPath) => existsSync(modelPath))
 }

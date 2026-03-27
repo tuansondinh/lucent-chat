@@ -84,7 +84,7 @@ function ensureAuthFile(authPath: string): void {
   const dir = dirname(authPath)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
   if (!existsSync(authPath)) {
-    writeFileSync(authPath, '{}', 'utf-8')
+    writeFileSync(authPath, '{}', { encoding: 'utf-8', mode: 0o600 })
     chmodSync(authPath, 0o600)
   }
 }
@@ -101,8 +101,7 @@ function readAuthData(authPath: string): StoredCredentialData {
 }
 
 function writeAuthData(authPath: string, data: StoredCredentialData): void {
-  writeFileSync(authPath, JSON.stringify(data, null, 2), 'utf-8')
-  chmodSync(authPath, 0o600)
+  writeFileSync(authPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 })
 }
 
 function getCredentials(data: StoredCredentialData, provider: string): StoredCredential[] {

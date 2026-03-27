@@ -271,14 +271,14 @@ export class GitService {
     try {
       await execFileAsync(
         'git',
-        ['switch', trimmedBranch],
+        ['switch', '--', trimmedBranch],
         { cwd: rootPath, timeout: 10_000 },
       )
     } catch (switchError) {
       try {
         await execFileAsync(
         'git',
-        ['checkout', trimmedBranch],
+        ['checkout', '--', trimmedBranch],
           { cwd: rootPath, timeout: 10_000 },
         )
       } catch (checkoutError) {

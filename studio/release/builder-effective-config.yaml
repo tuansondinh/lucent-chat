@@ -1,0 +1,87 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.lucent.chat
+productName: Lucent Chat
+electronVersion: 41.0.3
+files:
+  - filter:
+      - dist/**/*
+      - audio-service/**/*
+      - node_modules/**/*
+      - package.json
+extraResources:
+  - from: ../dist
+    to: runtime/dist
+  - from: ../packages
+    to: runtime/packages
+  - from: ../pkg
+    to: runtime/pkg
+  - from: ../package.json
+    to: runtime/package.json
+  - from: ../node_modules
+    to: runtime/node_modules
+    filter:
+      - '!@gsd'
+      - '!@lc'
+      - '!.bin'
+      - '!@electron'
+      - '!app-builder-bin'
+      - '!app-builder-lib'
+      - '!builder-util'
+      - '!builder-util-runtime'
+      - '!dmg-builder'
+      - '!electron'
+      - '!electron-builder'
+      - '!electron-osx-sign'
+      - '!electron-publish'
+      - '!electron-rebuild'
+      - '!electron-vite'
+      - '!vite'
+      - '!typescript'
+      - '!@types'
+  - from: ../packages/native
+    to: runtime/node_modules/@gsd/native
+  - from: ../packages/pi-agent-core
+    to: runtime/node_modules/@gsd/pi-agent-core
+  - from: ../packages/pi-ai
+    to: runtime/node_modules/@gsd/pi-ai
+  - from: ../packages/pi-coding-agent
+    to: runtime/node_modules/@gsd/pi-coding-agent
+  - from: ../packages/pi-tui
+    to: runtime/node_modules/@gsd/pi-tui
+mac:
+  target:
+    - target: dmg
+      arch:
+        - universal
+    - target: zip
+      arch:
+        - universal
+  icon: build/icon.icns
+  category: public.app-category.productivity
+  entitlements: entitlements.mac.plist
+  entitlementsInherit: entitlements.mac.plist
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  extendInfo:
+    NSMicrophoneUsageDescription: This app needs microphone access for voice input.
+    NSCameraUsageDescription: This app does not access your camera.
+    NSSupportsAutomaticTermination: false
+    NSRequiresAquaSystemAppearance: false
+  darkModeSupport: true
+dmg:
+  title: Lucent Chat
+  background: build/dmg-background.png
+  icon: build/icon.icns
+  iconSize: 80
+  contents:
+    - x: 130
+      'y': 220
+    - x: 410
+      'y': 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 380

@@ -12,6 +12,7 @@
  *   Cmd+1-4     → focus pane 1-4
  *   Cmd+E       → toggle explorer in sidebar
  *   Cmd+Shift+F → toggle file viewer
+ *   Cmd+T       → toggle terminal panel
  *   Voice PTT   → configurable in Settings (default: hold Space)
  */
 
@@ -71,7 +72,6 @@ function renderLayoutNode(
   paneCount: number,
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
   voiceAudioEnabled: boolean,
-  onVoiceAudioEnabledChange: (enabled: boolean) => void,
   setActivePane: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
   handleOpenFile: (paneId: string, relativePath: string) => Promise<void>,
@@ -85,7 +85,6 @@ function renderLayoutNode(
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
         voiceAudioEnabled={voiceAudioEnabled}
-        onVoiceAudioEnabledChange={onVoiceAudioEnabledChange}
         onFocus={() => setActivePane(node.paneId)}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         onOpenFile={handleOpenFile}
@@ -100,11 +99,11 @@ function renderLayoutNode(
   return (
     <PanelGroup key={node.id} orientation={node.orientation} className="flex-1 min-h-0 min-w-0">
       <Panel key={`${node.id}-0`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, onVoiceAudioEnabledChange, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>
       <PanelResizeHandle className={handleClass} />
       <Panel key={`${node.id}-1`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, onVoiceAudioEnabledChange, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>
     </PanelGroup>
   )
@@ -130,6 +129,8 @@ export default function App() {
     currentSessionPath: activePaneSessionPath,
     currentSessionName: activePaneSessionName,
     isGenerating: activePaneGenerating,
+    isCompacting: activePaneCompacting,
+    autoCompactionEnabled: activePaneAutoCompactionEnabled,
   } = activePaneStore()
 
   // Voice store (global, not per-pane) — select only needed state to avoid re-renders
@@ -493,6 +494,23 @@ export default function App() {
     }
   }, [bridge])
 
+  useEffect(() => {
+    const unsubscribe = bridge.onAppShortcut(({ action }) => {
+      if (action === 'new-session') {
+        const isModalOpen = commandPaletteOpenRef.current || settingsOpenRef.current || modelPickerOpenRef.current
+        if (isModalOpen) {
+          return
+        }
+        void handleNewSession()
+        return
+      }
+      if (action === 'toggle-file-viewer') {
+        toggleFileViewer()
+      }
+    })
+    return () => unsubscribe()
+  }, [bridge, handleNewSession, toggleFileViewer])
+
   const handleFileViewerResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
 
@@ -553,8 +571,8 @@ export default function App() {
         return
       }
 
-      // Cmd+` — toggle terminal panel
-      if (e.metaKey && e.key === '`') {
+      // Cmd+T — toggle terminal panel
+      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
         setTerminalOpen((v) => !v)
         return
@@ -568,7 +586,7 @@ export default function App() {
       }
 
       // Cmd+Shift+F — toggle file viewer panel
-      if (e.metaKey && e.shiftKey && e.key === 'F') {
+      if (e.metaKey && e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyF') {
         e.preventDefault()
         toggleFileViewer()
         return
@@ -620,6 +638,15 @@ export default function App() {
         }
       }
 
+      // Cmd+N — new session (always works, even in inputs)
+      if (e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey && e.code === 'KeyN') {
+        if (!isModalOpen) {
+          e.preventDefault()
+          void handleNewSession()
+        }
+        return
+      }
+
       // Cmd+Option+Arrow — spatial pane navigation
       if (e.metaKey && e.altKey) {
         if (!isModalOpen) {
@@ -637,10 +664,6 @@ export default function App() {
       if (e.metaKey && e.key === 'b') {
         e.preventDefault()
         handleToggleSidebar()
-      }
-      if (e.metaKey && e.key === 'n') {
-        e.preventDefault()
-        void handleNewSession()
       }
       if (e.metaKey && e.key === 'm') {
         e.preventDefault()
@@ -666,16 +689,20 @@ export default function App() {
   // -------------------------------------------------------------------------
 
   const sidebarEl = (
-    <Sidebar
-      collapsed={sidebarCollapsed}
-      onToggleCollapse={handleToggleSidebar}
-      currentSessionPath={activePaneSessionPath}
-      activePaneId={activePaneId}
-      view={sidebarView}
-      onViewChange={setSidebarView}
-      onNewSession={() => void handleNewSession()}
-      onSwitchSession={(path) => void handleSwitchSession(path)}
-      onRefresh={handleRefresh}
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
+        currentSessionPath={activePaneSessionPath}
+        activePaneId={activePaneId}
+        view={sidebarView}
+        onViewChange={setSidebarView}
+        onNewSession={handleNewSession}
+        onSwitchSession={(path) => void handleSwitchSession(path)}
+        onRefresh={handleRefresh}
+        isCompacting={activePaneCompacting}
+        autoCompactionEnabled={activePaneAutoCompactionEnabled}
+      voiceAudioEnabled={voiceAudioEnabled}
+      onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
       onOpenModelPicker={() => setModelPickerOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
       onExplorerFileOpen={openFileViewer}
@@ -727,7 +754,7 @@ export default function App() {
 
       {/* Voice download banner — only shows on first startup when models need downloading */}
       <VoiceDownloadBanner
-        show={!voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
+        show={settingsLoaded && !voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
         state={voiceSidecarState}
         error={voiceError}
       />
@@ -771,7 +798,7 @@ export default function App() {
           </div>
         </Panel>
 
-        {/* Terminal panel — toggled with Cmd+` */}
+        {/* Terminal panel — toggled with Cmd+T */}
         {terminalOpen && (
           <>
             <PanelResizeHandle className="h-px bg-accent/40 hover:bg-accent transition-colors cursor-row-resize" />

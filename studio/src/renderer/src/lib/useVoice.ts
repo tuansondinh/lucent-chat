@@ -211,6 +211,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   const ttsRequestedForTurnRef = useRef(false)
   const turnFinishedRef = useRef(false)
   const ttsEnabledRef = useRef(ttsEnabled)
+  const sidecarTokenRef = useRef<string | null>(null)
 
   // TTS sentence accumulation
   const ttsSentenceBufferRef = useRef('')
@@ -246,23 +247,6 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     ttsTurnGenRef.current = null
   }, [sendTtsSynthesize])
 
-  // =========================================================================
-  // Playback queue drain — called when audio queue empties
-  // =========================================================================
-
-  const handlePlaybackDrain = useCallback(() => {
-    // Resume mic: send vad_reset so the server knows TTS finished
-    const ws = wsRef.current
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'vad_reset' }))
-    }
-    voiceStore.getState().setTtsPlaying(false)
-  }, [voiceStore])
-
-  // =========================================================================
-  // Stop TTS
-  // =========================================================================
-
   const stopTts = useCallback(() => {
     const ws = wsRef.current
     playbackQueueRef.current?.stop()
@@ -289,9 +273,10 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   // Sidecar status sync
   // =========================================================================
 
-  const applyVoiceStatus = useCallback((status: { available: boolean; state: string; port: number | null; reason?: string }) => {
+  const applyVoiceStatus = useCallback((status: { available: boolean; state: string; port: number | null; token: string | null; reason?: string }) => {
     const store = voiceStore.getState()
     const nextState = status.state as ReturnType<typeof voiceStore.getState>['sidecarState']
+    sidecarTokenRef.current = status.token
     store.setAvailable(status.available, status.reason ?? null)
     store.setSidecarState(nextState)
     store.setPort(status.port)
@@ -368,6 +353,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     autoDeactivateAfterTurnRef.current = false
     ttsRequestedForTurnRef.current = false
     turnFinishedRef.current = false
+    voiceStore.getState().setTtsPlaying(false)
     if (releaseTimerRef.current) {
       clearTimeout(releaseTimerRef.current)
       releaseTimerRef.current = null
@@ -398,6 +384,23 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   }, [voiceStore, _activePaneId, disconnectVoiceIo])
 
   // =========================================================================
+  // Playback queue drain — called when audio queue empties
+  // =========================================================================
+
+  const handlePlaybackDrain = useCallback(() => {
+    // Resume mic: send vad_reset so the server knows TTS finished
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'vad_reset' }))
+    }
+    voiceStore.getState().setTtsPlaying(false)
+
+    if (autoDeactivateAfterTurnRef.current && turnFinishedRef.current) {
+      completePushToTalkRelease()
+    }
+  }, [voiceStore, completePushToTalkRelease])
+
+  // =========================================================================
   // WebSocket connection
   // =========================================================================
 
@@ -407,7 +410,13 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
       wsRef.current = null
     }
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+    const token = sidecarTokenRef.current
+    if (!token) {
+      voiceStore.getState().setError('Voice authentication token missing')
+      return
+    }
+
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
@@ -575,6 +584,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
           state.setSidecarState('starting')
           const started = await bridge.voiceStart()
           port = started.port
+          sidecarTokenRef.current = started.token
           state.setPort(port)
           state.setAvailable(true, null)
           state.setSidecarState('ready')
@@ -608,6 +618,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
           state.setSidecarState('starting')
           const started = await bridge.voiceStart()
           port = started.port
+          sidecarTokenRef.current = started.token
           state.setPort(port)
           state.setAvailable(true, null)
           state.setSidecarState('ready')
@@ -712,7 +723,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     }
     releaseTimerRef.current = setTimeout(() => {
       completePushToTalkRelease()
-    }, 5000)
+    }, 180000)
   }, [voiceStore, _activePaneId, flushTtsBuffer, completePushToTalkRelease])
 
   useEffect(() => {

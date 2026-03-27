@@ -109,7 +109,6 @@ const VOICE_SHORTCUT_OPTIONS = [
 ] as const
 
 const SHORTCUTS = [
-  { shortcut: '⌘N', action: 'New session' },
   { shortcut: '⌘B', action: 'Toggle sidebar' },
   { shortcut: '⌘M', action: 'Model picker' },
   { shortcut: '⌘K', action: 'Command palette' },
@@ -142,6 +141,7 @@ export function Settings({
   // ---- form state ----
   const [fontSize, setFontSize] = useState(14)
   const [tavilyKey, setTavilyKey] = useState('')
+  const [hasStoredTavilyKey, setHasStoredTavilyKey] = useState(false)
   const [showKey, setShowKey] = useState(false)
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<Model[]>([])
@@ -211,7 +211,8 @@ export function Settings({
       .getSettings()
       .then((s) => {
         if (typeof s.fontSize === 'number') setFontSize(s.fontSize)
-        if (typeof s.tavilyApiKey === 'string') setTavilyKey(s.tavilyApiKey)
+        setHasStoredTavilyKey(s.hasTavilyKey === true)
+        setTavilyKey('')
         setLocalVoiceAudioEnabled(s.voiceAudioEnabled !== false)
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setLocalVoicePttShortcut(s.voicePttShortcut)
@@ -248,6 +249,7 @@ export function Settings({
     bridge
       .setSettings({ tavilyApiKey: tavilyKey })
       .then(() => {
+        setHasStoredTavilyKey(tavilyKey.trim().length > 0)
         setKeySaved(true)
         setTimeout(() => setKeySaved(false), 2000)
       })
@@ -323,6 +325,7 @@ export function Settings({
             {activeTab === 'apikeys' && (
               <ApiKeysTab
                 tavilyKey={tavilyKey}
+                hasStoredTavilyKey={hasStoredTavilyKey}
                 onTavilyKeyChange={setTavilyKey}
                 showKey={showKey}
                 onToggleShow={() => setShowKey((v) => !v)}
@@ -440,6 +443,7 @@ function GeneralTab({
 
 interface ApiKeysTabProps {
   tavilyKey: string
+  hasStoredTavilyKey: boolean
   onTavilyKeyChange: (v: string) => void
   showKey: boolean
   onToggleShow: () => void
@@ -451,6 +455,7 @@ interface ApiKeysTabProps {
 
 function ApiKeysTab({
   tavilyKey,
+  hasStoredTavilyKey,
   onTavilyKeyChange,
   showKey,
   onToggleShow,
@@ -476,20 +481,29 @@ function ApiKeysTab({
                 target="_blank"
                 rel="noreferrer"
                 className="text-accent hover:underline"
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  bridge.openExternal('https://tavily.com').catch(() => {})
+                }}
               >
                 Get a key at tavily.com
               </a>
             </>
           }
         >
+          {hasStoredTavilyKey && !tavilyKey && (
+            <p className="mb-2 text-xs text-text-tertiary">
+              A Tavily key is already stored. Enter a new key only if you want to replace it.
+            </p>
+          )}
           <div className="flex items-center gap-2">
             <div className="relative flex-1 max-w-xs">
               <Input
                 type={showKey ? 'text' : 'password'}
                 value={tavilyKey}
                 onChange={(e) => onTavilyKeyChange(e.target.value)}
-                placeholder="tvly-..."
+                placeholder={hasStoredTavilyKey ? 'Enter new Tavily key to replace existing one' : 'tvly-...'}
                 className="h-8 text-sm pr-9 font-mono"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') onSave()
