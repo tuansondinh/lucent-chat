@@ -86,6 +86,14 @@ export function registerIpcHandlers(
     return settingsService.get()
   })
 
+  ipcMain.handle('cmd:open-external', async (_event, url: string) => {
+    // Only allow http/https URLs to prevent security issues
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      const { shell } = await import('electron')
+      await shell.openExternal(url)
+    }
+  })
+
   void getMainWindow // used by pushEvent callers in index.ts
 }
 

@@ -66,6 +66,10 @@ const bridge = {
   getHealth: (): Promise<Record<string, string>> =>
     ipcRenderer.invoke('cmd:get-health'),
 
+  /** Open a URL in the system's default browser. Only http/https allowed. */
+  openExternal: (url: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:open-external', url),
+
   // -------------------------------------------------------------------------
   // Events (main → renderer)
   // -------------------------------------------------------------------------
