@@ -30,6 +30,10 @@ export interface AppSettings {
   onboardingComplete?: boolean
   /** Push-to-talk shortcut for pane-scoped voice input. */
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
+  /** Whether assistant TTS playback is enabled. */
+  voiceAudioEnabled?: boolean
+  /** Whether voice models have already been downloaded on this machine. */
+  voiceModelsDownloaded?: boolean
 }
 
 // ============================================================================
@@ -41,6 +45,7 @@ const DEFAULTS: AppSettings = {
   fontSize: 14,
   sidebarCollapsed: true,
   voicePttShortcut: 'space',
+  voiceAudioEnabled: true,
 }
 
 // ============================================================================

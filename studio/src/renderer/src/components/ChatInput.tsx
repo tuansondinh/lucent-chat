@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type KeyboardEvent, type ClipboardEvent } from 'react'
-import { Mic, MicOff, Volume2 } from 'lucide-react'
+import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react'
 
 interface Props {
   onSubmit: (text: string, imageDataUrl?: string) => void
@@ -19,10 +19,12 @@ interface Props {
   voiceSidecarState?: 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
   isSpeaking?: boolean
   isTtsPlaying?: boolean
+  voiceAudioEnabled?: boolean
   partialTranscript?: string
   unavailableReason?: string | null
   onVoiceToggle?: () => void
   onStopTts?: () => void
+  onVoiceAudioToggle?: () => void
 }
 
 export interface ChatInputHandle {
@@ -39,10 +41,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   voiceSidecarState = 'stopped',
   isSpeaking = false,
   isTtsPlaying = false,
+  voiceAudioEnabled = true,
   partialTranscript = '',
   unavailableReason = null,
   onVoiceToggle,
   onStopTts,
+  onVoiceAudioToggle,
 }: Props, ref) {
   const [value, setValue] = useState('')
   const [pastedImage, setPastedImage] = useState<string | null>(null)
@@ -118,8 +122,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors'
   })()
 
+  const audioToggleClass = voiceAudioEnabled
+    ? 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors'
+    : 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors'
+
   return (
-    <div className="border-t border-border bg-bg-primary px-4 py-3">
+    <div className="border-t border-border bg-bg-primary px-2 py-1.5">
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
         <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
@@ -156,7 +164,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-xl border border-border bg-bg-secondary px-3 py-1.5 focus-within:border-border-active transition-colors">
+      <div className="flex items-end gap-2 rounded-lg border border-border bg-bg-secondary px-2 py-0.5 focus-within:border-border-active transition-colors">
         <textarea
           ref={textareaRef}
           value={value}
@@ -167,11 +175,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           disabled={disabled || isGenerating}
           rows={1}
           className={[
-            'flex-1 resize-none bg-transparent text-sm text-text-primary placeholder-text-tertiary',
-            'outline-none leading-5 min-h-[22px] max-h-[128px]',
+            'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
+            'outline-none leading-4 min-h-[18px] max-h-[100px]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           ].join(' ')}
         />
+
+        <button
+          onClick={onVoiceAudioToggle}
+          title={voiceAudioEnabled ? 'Turn speech audio off' : 'Turn speech audio on'}
+          className={audioToggleClass}
+        >
+          {voiceAudioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+        </button>
 
         {/* Mic / TTS button */}
         <button

@@ -70,6 +70,8 @@ function renderLayoutNode(
   sidebarCollapsed: boolean,
   paneCount: number,
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
+  voiceAudioEnabled: boolean,
+  onVoiceAudioEnabledChange: (enabled: boolean) => void,
   setActivePane: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
   handleOpenFile: (paneId: string, relativePath: string) => Promise<void>,
@@ -82,6 +84,8 @@ function renderLayoutNode(
         isActive={node.paneId === activePaneId}
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
+        voiceAudioEnabled={voiceAudioEnabled}
+        onVoiceAudioEnabledChange={onVoiceAudioEnabledChange}
         onFocus={() => setActivePane(node.paneId)}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         onOpenFile={handleOpenFile}
@@ -96,11 +100,11 @@ function renderLayoutNode(
   return (
     <PanelGroup key={node.id} orientation={node.orientation} className="flex-1 min-h-0 min-w-0">
       <Panel key={`${node.id}-0`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, onVoiceAudioEnabledChange, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>
       <PanelResizeHandle className={handleClass} />
       <Panel key={`${node.id}-1`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, onVoiceAudioEnabledChange, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>
     </PanelGroup>
   )
@@ -147,6 +151,7 @@ export default function App() {
   const [fileViewerWidth, setFileViewerWidth] = useState(440)
   const [sidebarView, setSidebarView] = useState<SidebarView>('sessions')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
+  const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
 
   // Refs kept in sync with modal open state — used in keydown handler for gating
@@ -175,6 +180,9 @@ export default function App() {
         }
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setVoicePttShortcut(s.voicePttShortcut)
+        }
+        if (s.voiceAudioEnabled === false) {
+          setVoiceAudioEnabled(false)
         }
         if (s.voiceModelsDownloaded === true) {
           setVoiceModelsDownloaded(true)
@@ -308,6 +316,11 @@ export default function App() {
     setSidebarCollapsed((c) => !c)
   }, [])
 
+  const handleVoiceAudioEnabledChange = useCallback((enabled: boolean) => {
+    setVoiceAudioEnabled(enabled)
+    bridge.setSettings({ voiceAudioEnabled: enabled }).catch(() => {})
+  }, [bridge])
+
   const handleToggleExplorer = useCallback(() => {
     if (sidebarCollapsedRef.current) {
       setSidebarCollapsed(false)
@@ -318,9 +331,12 @@ export default function App() {
   }, [])
 
   const handleNewSession = useCallback(async () => {
-    const history = await bridge.getMessages(activePaneId).catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
-    getPaneStore(activePaneId).getState().loadHistory(history)
-    syncPaneState(activePaneId).catch(() => {})
+    const result = await bridge.newSession(activePaneId)
+    if (!result.cancelled) {
+      // Clear the pane store and sync state
+      getPaneStore(activePaneId).getState().loadHistory([])
+      await syncPaneState(activePaneId)
+    }
   }, [bridge, activePaneId, syncPaneState])
 
   const handleSwitchSession = useCallback(async (path: string) => {
@@ -668,7 +684,18 @@ export default function App() {
   )
 
   // Recursive layout tree renderer
-  const chatPaneGroup = renderLayoutNode(layout, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, setActivePane, handleClosePane, handleOpenFile)
+  const chatPaneGroup = renderLayoutNode(
+    layout,
+    activePaneId,
+    sidebarCollapsed,
+    paneCount,
+    voicePttShortcut,
+    voiceAudioEnabled,
+    handleVoiceAudioEnabledChange,
+    setActivePane,
+    handleClosePane,
+    handleOpenFile,
+  )
 
   // -------------------------------------------------------------------------
   // Render
@@ -784,6 +811,8 @@ export default function App() {
         onOpenChange={setSettingsOpen}
         voicePttShortcut={voicePttShortcut}
         onVoicePttShortcutChange={setVoicePttShortcut}
+        voiceAudioEnabled={voiceAudioEnabled}
+        onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
       />
 
       {/* First-run onboarding overlay */}

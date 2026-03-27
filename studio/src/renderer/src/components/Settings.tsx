@@ -54,6 +54,8 @@ interface SettingsProps {
   onOpenChange: (open: boolean) => void
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
   onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
+  voiceAudioEnabled: boolean
+  onVoiceAudioEnabledChange: (enabled: boolean) => void
 }
 
 type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts'
@@ -125,7 +127,14 @@ function sleep(ms: number): Promise<void> {
 // Settings
 // ============================================================================
 
-export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShortcutChange }: SettingsProps) {
+export function Settings({
+  open,
+  onOpenChange,
+  voicePttShortcut,
+  onVoicePttShortcutChange,
+  voiceAudioEnabled,
+  onVoiceAudioEnabledChange,
+}: SettingsProps) {
   const bridge = window.bridge
 
   const [activeTab, setActiveTab] = useState<Tab>('general')
@@ -137,6 +146,7 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
+  const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
@@ -202,6 +212,7 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
       .then((s) => {
         if (typeof s.fontSize === 'number') setFontSize(s.fontSize)
         if (typeof s.tavilyApiKey === 'string') setTavilyKey(s.tavilyApiKey)
+        setLocalVoiceAudioEnabled(s.voiceAudioEnabled !== false)
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setLocalVoicePttShortcut(s.voicePttShortcut)
         } else {
@@ -217,7 +228,7 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
 
     void refreshProviderStatuses()
     void refreshModels()
-  }, [open, bridge, refreshModels, refreshProviderStatuses, voicePttShortcut])
+  }, [open, bridge, refreshModels, refreshProviderStatuses, voiceAudioEnabled, voicePttShortcut])
 
   // -------------------------------------------------------------------------
   // Save helpers
@@ -255,6 +266,11 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
     onVoicePttShortcutChange(value)
     bridge.setSettings({ voicePttShortcut: value }).catch(() => {})
   }, [bridge, onVoicePttShortcutChange])
+
+  const handleVoiceAudioEnabledChange = useCallback((enabled: boolean) => {
+    setLocalVoiceAudioEnabled(enabled)
+    onVoiceAudioEnabledChange(enabled)
+  }, [onVoiceAudioEnabledChange])
 
   // -------------------------------------------------------------------------
   // Render helpers
@@ -297,7 +313,12 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
           {/* Tab content */}
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'general' && (
-              <GeneralTab fontSize={fontSize} onFontSizeChange={handleFontSizeChange} />
+              <GeneralTab
+                fontSize={fontSize}
+                onFontSizeChange={handleFontSizeChange}
+                voiceAudioEnabled={localVoiceAudioEnabled}
+                onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+              />
             )}
             {activeTab === 'apikeys' && (
               <ApiKeysTab
@@ -341,9 +362,16 @@ export function Settings({ open, onOpenChange, voicePttShortcut, onVoicePttShort
 interface GeneralTabProps {
   fontSize: number
   onFontSizeChange: (v: number) => void
+  voiceAudioEnabled: boolean
+  onVoiceAudioEnabledChange: (enabled: boolean) => void
 }
 
-function GeneralTab({ fontSize, onFontSizeChange }: GeneralTabProps) {
+function GeneralTab({
+  fontSize,
+  onFontSizeChange,
+  voiceAudioEnabled,
+  onVoiceAudioEnabledChange,
+}: GeneralTabProps) {
   return (
     <div className="p-6 space-y-6">
       <Section title="Appearance">
@@ -367,6 +395,38 @@ function GeneralTab({ fontSize, onFontSizeChange }: GeneralTabProps) {
         <Field label="Theme" hint="Additional themes coming soon">
           <div className="flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-bg-tertiary text-sm text-text-secondary select-none w-fit">
             Dark
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Voice">
+        <Field
+          label="Speech audio"
+          hint="Turns assistant voice playback on or off. Voice input still works when speech audio is off."
+        >
+          <div className="inline-flex rounded-lg border border-border bg-bg-tertiary p-1">
+            <button
+              onClick={() => onVoiceAudioEnabledChange(true)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                voiceAudioEnabled
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              On
+            </button>
+            <button
+              onClick={() => onVoiceAudioEnabledChange(false)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                !voiceAudioEnabled
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              Off
+            </button>
           </div>
         </Field>
       </Section>

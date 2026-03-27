@@ -34,12 +34,23 @@ function ThinkingBubble() {
 }
 
 // ============================================================================
-// PaneFooter — shows git branch + project root, supports changing root
+// PaneFooter — shows git branch + project root + model picker, supports changing root
 // ============================================================================
 
-function PaneFooter({ paneId }: { paneId: string }) {
+function PaneFooter({
+  paneId,
+  isActive,
+  onFocus,
+  onOpenModelPicker
+}: {
+  paneId: string
+  isActive: boolean
+  onFocus: () => void
+  onOpenModelPicker: () => void
+}) {
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
+  const currentModel = getPaneStore(paneId)((s) => s.currentModel)
   const bridge = window.bridge
   const [branchListLoading, setBranchListLoading] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
@@ -110,45 +121,65 @@ function PaneFooter({ paneId }: { paneId: string }) {
 
   return (
     <div className="flex items-center justify-between gap-3 px-3 py-1 border-t border-border bg-bg-secondary text-[10px] text-text-tertiary flex-shrink-0 select-none">
-      <div className="flex min-w-0 items-center gap-1">
-        {checkoutTarget || branchListLoading ? (
-          <Loader2 className="size-3 flex-shrink-0 animate-spin" />
-        ) : (
-          <GitBranch className="size-3 flex-shrink-0" />
-        )}
-        <div className="relative min-w-0">
-          <select
-            value={gitBranch ?? ''}
-            onChange={(event) => {
-              void handleCheckoutBranch(event.target.value)
-            }}
-            title="Switch git branch"
-            disabled={Boolean(checkoutTarget) || (branches.length === 0 && branchListLoading)}
-            className="max-w-[180px] cursor-pointer appearance-none rounded-md border border-border bg-bg-primary py-1 pl-2 pr-6 text-[10px] text-text-secondary transition-colors hover:border-border-active hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-60"
-          >
-            {gitBranch && !branches.includes(gitBranch) ? (
-              <option value={gitBranch}>{gitBranch}</option>
-            ) : null}
-            {branches.length === 0 ? (
-              <option value="">{branchListLoading ? 'Loading branches...' : 'No branches'}</option>
-            ) : (
-              branches.map((branch) => (
-                <option key={branch} value={branch}>
-                  {branch}
-                </option>
-              ))
-            )}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-3 -translate-y-1/2 opacity-60" />
+      <div className="flex min-w-0 items-center gap-3">
+        {/* Git branch selector */}
+        <div className="flex min-w-0 items-center gap-1">
+          {checkoutTarget || branchListLoading ? (
+            <Loader2 className="size-3 flex-shrink-0 animate-spin" />
+          ) : (
+            <GitBranch className="size-3 flex-shrink-0" />
+          )}
+          <div className="relative min-w-0">
+            <select
+              value={gitBranch ?? ''}
+              onChange={(event) => {
+                void handleCheckoutBranch(event.target.value)
+              }}
+              title="Switch git branch"
+              disabled={Boolean(checkoutTarget) || (branches.length === 0 && branchListLoading)}
+              className="max-w-[180px] cursor-pointer appearance-none rounded-md border border-border bg-bg-primary py-1 pl-2 pr-6 text-[10px] text-text-secondary transition-colors hover:border-border-active hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-60"
+            >
+              {gitBranch && !branches.includes(gitBranch) ? (
+                <option value={gitBranch}>{gitBranch}</option>
+              ) : null}
+              {branches.length === 0 ? (
+                <option value="">{branchListLoading ? 'Loading branches...' : 'No branches'}</option>
+              ) : (
+                branches.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                  </option>
+                ))
+              )}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-3 -translate-y-1/2 opacity-60" />
+          </div>
         </div>
+
+        {/* Project root */}
+        <button
+          onClick={() => void handleChangeRoot()}
+          className="flex items-center gap-1 min-w-0 hover:text-text-primary transition-colors cursor-pointer"
+          title="Change project root"
+        >
+          <Folder className="size-3 flex-shrink-0" />
+          <span className="truncate max-w-[200px]">{shortRoot}</span>
+        </button>
       </div>
+
+      {/* Model picker */}
       <button
-        onClick={() => void handleChangeRoot()}
-        className="flex items-center gap-1 min-w-0 hover:text-text-primary transition-colors cursor-pointer"
-        title="Change project root"
+        onClick={(e) => {
+          e.stopPropagation()
+          if (!isActive) onFocus()
+          onOpenModelPicker()
+        }}
+        title={formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })}
+        className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-tertiary transition-colors hover:text-text-secondary hover:bg-bg-hover"
       >
-        <Folder className="size-3 flex-shrink-0" />
-        <span className="truncate max-w-[200px]">{shortRoot}</span>
+        <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
+        <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
+        <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
       </button>
     </div>
   )
@@ -165,6 +196,10 @@ interface ChatPaneProps {
   sidebarCollapsed: boolean
   /** Configured push-to-talk shortcut for this pane when active. */
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
+  /** Whether assistant TTS playback is enabled globally. */
+  voiceAudioEnabled: boolean
+  /** Persisted app-level audio toggle handler. */
+  onVoiceAudioEnabledChange: (enabled: boolean) => void
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
   /** Called to close this pane — undefined if this is the only pane. */
@@ -187,7 +222,17 @@ const suggestions = [
 // ChatPane
 // ============================================================================
 
-export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut, onFocus, onClose, onOpenFile }: ChatPaneProps) {
+export function ChatPane({
+  paneId,
+  isActive,
+  sidebarCollapsed,
+  voicePttShortcut,
+  voiceAudioEnabled,
+  onVoiceAudioEnabledChange,
+  onFocus,
+  onClose,
+  onOpenFile,
+}: ChatPaneProps) {
   const store = getPaneStore(paneId)
   const {
     messages,
@@ -229,6 +274,7 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut,
   const { toggleVoice, beginVoiceCapture, finishVoiceCapture, stopTts, feedAgentChunk, flushTts } = useVoice({
     onTranscript: (text) => void handleSubmit(text),
     activePaneId: paneId,
+    ttsEnabled: voiceAudioEnabled,
   })
 
   // Stable callback ref for root div — registers the element for spatial navigation
@@ -612,28 +658,22 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, voicePttShortcut,
             voiceSidecarState={voiceStore.sidecarState}
             isSpeaking={voiceOwnedByThisPane ? voiceStore.speaking : false}
             isTtsPlaying={voiceOwnedByThisPane ? voiceStore.ttsPlaying : false}
+            voiceAudioEnabled={voiceAudioEnabled}
             partialTranscript={voiceOwnedByThisPane ? voiceStore.partialTranscript : ''}
             unavailableReason={voiceStore.unavailableReason}
             onVoiceToggle={toggleVoice}
             onStopTts={stopTts}
+            onVoiceAudioToggle={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
           />
         </div>
 
-        {/* Per-pane model picker bar */}
-        <div className="flex-shrink-0 flex items-center justify-center border-t border-border/40 py-1">
-          <button
-            onClick={(e) => { e.stopPropagation(); if (!isActive) onFocus(); setModelPickerOpen(true) }}
-            title={formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })}
-            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-tertiary transition-colors hover:text-text-secondary hover:bg-bg-hover"
-          >
-            <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
-            <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
-          </button>
-        </div>
-
-        {/* Per-pane footer — git branch + project root */}
-        <PaneFooter paneId={paneId} />
+        {/* Per-pane footer — git branch + project root + model picker */}
+        <PaneFooter
+          paneId={paneId}
+          isActive={isActive}
+          onFocus={onFocus}
+          onOpenModelPicker={() => setModelPickerOpen(true)}
+        />
       </div>
       <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} paneId={paneId} />
     </>

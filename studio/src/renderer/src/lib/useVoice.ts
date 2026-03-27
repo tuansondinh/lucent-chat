@@ -174,6 +174,8 @@ interface UseVoiceOptions {
   onTranscript: (text: string) => void
   /** The ID of the currently active pane (voice follows active pane). */
   activePaneId: string
+  /** Whether assistant TTS playback is enabled. */
+  ttsEnabled: boolean
 }
 
 interface UseVoiceReturn {
@@ -191,7 +193,7 @@ interface UseVoiceReturn {
 // useVoice
 // ============================================================================
 
-export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoiceOptions): UseVoiceReturn {
+export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled }: UseVoiceOptions): UseVoiceReturn {
   const voiceStore = useVoiceStore
   const bridge = window.bridge
   const isVoiceOwner = useVoiceStore((state) => state.active && state.activePaneId === _activePaneId)
@@ -205,6 +207,10 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingReleaseRef = useRef(false)
   const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoDeactivateAfterTurnRef = useRef(false)
+  const ttsRequestedForTurnRef = useRef(false)
+  const turnFinishedRef = useRef(false)
+  const ttsEnabledRef = useRef(ttsEnabled)
 
   // TTS sentence accumulation
   const ttsSentenceBufferRef = useRef('')
@@ -217,12 +223,14 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
 
   /** Send a tts_synthesize request if the prepared text is non-empty. */
   const sendTtsSynthesize = useCallback((text: string) => {
+    if (!ttsEnabledRef.current) return
     const prepared = prepareTtsText(text)
     if (!prepared) return
     const ws = wsRef.current
     const turnId = ttsTurnIdRef.current
     const gen = ttsTurnGenRef.current
     if (ws?.readyState === WebSocket.OPEN && turnId && gen !== null) {
+      ttsRequestedForTurnRef.current = true
       ws.send(JSON.stringify({ type: 'tts_synthesize', text: prepared, turn_id: turnId, gen }))
     }
   }, [])
@@ -266,6 +274,16 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       ws.send(JSON.stringify({ type: 'tts_flush', gen: nextGen }))
     }
   }, [voiceStore])
+
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled
+    if (!ttsEnabled) {
+      stopTts()
+      ttsSentenceBufferRef.current = ''
+      ttsTurnIdRef.current = null
+      ttsTurnGenRef.current = null
+    }
+  }, [ttsEnabled, stopTts])
 
   // =========================================================================
   // Sidecar status sync
@@ -347,6 +365,9 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
 
   const disconnectVoiceIo = useCallback(() => {
     pendingReleaseRef.current = false
+    autoDeactivateAfterTurnRef.current = false
+    ttsRequestedForTurnRef.current = false
+    turnFinishedRef.current = false
     if (releaseTimerRef.current) {
       clearTimeout(releaseTimerRef.current)
       releaseTimerRef.current = null
@@ -396,6 +417,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
 
     ws.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
+        if (!ttsEnabledRef.current) return
         // Binary frame: TTS audio. First 4 bytes = uint32 LE generation counter.
         const view = new DataView(event.data)
         if (event.data.byteLength < 4) return
@@ -432,7 +454,11 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
             voiceStore.getState().setPartialTranscript('')
             onTranscript(msg.text as string)
             if (pendingReleaseRef.current) {
-              completePushToTalkRelease()
+              pendingReleaseRef.current = false
+              if (releaseTimerRef.current) {
+                clearTimeout(releaseTimerRef.current)
+                releaseTimerRef.current = null
+              }
             }
             break
           case 'tts_start':
@@ -531,6 +557,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
     if (thisPaneOwnsVoice) {
       // --- Turn voice OFF ---
       state.setActive(false, null)
+      autoDeactivateAfterTurnRef.current = false
 
       // Stop TTS
       stopTts()
@@ -560,6 +587,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       }
 
       state.setActive(true, _activePaneId)
+      autoDeactivateAfterTurnRef.current = false
 
       // Connect WebSocket first
       connectWs(port)
@@ -592,7 +620,10 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       }
 
       state.setActive(true, _activePaneId)
+      autoDeactivateAfterTurnRef.current = true
       connectWs(port)
+    } else {
+      autoDeactivateAfterTurnRef.current = false
     }
 
     if (!isMicRunning()) {
@@ -607,6 +638,8 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
     stopMic()
     state.setSpeaking(false)
     pendingReleaseRef.current = true
+    turnFinishedRef.current = false
+    ttsRequestedForTurnRef.current = false
 
     const ws = wsRef.current
     if (ws?.readyState === WebSocket.OPEN) {
@@ -625,6 +658,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
   // =========================================================================
 
   const feedAgentChunk = useCallback((text: string, turnId: string) => {
+    if (!ttsEnabledRef.current) return
     const state = voiceStore.getState()
     if (!state.active || state.activePaneId !== _activePaneId) return
 
@@ -633,6 +667,8 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
       ttsSentenceBufferRef.current = ''
       ttsTurnIdRef.current = turnId
       ttsTurnGenRef.current = voiceStore.getState().nextTtsGen()
+      ttsRequestedForTurnRef.current = false
+      turnFinishedRef.current = false
     }
 
     ttsSentenceBufferRef.current += text
@@ -656,11 +692,28 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId }: UseVoice
   // =========================================================================
 
   const flushTts = useCallback((turnId: string) => {
+    if (!ttsEnabledRef.current) return
     const state = voiceStore.getState()
     if (!state.active || state.activePaneId !== _activePaneId) return
     if (turnId !== ttsTurnIdRef.current) return
     flushTtsBuffer()
-  }, [voiceStore, _activePaneId, flushTtsBuffer])
+
+    if (!autoDeactivateAfterTurnRef.current) return
+
+    turnFinishedRef.current = true
+
+    if (!ttsRequestedForTurnRef.current) {
+      completePushToTalkRelease()
+      return
+    }
+
+    if (releaseTimerRef.current) {
+      clearTimeout(releaseTimerRef.current)
+    }
+    releaseTimerRef.current = setTimeout(() => {
+      completePushToTalkRelease()
+    }, 5000)
+  }, [voiceStore, _activePaneId, flushTtsBuffer, completePushToTalkRelease])
 
   useEffect(() => {
     if (!isVoiceOwner) {
