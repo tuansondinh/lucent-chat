@@ -6,15 +6,22 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { ChevronDown, Cpu } from 'lucide-react'
+import { Cpu, ChevronDown, GitBranch, Folder } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
-import { ChatInput } from './ChatInput'
+import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
 import { getPaneStore } from '../store/pane-store'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
+import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
+
+// ============================================================================
+// Git branch poller registry — shared across pane instances, keyed by root
+// ============================================================================
+
+const gitPollers = new Map<string, { refCount: number; intervalId: ReturnType<typeof setInterval> }>()
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -28,6 +35,52 @@ function ThinkingBubble() {
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:150ms]" />
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:300ms]" />
       </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// PaneFooter — shows git branch + project root, supports changing root
+// ============================================================================
+
+function PaneFooter({ paneId }: { paneId: string }) {
+  const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
+  const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
+  const bridge = window.bridge
+
+  const shortRoot = projectRoot
+    ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
+    : '—'
+
+  const handleChangeRoot = useCallback(async () => {
+    try {
+      const folder = await bridge.pickFolder()
+      if (folder) {
+        await bridge.setPaneRoot(paneId, folder)
+        const info = await bridge.getPaneInfo(paneId)
+        getPaneStore(paneId).getState().setProjectRoot(info.projectRoot)
+        const branch = await bridge.gitBranch(paneId)
+        getPaneStore(paneId).getState().setGitBranch(branch)
+      }
+    } catch {
+      // ignore picker errors
+    }
+  }, [paneId, bridge])
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-1 border-t border-border bg-bg-secondary text-[10px] text-text-tertiary flex-shrink-0 select-none">
+      <span className="flex items-center gap-1 min-w-0">
+        <GitBranch className="size-3 flex-shrink-0" />
+        <span className="truncate">{gitBranch ?? '—'}</span>
+      </span>
+      <button
+        onClick={() => void handleChangeRoot()}
+        className="flex items-center gap-1 min-w-0 hover:text-text-primary transition-colors cursor-pointer"
+        title="Change project root"
+      >
+        <Folder className="size-3 flex-shrink-0" />
+        <span className="truncate max-w-[200px]">{shortRoot}</span>
+      </button>
     </div>
   )
 }
@@ -80,13 +133,13 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
     loadHistory,
     setSessionPath,
     setSessionName,
-    viewedFile,
     currentModel,
   } = store()
 
   const bridge = window.bridge
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement>(null)
+  const inputRef = useRef<ChatInputHandle>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
 
   // Voice integration — app-global store, but forwarding is scoped to this pane
@@ -95,6 +148,20 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
     onTranscript: (text) => void handleSubmit(text),
     activePaneId: paneId,
   })
+
+  // Stable callback ref for root div — registers the element for spatial navigation
+  const rootRef = useCallback((el: HTMLDivElement | null) => {
+    registerPaneElement(paneId, el)
+  }, [paneId])
+
+  // Register focus callback and clean up on unmount
+  useEffect(() => {
+    registerPaneFocus(paneId, () => inputRef.current?.focus())
+    return () => {
+      registerPaneElement(paneId, null)
+      registerPaneFocus(paneId, null)
+    }
+  }, [paneId])
 
   // Auto-scroll when messages change
   useEffect(() => {
@@ -173,7 +240,47 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
       })
       .catch(() => {})
 
-    return () => unsubs.forEach((u) => u())
+    // Fetch initial git/project info and set up shared branch poller
+    let pollerKey: string | null = null
+    bridge.getPaneInfo(paneId)
+      .then((info) => {
+        store.getState().setProjectRoot(info.projectRoot)
+        return bridge.gitBranch(paneId).then((branch) => {
+          store.getState().setGitBranch(branch)
+          return info.projectRoot
+        })
+      })
+      .then((root) => {
+        pollerKey = root
+        let entry = gitPollers.get(root)
+        if (!entry) {
+          const intervalId = setInterval(async () => {
+            const branch = await bridge.gitBranch(paneId).catch(() => null)
+            const current = store.getState().gitBranch
+            if (branch !== current) store.getState().setGitBranch(branch)
+          }, 30_000)
+          entry = { refCount: 1, intervalId }
+          gitPollers.set(root, entry)
+        } else {
+          entry.refCount++
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      unsubs.forEach((u) => u())
+      // Clean up git poller
+      if (pollerKey) {
+        const entry = gitPollers.get(pollerKey)
+        if (entry) {
+          entry.refCount--
+          if (entry.refCount <= 0) {
+            clearInterval(entry.intervalId)
+            gitPollers.delete(pollerKey)
+          }
+        }
+      }
+    }
   }, [paneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Submit handler
@@ -197,75 +304,21 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
   const inputDisabled = agentHealth === 'crashed' || agentHealth === 'degraded'
 
   const isOnlyPane = !onClose
-  const modelLabel = formatModelDisplay(currentModel, { fallback: 'Select model' })
-  const modelTooltip = formatModelDisplay(currentModel, {
-    includeProvider: true,
-    fallback: 'Select model for this pane',
-  })
 
   return (
     <>
       <div
+        ref={rootRef}
         className={[
           'flex flex-col h-full overflow-hidden',
           isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
         ].join(' ')}
         onClick={!isActive ? onFocus : undefined}
       >
-      {/* Header */}
-        <header
-          className={[
-            'flex items-center justify-between gap-3 border-b border-border py-3 pr-5 flex-shrink-0',
-            sidebarCollapsed && isOnlyPane ? 'pl-14' : 'px-5',
-          ].join(' ')}
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        >
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-text-primary">
-            <span className="flex-shrink-0">Lucent Chat</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                if (!isActive) onFocus()
-                setModelPickerOpen(true)
-              }}
-              title={modelTooltip}
-              className="flex min-w-0 max-w-[16rem] items-center gap-1.5 rounded-full border border-border bg-bg-secondary/70 px-2.5 py-1 text-[11px] text-text-secondary transition-colors hover:border-border-active hover:text-text-primary"
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            >
-              <Cpu className="h-3 w-3 flex-shrink-0" />
-              <span className="truncate font-mono">{modelLabel}</span>
-              <ChevronDown className="h-3 w-3 flex-shrink-0 opacity-70" />
-            </button>
-          </div>
-
-          <div
-            className="flex items-center gap-1.5 text-xs text-text-tertiary"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          >
-            <span className="capitalize">
-              {agentHealth === 'unknown' ? 'connecting' : agentHealth}
-            </span>
-            {onClose && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onClose()
-                }}
-                title="Close pane"
-                className="ml-1 flex items-center justify-center w-5 h-5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
-          </div>
-        </header>
-
         {/* Messages area */}
         <main
           ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
-          className="flex-1 overflow-y-auto px-4 py-4 min-h-0"
+          className="flex-1 overflow-y-auto px-4 py-3 min-h-0"
         >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -280,13 +333,13 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
                     : 'Connecting to agent...'}
             </p>
             {agentHealth === 'ready' && (
-              <div className="mt-4 grid grid-cols-2 gap-2 max-w-md w-full">
+              <div className="mt-3 grid grid-cols-2 gap-2 max-w-md w-full">
                 {suggestions.map((s) => (
                   <button
                     key={s}
                     onClick={() => void handleSubmit(s)}
                     disabled={inputDisabled || isGenerating}
-                    className="rounded-xl border border-border bg-bg-secondary px-3 py-2 text-xs text-text-secondary hover:border-border-active hover:text-text-primary transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="rounded-xl border border-border bg-bg-secondary px-3 py-1.5 text-xs text-text-secondary hover:border-border-active hover:text-text-primary transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {s}
                   </button>
@@ -312,6 +365,7 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
         {/* Input bar */}
         <div className="flex-shrink-0 mx-auto w-full max-w-3xl">
           <ChatInput
+            ref={inputRef}
             onSubmit={(t, img) => void handleSubmit(t, img)}
             onAbort={handleAbort}
             isGenerating={isGenerating}
@@ -326,6 +380,22 @@ export function ChatPane({ paneId, isActive, sidebarCollapsed, onFocus, onClose 
             onStopTts={stopTts}
           />
         </div>
+
+        {/* Per-pane model picker bar */}
+        <div className="flex-shrink-0 flex items-center justify-center border-t border-border/40 py-1">
+          <button
+            onClick={(e) => { e.stopPropagation(); if (!isActive) onFocus(); setModelPickerOpen(true) }}
+            title={formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })}
+            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-tertiary transition-colors hover:text-text-secondary hover:bg-bg-hover"
+          >
+            <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
+            <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
+            <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
+          </button>
+        </div>
+
+        {/* Per-pane footer — git branch + project root */}
+        <PaneFooter paneId={paneId} />
       </div>
       <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} paneId={paneId} />
     </>

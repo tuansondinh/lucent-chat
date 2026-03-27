@@ -9,7 +9,6 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus,
   Settings,
-  PanelLeftClose,
   PanelLeft,
   MoreHorizontal,
   Pencil,
@@ -169,11 +168,6 @@ export function Sidebar({
   if (collapsed) {
     return (
       <div className="flex h-full w-10 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary">
-        <div
-          className="h-12 flex-shrink-0 border-b border-border/70"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        />
-
         <div className="flex flex-1 flex-col items-center gap-1.5 px-1 py-2">
           <button
             onClick={onToggleCollapse}
@@ -216,28 +210,6 @@ export function Sidebar({
   return (
     <>
       <div className="flex flex-col h-full w-full min-w-0 border-r border-border bg-bg-secondary overflow-hidden">
-        {/* Header */}
-        <div
-          className="flex items-center justify-between px-3 py-3 flex-shrink-0"
-          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-        >
-          {/* Traffic-light spacer */}
-          <div className="w-20 flex-shrink-0" />
-
-          <span className="text-sm font-semibold text-text-primary tracking-tight">
-            Lucent Chat
-          </span>
-
-          <button
-            onClick={onToggleCollapse}
-            title="Collapse sidebar (⌘B)"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          >
-            <PanelLeftClose className="w-4 h-4" />
-          </button>
-        </div>
-
         {/* New Session button */}
         <div className="px-3 pb-2 flex-shrink-0">
           <button

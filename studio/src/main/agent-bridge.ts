@@ -65,6 +65,7 @@ function serializeJsonLine(obj: unknown): string {
 export class AgentBridge extends EventEmitter {
   private proc: ChildProcess | null = null
   private stopReading: (() => void) | null = null
+  private stopExitHandler: (() => void) | null = null
   private pendingRequests = new Map<
     string,
     { resolve: (r: any) => void; reject: (e: Error) => void }
@@ -84,24 +85,36 @@ export class AgentBridge extends EventEmitter {
       this.handleLine(line)
     })
 
-    proc.once('exit', (code, signal) => {
+    const exitHandler = (code: number | null, signal: NodeJS.Signals | null) => {
       console.log(`[agent-bridge] agent process exited (code=${code}, signal=${signal})`)
       this.stopReading?.()
       this.stopReading = null
+      this.stopExitHandler = null
       this.proc = null
 
-      // Reject all in-flight requests
+      // Reject all in-flight RPC requests
       const reason = signal ? `signal ${signal}` : `code ${code}`
       const err = new Error(`Agent process exited unexpectedly (${reason})`)
       for (const [id, pending] of this.pendingRequests) {
         this.pendingRequests.delete(id)
         pending.reject(err)
       }
-    })
+
+      // Notify any in-progress turn via the event stream so the orchestrator
+      // can surface an error immediately instead of waiting 5 minutes.
+      this.emit('agent-event', { type: 'agent_process_exit', reason })
+    }
+
+    proc.once('exit', exitHandler)
+    this.stopExitHandler = () => proc.removeListener('exit', exitHandler)
   }
 
   /** Detach from the current process (called before re-attaching to a new one). */
   detach(): void {
+    // Remove the exit handler first so the intentional detach doesn't
+    // trigger the "agent_process_exit" error event in the orchestrator.
+    this.stopExitHandler?.()
+    this.stopExitHandler = null
     this.stopReading?.()
     this.stopReading = null
     this.proc = null

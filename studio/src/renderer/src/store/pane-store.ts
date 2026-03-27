@@ -7,7 +7,19 @@
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
-import { type ChatMessage, type AgentHealth, type ViewedFile, type ContentBlock } from './chat'
+import { type ChatMessage, type AgentHealth, type ContentBlock } from './chat'
+
+// ============================================================================
+// Open file tab model
+// ============================================================================
+
+export interface OpenFile {
+  relativePath: string
+  content: string
+  source: 'user'
+  truncated: boolean
+  isBinary: boolean
+}
 
 // ============================================================================
 // Per-pane state shape
@@ -20,7 +32,14 @@ export interface PaneChatState {
   agentHealth: AgentHealth
   isGenerating: boolean
   currentModel: string
-  viewedFile: ViewedFile | null
+  /** Open file tabs — ordered list. */
+  openFiles: OpenFile[]
+  /** Relative path of the active file tab (or null if none). */
+  activeFilePath: string | null
+  /** Current git branch for this pane's project root. */
+  gitBranch: string | null
+  /** This pane's project root path (display/browsing only). */
+  projectRoot: string
   scrollPositions: Record<string, number>
   currentSessionPath: string | null
   currentSessionName: string
@@ -40,8 +59,16 @@ export interface PaneChatState {
   setModel: (model: string) => void
   addErrorMessage: (message: string) => void
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
-  setViewedFile: (file: ViewedFile) => void
-  clearViewedFile: () => void
+  /** Open a file tab (or switch to it if already open). */
+  openFile: (file: OpenFile) => void
+  /** Close a file tab, selecting the nearest neighbor if it was active. */
+  closeFile: (relativePath: string) => void
+  /** Switch to an already-open file tab. */
+  setActiveFile: (relativePath: string) => void
+  /** Update the git branch for this pane. */
+  setGitBranch: (branch: string | null) => void
+  /** Update the project root for this pane. */
+  setProjectRoot: (root: string) => void
   saveScrollPosition: (sessionPath: string, scrollTop: number) => void
   setSessionPath: (path: string | null) => void
   setSessionName: (name: string) => void
@@ -85,50 +112,6 @@ function nextToolId(turn_id: string): string {
   return `${turn_id}-tool-${toolCounters[turn_id]}`
 }
 
-const FILE_READ_TOOLS = new Set(['read', 'read_file', 'readfile', 'view'])
-const FILE_WRITE_TOOLS = new Set(['write', 'write_file', 'writefile', 'edit', 'create', 'str_replace_editor'])
-
-function extractFileInfo(
-  tool: string,
-  input: unknown,
-  output: unknown,
-): { path: string; content: string } | null {
-  const toolLower = tool.toLowerCase()
-  const isReadTool = FILE_READ_TOOLS.has(toolLower)
-  const isWriteTool = FILE_WRITE_TOOLS.has(toolLower)
-  if (!isReadTool && !isWriteTool) return null
-
-  const strProp = (obj: unknown, ...keys: string[]): string | undefined => {
-    if (typeof obj !== 'object' || obj === null) return undefined
-    const record = obj as Record<string, unknown>
-    for (const key of keys) {
-      const val = record[key]
-      if (typeof val === 'string' && val.length > 0) return val
-    }
-    return undefined
-  }
-
-  const path = strProp(input, 'path', 'file_path', 'file', 'filename')
-  if (!path) return null
-
-  let content: string | undefined
-  if (isReadTool) {
-    if (typeof output === 'string') {
-      content = output
-    } else {
-      content = strProp(output, 'content', 'text', 'result', 'output')
-    }
-  } else {
-    content = strProp(input, 'new_content', 'content', 'file_text', 'text')
-    if (!content && typeof output === 'string' && output.length > 0) {
-      content = output
-    }
-  }
-
-  if (content === undefined) return null
-  return { path, content }
-}
-
 // ============================================================================
 // Per-pane store factory
 // ============================================================================
@@ -143,7 +126,10 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     agentHealth: 'unknown',
     isGenerating: false,
     currentModel: '',
-    viewedFile: null,
+    openFiles: [],
+    activeFilePath: null,
+    gitBranch: null,
+    projectRoot: '',
     scrollPositions: {},
     currentSessionPath: null,
     currentSessionName: '',
@@ -258,34 +244,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     finalizeToolCall: (turn_id, tool, output, isError) =>
       set((s) => {
-        let toolInput: unknown = undefined
-        for (const m of s.messages) {
-          if (m.turn_id === turn_id && m.role === 'assistant') {
-            for (const b of m.contentBlocks) {
-              if (b.type === 'tool_use' && b.tool === tool && !b.done) {
-                toolInput = b.input
-                break
-              }
-            }
-            break
-          }
-        }
-
-        let viewedFile = s.viewedFile
-        if (!isError) {
-          const fileInfo = extractFileInfo(tool, toolInput, output)
-          if (fileInfo) {
-            const toolLower = tool.toLowerCase()
-            viewedFile = {
-              path: fileInfo.path,
-              content: fileInfo.content,
-              tool: FILE_READ_TOOLS.has(toolLower) ? 'read' : 'write',
-            }
-          }
-        }
-
         return {
-          viewedFile,
           messages: s.messages.map((m) => {
             if (m.turn_id !== turn_id || m.role !== 'assistant') return m
             let matched = false
@@ -443,9 +402,42 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         isGenerating: false,
       }),
 
-    setViewedFile: (file) => set({ viewedFile: file }),
+    openFile: (file) =>
+      set((s) => {
+        const exists = s.openFiles.some((f) => f.relativePath === file.relativePath)
+        if (exists) {
+          return { activeFilePath: file.relativePath }
+        }
+        return {
+          openFiles: [file, ...s.openFiles],
+          activeFilePath: file.relativePath,
+        }
+      }),
 
-    clearViewedFile: () => set({ viewedFile: null }),
+    closeFile: (relativePath) =>
+      set((s) => {
+        const idx = s.openFiles.findIndex((f) => f.relativePath === relativePath)
+        if (idx === -1) return {}
+        const newFiles = s.openFiles.filter((f) => f.relativePath !== relativePath)
+        let newActive = s.activeFilePath
+        if (s.activeFilePath === relativePath) {
+          // Select right neighbor, then left, then null
+          if (newFiles.length === 0) {
+            newActive = null
+          } else if (idx < newFiles.length) {
+            newActive = newFiles[idx].relativePath
+          } else {
+            newActive = newFiles[newFiles.length - 1].relativePath
+          }
+        }
+        return { openFiles: newFiles, activeFilePath: newActive }
+      }),
+
+    setActiveFile: (relativePath) => set({ activeFilePath: relativePath }),
+
+    setGitBranch: (branch) => set({ gitBranch: branch }),
+
+    setProjectRoot: (root) => set({ projectRoot: root }),
 
     saveScrollPosition: (sessionPath, scrollTop) =>
       set((s) => ({
@@ -476,39 +468,151 @@ export function deletePaneStore(paneId: string): void {
 }
 
 // ============================================================================
-// Pane layout store — tracks which panes exist and which is active
+// Pane layout store — layout tree + active pane tracking
 // ============================================================================
 
 export type PaneOrientation = 'horizontal' | 'vertical'
 
-interface PanesLayoutState {
-  paneIds: string[]
-  activePaneId: string
+// ----------------------------------------------------------------------------
+// Layout tree types
+// ----------------------------------------------------------------------------
 
-  addPane: (paneId: string) => void
-  removePane: (paneId: string) => void
-  setActivePane: (paneId: string) => void
+export type SplitNode = {
+  type: 'split'
+  id: string
+  orientation: 'horizontal' | 'vertical'
+  children: [LayoutNode, LayoutNode]
 }
 
-export const usePanesStore = create<PanesLayoutState>((set) => ({
-  paneIds: ['pane-0'],
+export type LeafNode = {
+  type: 'leaf'
+  paneId: string
+}
+
+export type LayoutNode = SplitNode | LeafNode
+
+// ----------------------------------------------------------------------------
+// Pure layout tree utilities
+// ----------------------------------------------------------------------------
+
+export function collectLeafIds(node: LayoutNode): string[] {
+  if (node.type === 'leaf') return [node.paneId]
+  return [...collectLeafIds(node.children[0]), ...collectLeafIds(node.children[1])]
+}
+
+export function countLeaves(node: LayoutNode): number {
+  if (node.type === 'leaf') return 1
+  return countLeaves(node.children[0]) + countLeaves(node.children[1])
+}
+
+export function splitLeaf(
+  root: LayoutNode,
+  targetPaneId: string,
+  newPaneId: string,
+  orientation: PaneOrientation,
+  splitId: string,
+): { layout: LayoutNode; inserted: boolean } {
+  if (root.type === 'leaf') {
+    if (root.paneId !== targetPaneId) return { layout: root, inserted: false }
+    return {
+      layout: {
+        type: 'split',
+        id: splitId,
+        orientation,
+        children: [root, { type: 'leaf', paneId: newPaneId }],
+      },
+      inserted: true,
+    }
+  }
+  const leftResult = splitLeaf(root.children[0], targetPaneId, newPaneId, orientation, splitId)
+  if (leftResult.inserted) {
+    return { layout: { ...root, children: [leftResult.layout, root.children[1]] }, inserted: true }
+  }
+  const rightResult = splitLeaf(root.children[1], targetPaneId, newPaneId, orientation, splitId)
+  if (rightResult.inserted) {
+    return { layout: { ...root, children: [root.children[0], rightResult.layout] }, inserted: true }
+  }
+  return { layout: root, inserted: false }
+}
+
+function findFirstLeaf(node: LayoutNode): string {
+  if (node.type === 'leaf') return node.paneId
+  return findFirstLeaf(node.children[0])
+}
+
+export function removeLeaf(
+  root: LayoutNode,
+  paneId: string,
+): { layout: LayoutNode; siblingPaneId: string | null } {
+  if (root.type === 'leaf') {
+    return { layout: root, siblingPaneId: null }
+  }
+  const [left, right] = root.children
+  // Direct children check first
+  if (left.type === 'leaf' && left.paneId === paneId) {
+    return { layout: right, siblingPaneId: findFirstLeaf(right) }
+  }
+  if (right.type === 'leaf' && right.paneId === paneId) {
+    return { layout: left, siblingPaneId: findFirstLeaf(left) }
+  }
+  // Recurse into whichever subtree contains paneId
+  if (collectLeafIds(left).includes(paneId)) {
+    const result = removeLeaf(left, paneId)
+    return { layout: { ...root, children: [result.layout, right] }, siblingPaneId: result.siblingPaneId }
+  }
+  if (collectLeafIds(right).includes(paneId)) {
+    const result = removeLeaf(right, paneId)
+    return { layout: { ...root, children: [left, result.layout] }, siblingPaneId: result.siblingPaneId }
+  }
+  return { layout: root, siblingPaneId: null }
+}
+
+// ----------------------------------------------------------------------------
+// Pane layout store
+// ----------------------------------------------------------------------------
+
+interface PanesLayoutState {
+  layout: LayoutNode
+  activePaneId: string
+  nextSplitIndex: number
+  splitPending: boolean
+
+  splitPane: (targetPaneId: string, newPaneId: string, orientation: PaneOrientation) => boolean
+  removePane: (paneId: string) => void
+  setActivePane: (paneId: string) => void
+  setSplitPending: (v: boolean) => void
+}
+
+export const usePanesStore = create<PanesLayoutState>((set, get) => ({
+  layout: { type: 'leaf', paneId: 'pane-0' },
   activePaneId: 'pane-0',
+  nextSplitIndex: 0,
+  splitPending: false,
 
-  addPane: (paneId) =>
-    set((s) => ({
-      paneIds: [...s.paneIds, paneId],
-      activePaneId: paneId,
-    })),
+  splitPane: (targetPaneId, newPaneId, orientation) => {
+    const { layout, nextSplitIndex } = get()
+    const splitId = `split-${nextSplitIndex}`
+    const { layout: newLayout, inserted } = splitLeaf(layout, targetPaneId, newPaneId, orientation, splitId)
+    if (inserted) {
+      set({ layout: newLayout, activePaneId: newPaneId, nextSplitIndex: nextSplitIndex + 1 })
+    }
+    return inserted
+  },
 
-  removePane: (paneId) =>
-    set((s) => {
-      const paneIds = s.paneIds.filter((id) => id !== paneId)
-      const activePaneId =
-        s.activePaneId === paneId
-          ? (paneIds[paneIds.length - 1] ?? 'pane-0')
-          : s.activePaneId
-      return { paneIds, activePaneId }
-    }),
+  removePane: (paneId) => {
+    const { layout, activePaneId } = get()
+    const { layout: newLayout, siblingPaneId } = removeLeaf(layout, paneId)
+    const newActiveId = activePaneId === paneId
+      ? (siblingPaneId ?? 'pane-0')
+      : activePaneId
+    set({ layout: newLayout, activePaneId: newActiveId })
+  },
 
   setActivePane: (paneId) => set({ activePaneId: paneId }),
+
+  setSplitPending: (v) => set({ splitPending: v }),
 }))
+
+export function usePaneIds(): string[] {
+  return usePanesStore((s) => collectLeafIds(s.layout))
+}

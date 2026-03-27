@@ -1,15 +1,19 @@
 /**
- * AuthService — manages LLM provider API keys for Lucent Chat Desktop.
+ * AuthService — manages LLM provider API keys and OAuth credentials for Lucent Chat Desktop.
  *
  * Reads/writes ~/.gsd/agent/auth.json using the same format as the GSD web
  * onboarding (FileOnboardingAuthStorage pattern). Validates keys via HTTP
  * before persisting.
+ *
+ * Also supports OAuth login flows for providers like Anthropic, GitHub Copilot,
+ * ChatGPT (OpenAI Codex), Google Cloud Code Assist (Gemini CLI), and Antigravity.
  */
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import * as https from 'node:https'
+import { getOAuthProvider, type OAuthLoginCallbacks } from '@gsd/pi-ai/oauth'
 
 // ============================================================================
 // Types
@@ -19,7 +23,9 @@ export interface ProviderCatalogEntry {
   id: string
   label: string
   recommended?: boolean
-  keyPlaceholder: string
+  keyPlaceholder?: string
+  supportsApiKey: boolean
+  supportsOAuth: boolean
 }
 
 export interface ProviderAuthStatus {
@@ -29,6 +35,8 @@ export interface ProviderAuthStatus {
   configuredVia: 'auth_file' | 'environment' | null
   removeAllowed: boolean
   recommended?: boolean
+  supportsApiKey: boolean
+  supportsOAuth: boolean
 }
 
 type ApiKeyCredential = { type: 'api_key'; key: string }
@@ -50,13 +58,17 @@ const PROVIDER_ENV_VARS: Record<string, string[]> = {
 }
 
 export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
-  { id: 'anthropic',  label: 'Anthropic (Claude)',  recommended: true, keyPlaceholder: 'sk-ant-...' },
-  { id: 'openai',     label: 'OpenAI',                                 keyPlaceholder: 'sk-...' },
-  { id: 'google',     label: 'Google (Gemini)',                         keyPlaceholder: 'AI...' },
-  { id: 'groq',       label: 'Groq',                                    keyPlaceholder: 'gsk_...' },
-  { id: 'xai',        label: 'xAI (Grok)',                              keyPlaceholder: 'xai-...' },
-  { id: 'openrouter', label: 'OpenRouter',                              keyPlaceholder: 'sk-or-...' },
-  { id: 'mistral',    label: 'Mistral',                                 keyPlaceholder: 'your-key' },
+  { id: 'anthropic',         label: 'Anthropic (Claude)',                          recommended: true, keyPlaceholder: 'sk-ant-...', supportsApiKey: true,  supportsOAuth: true  },
+  { id: 'openai',            label: 'OpenAI',                                                         keyPlaceholder: 'sk-...',     supportsApiKey: true,  supportsOAuth: false },
+  { id: 'google',            label: 'Google (Gemini)',                                                 keyPlaceholder: 'AI...',      supportsApiKey: true,  supportsOAuth: false },
+  { id: 'groq',              label: 'Groq',                                                            keyPlaceholder: 'gsk_...',    supportsApiKey: true,  supportsOAuth: false },
+  { id: 'xai',               label: 'xAI (Grok)',                                                      keyPlaceholder: 'xai-...',    supportsApiKey: true,  supportsOAuth: false },
+  { id: 'openrouter',        label: 'OpenRouter',                                                      keyPlaceholder: 'sk-or-...',  supportsApiKey: true,  supportsOAuth: false },
+  { id: 'mistral',           label: 'Mistral',                                                         keyPlaceholder: 'your-key',   supportsApiKey: true,  supportsOAuth: false },
+  { id: 'github-copilot',    label: 'GitHub Copilot',                                                                                supportsApiKey: false, supportsOAuth: true  },
+  { id: 'openai-codex',      label: 'ChatGPT Plus/Pro',                                                                              supportsApiKey: false, supportsOAuth: true  },
+  { id: 'google-gemini-cli', label: 'Google Code Assist',                                                                            supportsApiKey: false, supportsOAuth: true  },
+  { id: 'google-antigravity', label: 'Antigravity',                                                                                  supportsApiKey: false, supportsOAuth: true  },
 ]
 
 // ============================================================================
@@ -223,6 +235,12 @@ function validateViaHttp(
 export class AuthService {
   private readonly authPath = getAuthFilePath()
 
+  /** Tracks in-flight OAuth flows by provider ID. */
+  private activeFlows = new Map<string, {
+    abort: AbortController
+    pendingInput: { resolve: (v: string) => void; reject: (e: Error) => void } | null
+  }>()
+
   getProviderCatalog(): ProviderCatalogEntry[] {
     return PROVIDER_CATALOG
   }
@@ -231,7 +249,8 @@ export class AuthService {
     const data = readAuthData(this.authPath)
     return PROVIDER_CATALOG.map((entry) => {
       const creds = getCredentials(data, entry.id)
-      const hasFileAuth = creds.some((c) => c.type === 'api_key')
+      // Configured via auth file if any credential type (api_key or oauth) is stored
+      const hasFileAuth = creds.some((c) => c.type === 'api_key' || c.type === 'oauth')
       const hasEnvAuth = (PROVIDER_ENV_VARS[entry.id] ?? []).some(
         (v) => Boolean(process.env[v]),
       )
@@ -244,6 +263,8 @@ export class AuthService {
         configuredVia,
         removeAllowed: configuredVia === 'auth_file',
         recommended: entry.recommended,
+        supportsApiKey: entry.supportsApiKey,
+        supportsOAuth: entry.supportsOAuth,
       }
     })
   }
@@ -268,16 +289,133 @@ export class AuthService {
     return { ok: true, message: 'API key saved', providerStatuses: this.getProviderStatuses() }
   }
 
+  /**
+   * Remove ALL auth.json credentials for a provider (both api_key and oauth).
+   * Method name kept as removeApiKey for backward compatibility with existing IPC wiring.
+   */
   removeApiKey(providerId: string): ProviderAuthStatus[] {
     const data = readAuthData(this.authPath)
-    const existing = getCredentials(data, providerId)
-    const withoutApiKeys = existing.filter((c) => c.type !== 'api_key')
-    if (withoutApiKeys.length === 0) {
-      delete data[providerId]
-    } else {
-      data[providerId] = withoutApiKeys.length === 1 ? withoutApiKeys[0] : withoutApiKeys
-    }
+    delete data[providerId]
     writeAuthData(this.authPath, data)
     return this.getProviderStatuses()
+  }
+
+  /**
+   * Start an OAuth login flow for the given provider.
+   *
+   * This method is long-running — it resolves only when the login completes,
+   * is cancelled, or errors. Progress events are pushed to the renderer via
+   * `pushEvent('event:oauth-progress', ...)`.
+   *
+   * @param providerId - The provider ID (e.g. 'anthropic', 'github-copilot')
+   * @param pushEvent  - Sends IPC events to the renderer window
+   * @param openBrowser - Opens a URL in the system browser (shell.openExternal)
+   */
+  async startOAuthLogin(
+    providerId: string,
+    pushEvent: (channel: string, data: unknown) => void,
+    openBrowser: (url: string) => Promise<void>,
+  ): Promise<{ ok: boolean; message: string; providerStatuses: ProviderAuthStatus[] }> {
+    // Cancel any existing flow for this provider before starting a new one
+    this.cancelOAuthFlow(providerId)
+
+    const abort = new AbortController()
+    const flowState: {
+      abort: AbortController
+      pendingInput: { resolve: (v: string) => void; reject: (e: Error) => void } | null
+    } = { abort, pendingInput: null }
+    this.activeFlows.set(providerId, flowState)
+
+    const sendProgress = (type: string, extra?: Record<string, unknown>) => {
+      pushEvent('event:oauth-progress', { providerId, type, ...extra })
+    }
+
+    /** Creates a promise that resolves when submitOAuthCode is called. */
+    const makeInputPromise = () => new Promise<string>((resolve, reject) => {
+      flowState.pendingInput = { resolve, reject }
+      abort.signal.addEventListener('abort', () => reject(new Error('OAuth cancelled')))
+    })
+
+    try {
+      const provider = getOAuthProvider(providerId)
+      if (!provider) throw new Error(`No OAuth provider registered for: ${providerId}`)
+
+      const callbacks: OAuthLoginCallbacks = {
+        onAuth: ({ url, instructions }) => {
+          sendProgress('open_browser', { url, instructions: instructions ?? null })
+          void openBrowser(url)
+        },
+        onPrompt: async (prompt) => {
+          sendProgress('awaiting_input', {
+            message: prompt.message,
+            placeholder: prompt.placeholder ?? null,
+            allowEmpty: prompt.allowEmpty ?? false,
+          })
+          return makeInputPromise()
+        },
+        onProgress: (message) => {
+          sendProgress('progress', { message })
+        },
+        onManualCodeInput: async () => {
+          sendProgress('awaiting_code', {
+            message: 'Paste the redirect URL from your browser:',
+            placeholder: 'http://localhost:...',
+          })
+          return makeInputPromise()
+        },
+        signal: abort.signal,
+      }
+
+      const credentials = await provider.login(callbacks)
+
+      // Save OAuth credentials: keep any existing API keys, replace any existing OAuth credential
+      const data = readAuthData(this.authPath)
+      const existing = getCredentials(data, providerId)
+      const apiKeys = existing.filter((c) => c.type === 'api_key')
+      const merged = [...apiKeys, { type: 'oauth' as const, ...credentials }]
+      data[providerId] = merged.length === 1 ? merged[0] : merged
+      writeAuthData(this.authPath, data)
+
+      this.activeFlows.delete(providerId)
+      return { ok: true, message: 'Authentication successful', providerStatuses: this.getProviderStatuses() }
+    } catch (error) {
+      this.activeFlows.delete(providerId)
+      const message = error instanceof Error ? error.message : String(error)
+      const isCancelled =
+        abort.signal.aborted ||
+        message.toLowerCase().includes('cancel') ||
+        message.toLowerCase().includes('abort')
+      return {
+        ok: false,
+        message: isCancelled ? 'Cancelled' : message,
+        providerStatuses: this.getProviderStatuses(),
+      }
+    }
+  }
+
+  /**
+   * Resolves the pending onPrompt or onManualCodeInput for an in-flight OAuth flow.
+   * Call this when the user submits a code in the UI.
+   */
+  submitOAuthCode(providerId: string, code: string): void {
+    const flow = this.activeFlows.get(providerId)
+    if (flow?.pendingInput) {
+      const { resolve } = flow.pendingInput
+      flow.pendingInput = null
+      resolve(code)
+    }
+  }
+
+  /**
+   * Cancels an in-flight OAuth flow by aborting its AbortController and
+   * rejecting any pending input promise.
+   */
+  cancelOAuthFlow(providerId: string): void {
+    const flow = this.activeFlows.get(providerId)
+    if (flow) {
+      flow.pendingInput?.reject(new Error('OAuth cancelled'))
+      flow.abort.abort()
+      this.activeFlows.delete(providerId)
+    }
   }
 }

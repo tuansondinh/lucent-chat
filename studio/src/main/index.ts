@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator } from './orchestrator.js'
@@ -11,6 +12,8 @@ import { SettingsService } from './settings-service.js'
 import { TerminalManager } from './terminal-manager.js'
 import { AuthService } from './auth-service.js'
 import { VoiceService } from './voice-service.js'
+import { FileService } from './file-service.js'
+import { GitService } from './git-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -29,6 +32,7 @@ declare module 'electron' {
   }
 }
 app.isQuitting = false
+app.setName('LC')
 
 function createWindow(savedBounds?: { x: number; y: number; width: number; height: number }): BrowserWindow {
   const preload = join(__dirname, '../preload/index.cjs')
@@ -180,7 +184,19 @@ app.whenReady().then(async () => {
     onTextBlockEnd: (d) => pushEvent(mainWindow, 'event:text-block-end', { paneId: 'pane-0', ...d }),
   })
 
-  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService)
+  // Resolve initial project root for pane-0
+  let initialProjectRoot = process.cwd()
+  try {
+    initialProjectRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(),
+      timeout: 2000,
+      encoding: 'utf8',
+    }).trim()
+  } catch {
+    // Not a git repo or git not available — fall back to cwd
+  }
+
+  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, initialProjectRoot)
 
   // Forward health events for pane-0 to renderer (with paneId)
   processManager.on('health', (states: Record<string, string>) => {
@@ -194,6 +210,8 @@ app.whenReady().then(async () => {
 
   // 9. Auth service + IPC handlers
   const authService = new AuthService()
+  const fileService = new FileService()
+  const gitService = new GitService()
 
   const restartAllAgents = async () => {
     for (const paneId of paneManager!.getPaneIds()) {
@@ -211,6 +229,8 @@ app.whenReady().then(async () => {
     terminalManager,
     authService,
     voiceService!,
+    fileService,
+    gitService,
     restartAllAgents,
     () => mainWindow
   )

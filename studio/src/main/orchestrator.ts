@@ -158,10 +158,15 @@ export class Orchestrator extends EventEmitter {
 
     let fullText = ''
     let agentEndReceived = false
+    let firstActivityReceived = false
 
     // Set up event listener BEFORE sending prompt to avoid missing events
     const unsubscribe = this.agentBridge.onAgentEvent((event: any) => {
       if (turn.state === 'aborted') return
+      if (!firstActivityReceived) {
+        firstActivityReceived = true
+        clearTimeout(firstActivityTimer)
+      }
 
       if (event.type === 'message_update') {
         // Extract events from the assistantMessageEvent
@@ -253,9 +258,22 @@ export class Orchestrator extends EventEmitter {
           output: event.result ?? {},
           isError: event.isError ?? false,
         })
+      } else if (event.type === 'agent_process_exit') {
+        clearTimeout(safetyTimer)
+        clearTimeout(firstActivityTimer)
+        unsubscribe()
+        this.callbacks.onError({
+          source: 'agent',
+          message: `Agent stopped unexpectedly (${event.reason ?? 'unknown'}) — check your provider credentials in Settings (⌘,)`,
+        })
+        if (turn.state !== 'aborted') {
+          this.setTurnState(turn, 'idle')
+        }
+        this.releaseLock()
       } else if (event.type === 'agent_end') {
         agentEndReceived = true
         clearTimeout(safetyTimer)
+        clearTimeout(firstActivityTimer)
         unsubscribe()
 
         // If we got no streaming text, try to get it from the final message
@@ -277,10 +295,29 @@ export class Orchestrator extends EventEmitter {
       }
     })
 
+    // First-activity timeout: if the agent produces NO events at all within
+    // 30 s the provider is likely misconfigured or unreachable.
+    const firstActivityTimer = setTimeout(() => {
+      if (!firstActivityReceived) {
+        console.warn('[orchestrator] first-activity timeout: no response from agent')
+        clearTimeout(safetyTimer)
+        unsubscribe()
+        this.callbacks.onError({
+          source: 'orchestrator',
+          message: 'No response from AI provider — verify your credentials in Settings (⌘,).',
+        })
+        if (turn.state !== 'aborted') {
+          this.setTurnState(turn, 'idle')
+        }
+        this.releaseLock()
+      }
+    }, 30_000)
+
     // Safety: if agent_end never arrives (crash, stuck), release lock after 5 minutes
     const safetyTimer = setTimeout(() => {
       if (!agentEndReceived) {
         console.warn('[orchestrator] safety timeout: no agent_end received, releasing lock')
+        clearTimeout(firstActivityTimer)
         unsubscribe()
         this.callbacks.onError({ source: 'orchestrator', message: 'Generation timed out (5 min)' })
         if (turn.state !== 'aborted') {

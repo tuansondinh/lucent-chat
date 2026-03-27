@@ -3,17 +3,17 @@
  *
  * Four steps:
  *   1. Welcome          — intro screen
- *   2. LLM Provider     — required: configure at least one API key
+ *   2. LLM Provider     — required: configure at least one API key or OAuth
  *   3. Tavily           — optional web-search key
  *   4. Ready            — completion screen
  *
  * On completion sets onboardingComplete: true via bridge.setSettings().
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   Key, ArrowRight, Check, Sparkles, ChevronDown, ChevronUp,
-  Loader2, Eye, EyeOff, Globe, Lock,
+  Loader2, Eye, EyeOff, Globe, Lock, LogIn, X,
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -35,14 +35,27 @@ interface ProviderStatus {
   configuredVia: 'auth_file' | 'environment' | null
   removeAllowed: boolean
   recommended?: boolean
+  supportsApiKey: boolean
+  supportsOAuth: boolean
 }
 
 interface ProviderCatalogEntry {
   id: string
   label: string
-  keyPlaceholder: string
+  keyPlaceholder?: string
   recommended?: boolean
+  supportsApiKey: boolean
+  supportsOAuth: boolean
 }
+
+type OAuthFlowState =
+  | { phase: 'idle' }
+  | { phase: 'running'; message?: string }
+  | { phase: 'open_browser'; url: string; instructions?: string }
+  | { phase: 'awaiting_input'; message: string; placeholder?: string; allowEmpty?: boolean }
+  | { phase: 'awaiting_code'; message: string; placeholder?: string }
+  | { phase: 'success' }
+  | { phase: 'error'; message: string }
 
 // ============================================================================
 // Onboarding
@@ -203,8 +216,28 @@ function ProviderSetupStep({
   const [showKeyFor, setShowKeyFor] = useState<Record<string, boolean>>({})
   const [savingProvider, setSavingProvider] = useState<string | null>(null)
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({})
+  const [oauthStates, setOAuthStates] = useState<Record<string, OAuthFlowState>>({})
 
   const anyConfigured = providerStatuses.some((s) => s.configured)
+
+  // Subscribe to OAuth progress events from main process
+  useEffect(() => {
+    if (typeof bridge.onOAuthProgress !== 'function') return
+    const unsub = bridge.onOAuthProgress((data) => {
+      setOAuthStates((prev) => ({
+        ...prev,
+        [data.providerId]:
+          data.type === 'open_browser'
+            ? { phase: 'open_browser', url: data.url!, instructions: data.instructions }
+            : data.type === 'awaiting_input'
+              ? { phase: 'awaiting_input', message: data.message!, placeholder: data.placeholder, allowEmpty: data.allowEmpty }
+              : data.type === 'awaiting_code'
+                ? { phase: 'awaiting_code', message: data.message!, placeholder: data.placeholder }
+                : { phase: 'running', message: data.message },
+      }))
+    })
+    return unsub
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async (providerId: string) => {
     const key = (keyInputs[providerId] ?? '').trim()
@@ -230,6 +263,41 @@ function ProviderSetupStep({
     }
   }
 
+  const handleOAuthStart = (providerId: string) => {
+    if (typeof bridge.oauthStart !== 'function') return
+    setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'running' } }))
+    bridge.oauthStart(providerId)
+      .then((result) => {
+        if (result.ok) {
+          onStatusUpdate(result.providerStatuses as ProviderStatus[])
+          setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'success' } }))
+        } else if (result.message !== 'Cancelled') {
+          setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'error', message: result.message } }))
+        } else {
+          setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'idle' } }))
+        }
+      })
+      .catch((err: unknown) => {
+        setOAuthStates((prev) => ({
+          ...prev,
+          [providerId]: { phase: 'error', message: err instanceof Error ? err.message : 'OAuth failed' },
+        }))
+      })
+  }
+
+  const handleOAuthSubmitCode = (providerId: string, code: string) => {
+    if (typeof bridge.oauthSubmitCode === 'function') {
+      void bridge.oauthSubmitCode(providerId, code)
+    }
+  }
+
+  const handleOAuthCancel = (providerId: string) => {
+    if (typeof bridge.oauthCancel === 'function') {
+      void bridge.oauthCancel(providerId)
+    }
+    setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'idle' } }))
+  }
+
   return (
     <div className="space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <div className="text-center space-y-1.5">
@@ -238,7 +306,7 @@ function ProviderSetupStep({
         </div>
         <h2 className="text-xl font-semibold text-text-primary">Connect an AI Provider</h2>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Add at least one API key to start chatting. Keys are stored in{' '}
+          Add at least one API key or sign in with OAuth to start chatting. Keys are stored in{' '}
           <span className="font-mono text-xs text-text-tertiary bg-bg-secondary px-1 py-0.5 rounded">
             ~/.gsd/agent/auth.json
           </span>
@@ -253,9 +321,10 @@ function ProviderSetupStep({
           Loading providers...
         </div>
       ) : (
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+        <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5">
           {catalog.map((entry) => {
             const status = providerStatuses.find((s) => s.id === entry.id) ?? null
+            const oauthState = oauthStates[entry.id] ?? { phase: 'idle' }
             return (
               <ProviderCard
                 key={entry.id}
@@ -266,6 +335,7 @@ function ProviderSetupStep({
                 error={saveErrors[entry.id] ?? ''}
                 keyValue={keyInputs[entry.id] ?? ''}
                 showKey={showKeyFor[entry.id] ?? false}
+                oauthState={oauthState}
                 onToggleExpand={() =>
                   setExpandedProvider((prev) => {
                     setSaveErrors((e) => ({ ...e, [entry.id]: '' }))
@@ -277,6 +347,9 @@ function ProviderSetupStep({
                   setShowKeyFor((prev) => ({ ...prev, [entry.id]: !prev[entry.id] }))
                 }
                 onSave={() => void handleSave(entry.id)}
+                onOAuthStart={() => handleOAuthStart(entry.id)}
+                onOAuthSubmitCode={(code) => handleOAuthSubmitCode(entry.id, code)}
+                onOAuthCancel={() => handleOAuthCancel(entry.id)}
               />
             )
           })}
@@ -311,18 +384,31 @@ interface ProviderCardProps {
   error: string
   keyValue: string
   showKey: boolean
+  oauthState: OAuthFlowState
   onToggleExpand: () => void
   onKeyChange: (v: string) => void
   onToggleShowKey: () => void
   onSave: () => void
+  onOAuthStart: () => void
+  onOAuthSubmitCode: (code: string) => void
+  onOAuthCancel: () => void
 }
 
 function ProviderCard({
   entry, status, isExpanded, isSaving, error,
-  keyValue, showKey, onToggleExpand, onKeyChange, onToggleShowKey, onSave,
+  keyValue, showKey, oauthState,
+  onToggleExpand, onKeyChange, onToggleShowKey, onSave,
+  onOAuthStart, onOAuthSubmitCode, onOAuthCancel,
 }: ProviderCardProps) {
   const configured = status?.configured ?? false
   const configuredVia = status?.configuredVia ?? null
+
+  // When provider supports both methods, track which one the user wants to use
+  const [authMethod, setAuthMethod] = useState<'api_key' | 'oauth'>(
+    entry.supportsApiKey ? 'api_key' : 'oauth'
+  )
+
+  const isOAuthActive = oauthState.phase !== 'idle' && oauthState.phase !== 'success'
 
   return (
     <div
@@ -348,9 +434,14 @@ function ProviderCard({
               Recommended
             </span>
           )}
+          {!entry.supportsApiKey && entry.supportsOAuth && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 bg-purple-400/15 px-1.5 py-0.5 rounded">
+              OAuth
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {configured && configuredVia === 'auth_file' && (
+          {(configured || oauthState.phase === 'success') && configuredVia === 'auth_file' && (
             <span className="flex items-center gap-1 text-xs text-green-400">
               <Check className="w-3.5 h-3.5" />
               Added
@@ -362,8 +453,14 @@ function ProviderCard({
               via env
             </span>
           )}
-          {!configured && (
+          {!configured && oauthState.phase !== 'success' && (
             <span className="text-xs text-text-tertiary">Not configured</span>
+          )}
+          {isOAuthActive && (
+            <span className="flex items-center gap-1 text-xs text-purple-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Signing in...
+            </span>
           )}
           {isExpanded
             ? <ChevronUp className="w-4 h-4 text-text-tertiary" />
@@ -382,44 +479,238 @@ function ProviderCard({
             </div>
           ) : (
             <>
-              <div className="relative">
-                <Input
-                  type={showKey ? 'text' : 'password'}
-                  value={keyValue}
-                  onChange={(e) => onKeyChange(e.target.value)}
-                  placeholder={entry.keyPlaceholder}
-                  className="pr-9 font-mono text-sm"
-                  disabled={isSaving}
-                  onKeyDown={(e) => { if (e.key === 'Enter') onSave() }}
+              {/* Method selector — only shown when provider supports both */}
+              {entry.supportsApiKey && entry.supportsOAuth && (
+                <div className="flex gap-1 rounded-md border border-border p-0.5 bg-bg-tertiary">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('api_key')}
+                    className={[
+                      'flex-1 flex items-center justify-center gap-1.5 text-xs py-1 rounded transition-colors',
+                      authMethod === 'api_key'
+                        ? 'bg-bg-primary text-text-primary font-medium shadow-sm'
+                        : 'text-text-tertiary hover:text-text-secondary',
+                    ].join(' ')}
+                  >
+                    <Key className="w-3 h-3" />
+                    API Key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMethod('oauth')}
+                    className={[
+                      'flex-1 flex items-center justify-center gap-1.5 text-xs py-1 rounded transition-colors',
+                      authMethod === 'oauth'
+                        ? 'bg-bg-primary text-text-primary font-medium shadow-sm'
+                        : 'text-text-tertiary hover:text-text-secondary',
+                    ].join(' ')}
+                  >
+                    <LogIn className="w-3 h-3" />
+                    OAuth
+                  </button>
+                </div>
+              )}
+
+              {/* API Key form */}
+              {entry.supportsApiKey && (!entry.supportsOAuth || authMethod === 'api_key') && (
+                <>
+                  <div className="relative">
+                    <Input
+                      type={showKey ? 'text' : 'password'}
+                      value={keyValue}
+                      onChange={(e) => onKeyChange(e.target.value)}
+                      placeholder={entry.keyPlaceholder ?? 'Paste your API key...'}
+                      className="pr-9 font-mono text-sm"
+                      disabled={isSaving}
+                      onKeyDown={(e) => { if (e.key === 'Enter') onSave() }}
+                    />
+                    <button
+                      type="button"
+                      onClick={onToggleShowKey}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
+                      tabIndex={-1}
+                    >
+                      {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  {error && <p className="text-xs text-red-400">{error}</p>}
+                  <Button
+                    size="sm"
+                    onClick={onSave}
+                    disabled={isSaving || !keyValue.trim()}
+                    className="w-full gap-2"
+                  >
+                    {isSaving ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" />Validating...</>
+                    ) : (
+                      'Validate & Save'
+                    )}
+                  </Button>
+                </>
+              )}
+
+              {/* OAuth form */}
+              {entry.supportsOAuth && (!entry.supportsApiKey || authMethod === 'oauth') && (
+                <OAuthWidget
+                  state={oauthState}
+                  onStart={onOAuthStart}
+                  onSubmitCode={onOAuthSubmitCode}
+                  onCancel={onOAuthCancel}
                 />
-                <button
-                  type="button"
-                  onClick={onToggleShowKey}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary"
-                  tabIndex={-1}
-                >
-                  {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-              {error && <p className="text-xs text-red-400">{error}</p>}
-              <Button
-                size="sm"
-                onClick={onSave}
-                disabled={isSaving || !keyValue.trim()}
-                className="w-full gap-2"
-              >
-                {isSaving ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />Validating...</>
-                ) : (
-                  'Validate & Save'
-                )}
-              </Button>
+              )}
             </>
           )}
         </div>
       )}
     </div>
   )
+}
+
+// ============================================================================
+// OAuthWidget — renders the appropriate UI for each OAuth flow phase
+// ============================================================================
+
+interface OAuthWidgetProps {
+  state: OAuthFlowState
+  onStart: () => void
+  onSubmitCode: (code: string) => void
+  onCancel: () => void
+}
+
+function OAuthWidget({ state, onStart, onSubmitCode, onCancel }: OAuthWidgetProps) {
+  const [codeInput, setCodeInput] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Auto-focus the input when waiting for user code
+  useEffect(() => {
+    if ((state.phase === 'awaiting_input' || state.phase === 'awaiting_code') && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [state.phase])
+
+  // Reset code input when phase changes away from input
+  useEffect(() => {
+    if (state.phase !== 'awaiting_input' && state.phase !== 'awaiting_code') {
+      setCodeInput('')
+    }
+  }, [state.phase])
+
+  const handleSubmit = () => {
+    if (!codeInput.trim() && state.phase === 'awaiting_input' && !(state as { allowEmpty?: boolean }).allowEmpty) return
+    onSubmitCode(codeInput)
+    setCodeInput('')
+  }
+
+  switch (state.phase) {
+    case 'idle':
+      return (
+        <Button size="sm" onClick={onStart} className="w-full gap-2">
+          <LogIn className="w-3.5 h-3.5" />
+          Sign in with OAuth
+        </Button>
+      )
+
+    case 'running':
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-text-secondary bg-bg-tertiary rounded p-2.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0 text-purple-400" />
+            <span>{state.message ?? 'Starting OAuth flow...'}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs text-text-tertiary hover:text-text-secondary underline"
+          >
+            Cancel
+          </button>
+        </div>
+      )
+
+    case 'open_browser':
+      return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-text-secondary bg-bg-tertiary rounded p-2.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin flex-shrink-0 text-purple-400" />
+            <span>Opening browser...</span>
+          </div>
+          {state.instructions && (
+            <div className="text-xs font-semibold text-purple-300 bg-purple-400/10 border border-purple-400/20 rounded p-2.5">
+              {state.instructions}
+            </div>
+          )}
+          <p className="text-xs text-text-tertiary break-all">{state.url}</p>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs text-text-tertiary hover:text-text-secondary underline"
+          >
+            Cancel
+          </button>
+        </div>
+      )
+
+    case 'awaiting_input':
+    case 'awaiting_code': {
+      const placeholder = state.placeholder ?? (state.phase === 'awaiting_code' ? 'http://localhost:...' : 'Paste code...')
+      const allowEmpty = state.phase === 'awaiting_input' ? ((state as { allowEmpty?: boolean }).allowEmpty ?? false) : false
+      const canSubmit = allowEmpty || codeInput.trim().length > 0
+
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-text-secondary">{state.message}</p>
+          <div className="flex gap-2">
+            <Input
+              ref={inputRef}
+              type="text"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              placeholder={placeholder}
+              className="font-mono text-sm flex-1"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit() }}
+            />
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="gap-1.5 flex-shrink-0"
+            >
+              Submit
+            </Button>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs text-text-tertiary hover:text-text-secondary underline"
+          >
+            Cancel
+          </button>
+        </div>
+      )
+    }
+
+    case 'success':
+      return (
+        <div className="flex items-center gap-2 text-xs text-green-400 bg-green-400/10 rounded p-2.5">
+          <Check className="w-3.5 h-3.5 flex-shrink-0" />
+          Authentication successful
+        </div>
+      )
+
+    case 'error':
+      return (
+        <div className="space-y-2">
+          <div className="flex items-start gap-2 text-xs text-red-400 bg-red-400/10 rounded p-2.5">
+            <X className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>{state.message}</span>
+          </div>
+          <Button size="sm" onClick={onStart} className="w-full gap-2">
+            <LogIn className="w-3.5 h-3.5" />
+            Try Again
+          </Button>
+        </div>
+      )
+  }
 }
 
 // ============================================================================

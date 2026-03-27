@@ -36,6 +36,10 @@ interface Props {
   paneId?: string
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -61,16 +65,37 @@ export function ModelPicker({ open, onOpenChange, paneId }: Props) {
       setQuery('')
       return
     }
-    setLoading(true)
-    bridge
-      .getModels(targetPaneId)
-      .then((list: Model[]) => setModels(list))
-      .catch(() => setModels([]))
-      .finally(() => setLoading(false))
+    let cancelled = false
+
+    const loadModels = async () => {
+      setLoading(true)
+      try {
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          try {
+            const list = await bridge.getModels(targetPaneId)
+            if (!cancelled) setModels(list ?? [])
+            return
+          } catch {
+            if (attempt === 5) {
+              if (!cancelled) setModels([])
+              return
+            }
+            await sleep(300)
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void loadModels()
 
     // Auto-focus search after dialog animation settles
     const t = setTimeout(() => searchRef.current?.focus(), 80)
-    return () => clearTimeout(t)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
   }, [open, targetPaneId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------

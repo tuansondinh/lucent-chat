@@ -1,22 +1,26 @@
 /**
  * App — top-level layout with sidebar + multi-pane chat area.
  *
- * Phase 4C: Supports up to 4 independent chat panes side by side.
+ * Phase 4C+IDE: Supports up to 4 independent chat panes side by side.
  * Each pane has its own agent process, bridge, orchestrator, and session.
  *
- * Layout: resizable sidebar | PanelGroup of ChatPane components
+ * Layout: sidebar | explorer (opt) | PanelGroup of ChatPane | FileViewer (opt)
  * Keyboard shortcuts:
- *   Cmd+\  → split (create new pane, max 4)
- *   Cmd+W  → close active pane (if > 1)
- *   Cmd+1-4 → focus pane 1-4
+ *   Cmd+D       → split pane horizontally (max 4)
+ *   Cmd+Shift+D → split pane vertically
+ *   Cmd+W       → close active pane (if > 1)
+ *   Cmd+1-4     → focus pane 1-4
+ *   Cmd+E       → toggle file explorer
+ *   Cmd+Shift+F → toggle file viewer
  */
 
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef, type ReactNode } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
-import { useChatStore } from './store/chat'
-import { usePanesStore, getPaneStore, deletePaneStore } from './store/pane-store'
-import { useVoiceStore } from './store/voice-store'
+import { PanelLeft, PanelLeftClose } from 'lucide-react'
+import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
+import { deleteFileTreeStore } from './store/file-tree-store'
+import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
 import { ChatPane } from './components/ChatPane'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -26,7 +30,50 @@ import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { Terminal } from './components/Terminal'
 import { FileViewer } from './components/FileViewer'
+import { FileTree } from './components/FileTree'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
+
+// ============================================================================
+// Layout tree renderer (module-level to avoid re-creation on each render)
+// ============================================================================
+
+function renderLayoutNode(
+  node: LayoutNode,
+  activePaneId: string,
+  sidebarCollapsed: boolean,
+  paneCount: number,
+  setActivePane: (id: string) => void,
+  handleClosePane: (id: string) => Promise<void>,
+): ReactNode {
+  if (node.type === 'leaf') {
+    return (
+      <ChatPane
+        key={node.paneId}
+        paneId={node.paneId}
+        isActive={node.paneId === activePaneId}
+        sidebarCollapsed={sidebarCollapsed && paneCount === 1}
+        onFocus={() => setActivePane(node.paneId)}
+        onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
+      />
+    )
+  }
+  const isHorizontal = node.orientation === 'horizontal'
+  const minSize = isHorizontal ? 15 : 25
+  const handleClass = isHorizontal
+    ? 'w-px bg-accent/40 hover:bg-accent transition-colors cursor-col-resize'
+    : 'h-px bg-accent/40 hover:bg-accent transition-colors cursor-row-resize'
+  return (
+    <PanelGroup key={node.id} orientation={node.orientation} className="flex-1 min-h-0">
+      <Panel key={`${node.id}-0`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
+        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, setActivePane, handleClosePane)}
+      </Panel>
+      <PanelResizeHandle className={handleClass} />
+      <Panel key={`${node.id}-1`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
+        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, setActivePane, handleClosePane)}
+      </Panel>
+    </PanelGroup>
+  )
+}
 
 // ============================================================================
 // App
@@ -36,7 +83,9 @@ export default function App() {
   const bridge = window.bridge
 
   // Pane layout state
-  const { paneIds, activePaneId, addPane, removePane, setActivePane } = usePanesStore()
+  const { layout, activePaneId, setActivePane } = usePanesStore()
+  const paneIds = collectLeafIds(layout)
+  const paneCount = paneIds.length
 
   // Active pane's store (for status bar + command palette model)
   const activePaneStore = getPaneStore(activePaneId)
@@ -47,9 +96,6 @@ export default function App() {
     currentSessionName: activePaneSessionName,
     isGenerating: activePaneGenerating,
   } = activePaneStore()
-
-  // Voice state for StatusBar indicator
-  const { active: voiceActive, speaking: voiceSpeaking, ttsPlaying: voiceTtsPlaying } = useVoiceStore()
 
   // -------------------------------------------------------------------------
   // UI state
@@ -63,17 +109,15 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [fileViewerOpen, setFileViewerOpen] = useState(false)
+  const [explorerOpen, setExplorerOpen] = useState(false)
 
-  // -------------------------------------------------------------------------
-  // Auto-open file viewer when a file is viewed via tool call in active pane
-  // -------------------------------------------------------------------------
-
-  const activeViewedFile = activePaneStore((s) => s.viewedFile)
-  useEffect(() => {
-    if (activeViewedFile !== null) {
-      setFileViewerOpen(true)
-    }
-  }, [activeViewedFile])
+  // Refs kept in sync with modal open state — used in keydown handler for gating
+  const commandPaletteOpenRef = useRef(commandPaletteOpen)
+  const settingsOpenRef = useRef(settingsOpen)
+  const modelPickerOpenRef = useRef(modelPickerOpen)
+  useEffect(() => { commandPaletteOpenRef.current = commandPaletteOpen }, [commandPaletteOpen])
+  useEffect(() => { settingsOpenRef.current = settingsOpen }, [settingsOpen])
+  useEffect(() => { modelPickerOpenRef.current = modelPickerOpen }, [modelPickerOpen])
 
   // -------------------------------------------------------------------------
   // Load persisted settings on mount
@@ -104,30 +148,6 @@ export default function App() {
   }, [sidebarCollapsed, settingsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
-  // Voice service probe + status subscription
-  // Phase 2 wires the main-process side; these calls are graceful no-ops until then.
-  // -------------------------------------------------------------------------
-
-  useEffect(() => {
-    // Initial probe — check if sidecar is available
-    bridge.voiceProbe()
-      .then(({ available, reason }) => {
-        useVoiceStore.getState().setAvailable(available, reason ?? null)
-      })
-      .catch(() => {})
-
-    // Subscribe to ongoing voice status events
-    const unsub = bridge.onVoiceStatus((data) => {
-      const vs = useVoiceStore.getState()
-      vs.setSidecarState(data.state as ReturnType<typeof useVoiceStore.getState>['sidecarState'])
-      vs.setPort(data.port)
-      vs.setAvailable(data.state === 'ready' || data.available)
-    })
-
-    return unsub
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // -------------------------------------------------------------------------
   // Sync native window title with active pane's session name
   // -------------------------------------------------------------------------
 
@@ -140,30 +160,53 @@ export default function App() {
   // Pane split / close actions
   // -------------------------------------------------------------------------
 
-  const handleSplitPane = useCallback(async () => {
-    if (paneIds.length >= 4) {
+  const handleSplitPane = useCallback(async (orientation: PaneOrientation = 'horizontal') => {
+    const state = usePanesStore.getState()
+    if (countLeaves(state.layout) >= 4) {
       toast.error('Maximum 4 panes allowed')
       return
     }
+    if (state.splitPending) return
+    usePanesStore.getState().setSplitPending(true)
     try {
-      const { paneId } = await bridge.paneCreate()
-      addPane(paneId)
+      const { paneId: newPaneId } = await bridge.paneCreate()
+      const inserted = usePanesStore.getState().splitPane(
+        usePanesStore.getState().activePaneId,
+        newPaneId,
+        orientation,
+      )
+      if (!inserted) {
+        await bridge.paneClose(newPaneId).catch(() => {})
+        deletePaneStore(newPaneId)
+      }
     } catch (err) {
       console.error('[pane] create failed:', err)
       toast.error('Failed to create pane')
+    } finally {
+      usePanesStore.getState().setSplitPending(false)
     }
-  }, [paneIds.length, bridge, addPane])
+  }, [bridge])
 
   const handleClosePane = useCallback(async (paneIdToClose: string) => {
-    if (paneIds.length <= 1) return
+    if (countLeaves(usePanesStore.getState().layout) <= 1) return
     try {
       await bridge.paneClose(paneIdToClose)
-      removePane(paneIdToClose)
+      usePanesStore.getState().removePane(paneIdToClose)
       deletePaneStore(paneIdToClose)
+      deleteFileTreeStore(paneIdToClose)
     } catch (err) {
       console.error('[pane] close failed:', err)
     }
-  }, [paneIds.length, bridge, removePane])
+  }, [bridge])
+
+  const handleNavigatePane = useCallback((direction: Direction) => {
+    const currentActive = usePanesStore.getState().activePaneId
+    const targetId = findPaneInDirection(currentActive, direction)
+    if (targetId) {
+      setActivePane(targetId)
+      focusPane(targetId)
+    }
+  }, [setActivePane])
 
   // -------------------------------------------------------------------------
   // Sidebar / session actions (scoped to active pane)
@@ -235,6 +278,8 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      const isModalOpen = commandPaletteOpenRef.current || settingsOpenRef.current || modelPickerOpenRef.current
+
       // Cmd+K — open command palette (always works, even in inputs)
       if (e.metaKey && e.key === 'k') {
         e.preventDefault()
@@ -249,6 +294,13 @@ export default function App() {
         return
       }
 
+      // Cmd+E — toggle explorer panel
+      if (e.metaKey && !e.shiftKey && e.key === 'e') {
+        e.preventDefault()
+        setExplorerOpen((v) => !v)
+        return
+      }
+
       // Cmd+Shift+F — toggle file viewer panel
       if (e.metaKey && e.shiftKey && e.key === 'F') {
         e.preventDefault()
@@ -256,10 +308,21 @@ export default function App() {
         return
       }
 
-      // Cmd+D — split pane (layout-independent shortcut)
-      if (e.metaKey && e.key === 'd') {
-        e.preventDefault()
-        void handleSplitPane()
+      // Cmd+Shift+D — split pane vertically (must come before Cmd+D check)
+      if (e.metaKey && e.shiftKey && e.code === 'KeyD') {
+        if (!isModalOpen) {
+          e.preventDefault()
+          void handleSplitPane('vertical')
+        }
+        return
+      }
+
+      // Cmd+D — split pane horizontally
+      if (e.metaKey && !e.shiftKey && e.code === 'KeyD') {
+        if (!isModalOpen) {
+          e.preventDefault()
+          void handleSplitPane('horizontal')
+        }
         return
       }
 
@@ -278,11 +341,22 @@ export default function App() {
       // Cmd+1-4 — focus pane by index (works even in inputs)
       if (e.metaKey && ['1', '2', '3', '4'].includes(e.key)) {
         const idx = parseInt(e.key, 10) - 1
-        const ids = usePanesStore.getState().paneIds
+        const ids = collectLeafIds(usePanesStore.getState().layout)
         if (idx < ids.length) {
           e.preventDefault()
           setActivePane(ids[idx])
+          focusPane(ids[idx])
           return
+        }
+      }
+
+      // Cmd+Option+Arrow — spatial pane navigation
+      if (e.metaKey && e.altKey) {
+        if (!isModalOpen) {
+          if (e.key === 'ArrowLeft')  { e.preventDefault(); handleNavigatePane('left');  return }
+          if (e.key === 'ArrowRight') { e.preventDefault(); handleNavigatePane('right'); return }
+          if (e.key === 'ArrowUp')    { e.preventDefault(); handleNavigatePane('up');    return }
+          if (e.key === 'ArrowDown')  { e.preventDefault(); handleNavigatePane('down');  return }
         }
       }
 
@@ -335,30 +409,8 @@ export default function App() {
     />
   )
 
-  // Multi-pane horizontal layout
-  const chatPaneGroup = (
-    <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-      {paneIds.map((paneId, i) => (
-        <>
-          {i > 0 && (
-            <PanelResizeHandle
-              key={`sep-${paneId}`}
-              className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize"
-            />
-          )}
-          <Panel key={paneId} minSize={15} className="flex flex-col min-h-0 min-w-0">
-            <ChatPane
-              paneId={paneId}
-              isActive={paneId === activePaneId}
-              sidebarCollapsed={sidebarCollapsed && paneIds.length === 1}
-              onFocus={() => setActivePane(paneId)}
-              onClose={paneIds.length > 1 ? () => void handleClosePane(paneId) : undefined}
-            />
-          </Panel>
-        </>
-      ))}
-    </PanelGroup>
-  )
+  // Recursive layout tree renderer
+  const chatPaneGroup = renderLayoutNode(layout, activePaneId, sidebarCollapsed, paneCount, setActivePane, handleClosePane)
 
   // -------------------------------------------------------------------------
   // Render
@@ -366,60 +418,88 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-bg-primary text-text-primary select-none overflow-hidden">
+      {/* Fixed top bar — spans full width */}
+      <header
+        className="flex h-11 flex-shrink-0 items-center border-b border-border bg-bg-secondary"
+        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      >
+        {/* Traffic-light spacer + sidebar toggle */}
+        <div className="flex items-center pl-20 pr-2 gap-1 flex-shrink-0">
+          <button
+            onClick={handleToggleSidebar}
+            title={sidebarCollapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            className="flex items-center justify-center w-7 h-7 rounded-lg text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            {sidebarCollapsed ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        <div className="flex-1" />
+
+        {/* Agent health / status */}
+        <div
+          className="pr-4 text-xs text-text-tertiary capitalize flex-shrink-0"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          {activePaneHealth === 'unknown' ? 'connecting' : activePaneHealth}
+        </div>
+      </header>
+
       {/* Vertical panel group: chat area on top, optional terminal at bottom */}
       <PanelGroup orientation="vertical" className="flex-1 min-h-0">
-        {/* Top panel: sidebar + chat panes */}
+        {/* Top panel: unified sidebar | explorer | pane group | file viewer */}
         <Panel className="flex min-h-0">
           <div className="flex flex-1 min-h-0">
-            {/* Collapsed sidebar — fixed-width icon strip */}
+            {/* Collapsed sidebar — fixed icon strip outside PanelGroup */}
             {sidebarCollapsed && (
-              <>
-                {sidebarEl}
-                {fileViewerOpen ? (
-                  <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-                    <Panel className="flex flex-col min-h-0 min-w-0">
-                      {chatPaneGroup}
-                    </Panel>
-                    <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
-                    <Panel defaultSize={35} minSize={20} maxSize={60} className="flex flex-col min-h-0 min-w-0">
-                      <FileViewer onClose={() => setFileViewerOpen(false)} />
-                    </Panel>
-                  </PanelGroup>
-                ) : (
-                  <div className="flex-1 flex flex-col min-h-0 min-w-0">
-                    {chatPaneGroup}
-                  </div>
-                )}
-              </>
+              <div className="flex-shrink-0">{sidebarEl}</div>
             )}
 
-            {/* Expanded sidebar — resizable via PanelGroup */}
-            {!sidebarCollapsed && (
-              <PanelGroup orientation="horizontal" className="flex-1 min-h-0">
-                <Panel defaultSize={28} minSize={20} className="flex flex-col overflow-hidden">
-                  {sidebarEl}
-                </Panel>
-                <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
-                <Panel className="flex flex-col min-h-0">
-                  {chatPaneGroup}
-                </Panel>
-                {fileViewerOpen && (
-                  <>
-                    <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
-                    <Panel defaultSize={35} minSize={20} maxSize={60} className="flex flex-col min-h-0 min-w-0">
-                      <FileViewer onClose={() => setFileViewerOpen(false)} />
-                    </Panel>
-                  </>
-                )}
-              </PanelGroup>
-            )}
+            {/* Unified horizontal PanelGroup */}
+            <PanelGroup orientation="horizontal" className="flex-1 min-h-0 min-w-0">
+              {/* Expanded sidebar inside PanelGroup */}
+              {!sidebarCollapsed && (
+                <>
+                  <Panel defaultSize={22} minSize={15} maxSize={35} className="flex flex-col overflow-hidden">
+                    {sidebarEl}
+                  </Panel>
+                  <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                </>
+              )}
+
+              {/* Explorer panel — Cmd+E */}
+              {explorerOpen && (
+                <>
+                  <Panel defaultSize={18} minSize={12} maxSize={35} className="flex flex-col overflow-hidden border-r border-border">
+                    <FileTree paneId={activePaneId} onFileOpen={() => setFileViewerOpen(true)} />
+                  </Panel>
+                  <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                </>
+              )}
+
+              {/* Chat panes */}
+              <Panel className="flex flex-col min-h-0 min-w-0">
+                {chatPaneGroup}
+              </Panel>
+
+              {/* FileViewer — Cmd+Shift+F or opened from file tree */}
+              {fileViewerOpen && (
+                <>
+                  <PanelResizeHandle className="w-px bg-border hover:bg-accent/40 transition-colors cursor-col-resize" />
+                  <Panel defaultSize={30} minSize={20} maxSize={50} className="flex flex-col min-h-0">
+                    <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />
+                  </Panel>
+                </>
+              )}
+            </PanelGroup>
           </div>
         </Panel>
 
         {/* Terminal panel — toggled with Cmd+` */}
         {terminalOpen && (
           <>
-            <PanelResizeHandle className="h-px bg-border hover:bg-accent/40 transition-colors cursor-row-resize" />
+            <PanelResizeHandle className="h-px bg-accent/40 hover:bg-accent transition-colors cursor-row-resize" />
             <Panel defaultSize={30} minSize={10} className="flex flex-col min-h-0">
               <Terminal />
             </Panel>
@@ -432,10 +512,9 @@ export default function App() {
         model={activePaneModel}
         sessionName={activePaneSessionName}
         health={activePaneHealth}
+        fileViewerOpen={fileViewerOpen}
+        onToggleFileViewer={() => setFileViewerOpen((v) => !v)}
         onOpenModelPicker={() => setModelPickerOpen(true)}
-        voiceActive={voiceActive}
-        voiceSpeaking={voiceSpeaking}
-        voiceTtsPlaying={voiceTtsPlaying}
       />
 
       {/* Model picker dialog */}
@@ -452,10 +531,12 @@ export default function App() {
         onSwitchModel={(provider, modelId) => void handleSwitchModel(provider, modelId)}
         onStopGeneration={() => bridge.abort(activePaneId).catch(() => {})}
         onSettings={() => setSettingsOpen(true)}
-        onSplitPane={() => void handleSplitPane()}
-        onClosePane={paneIds.length > 1 ? () => void handleClosePane(activePaneId) : undefined}
+        onSplitPane={() => void handleSplitPane('horizontal')}
+        onSplitPaneVertical={() => void handleSplitPane('vertical')}
+        onNavigatePane={(dir) => handleNavigatePane(dir)}
+        onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
         isGenerating={activePaneGenerating}
-        canSplit={paneIds.length < 4}
+        canSplit={paneCount < 4}
       />
 
       {/* Settings dialog — Cmd+, */}

@@ -5,7 +5,7 @@
  * When voice is active, shows mic status and a partial transcript preview.
  */
 
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent, type ClipboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type KeyboardEvent, type ClipboardEvent } from 'react'
 import { Mic, MicOff, Volume2 } from 'lucide-react'
 
 interface Props {
@@ -24,7 +24,11 @@ interface Props {
   onStopTts?: () => void
 }
 
-export function ChatInput({
+export interface ChatInputHandle {
+  focus: () => void
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onAbort,
   isGenerating,
@@ -37,17 +41,19 @@ export function ChatInput({
   unavailableReason = null,
   onVoiceToggle,
   onStopTts,
-}: Props) {
+}: Props, ref) {
   const [value, setValue] = useState('')
   const [pastedImage, setPastedImage] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto-resize textarea up to ~6 lines
+  useImperativeHandle(ref, () => ({ focus: () => textareaRef.current?.focus() }))
+
+  // Auto-resize textarea up to ~5 lines to keep the composer compact.
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+    el.style.height = Math.min(el.scrollHeight, 128) + 'px'
   }, [value])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -117,12 +123,12 @@ export function ChatInput({
 
       {/* Image preview thumbnail */}
       {pastedImage && (
-        <div className="mb-2 flex items-start gap-2">
+        <div className="mb-1.5 flex items-start gap-2">
           <div className="relative inline-block">
             <img
               src={pastedImage}
               alt="Pasted image preview"
-              className="h-16 w-auto max-w-[120px] rounded-lg border border-border object-cover"
+              className="h-14 w-auto max-w-[108px] rounded-lg border border-border object-cover"
             />
             <button
               onClick={() => setPastedImage(null)}
@@ -137,7 +143,7 @@ export function ChatInput({
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-2xl border border-border bg-bg-secondary px-3 py-2 focus-within:border-border-active transition-colors">
+      <div className="flex items-end gap-2 rounded-xl border border-border bg-bg-secondary px-3 py-1.5 focus-within:border-border-active transition-colors">
         <textarea
           ref={textareaRef}
           value={value}
@@ -149,7 +155,7 @@ export function ChatInput({
           rows={1}
           className={[
             'flex-1 resize-none bg-transparent text-sm text-text-primary placeholder-text-tertiary',
-            'outline-none leading-7 min-h-[28px] max-h-[160px]',
+            'outline-none leading-5 min-h-[22px] max-h-[128px]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
           ].join(' ')}
         />
@@ -182,7 +188,7 @@ export function ChatInput({
           <button
             onClick={onAbort}
             title="Stop generation"
-            className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-red-600/20 border border-red-600/40 text-red-400 hover:bg-red-600/30 transition-colors"
+            className="flex-shrink-0 flex items-center justify-center h-7 w-7 rounded-lg bg-red-600/20 border border-red-600/40 text-red-400 hover:bg-red-600/30 transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
               <rect x="2" y="2" width="8" height="8" rx="1" />
@@ -194,7 +200,7 @@ export function ChatInput({
             disabled={!canSubmit}
             title="Send message"
             className={[
-              'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl transition-colors',
+              'flex-shrink-0 flex items-center justify-center h-7 w-7 rounded-lg transition-colors',
               canSubmit
                 ? 'bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30'
                 : 'bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
@@ -206,9 +212,6 @@ export function ChatInput({
           </button>
         )}
       </div>
-      <p className="mt-1.5 text-center text-[10px] text-text-tertiary">
-        Enter to send · Shift+Enter for newline
-      </p>
     </div>
   )
-}
+})

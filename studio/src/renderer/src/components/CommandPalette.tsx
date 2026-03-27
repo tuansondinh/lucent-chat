@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden'
-import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X } from 'lucide-react'
+import { Search, Plus, Cpu, PanelLeft, Settings, Square, Columns2, X, Rows2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react'
 import { Kbd, KbdGroup } from './ui/kbd'
 
 // ============================================================================
@@ -37,6 +37,8 @@ interface CommandPaletteProps {
   onStopGeneration: () => void
   onSettings: () => void
   onSplitPane: () => void
+  onSplitPaneVertical: () => void
+  onNavigatePane: (direction: 'up' | 'down' | 'left' | 'right') => void
   onClosePane?: () => void
   isGenerating: boolean
   canSplit: boolean
@@ -57,6 +59,8 @@ export function CommandPalette({
   onStopGeneration,
   onSettings,
   onSplitPane,
+  onSplitPaneVertical,
+  onNavigatePane,
   onClosePane,
   isGenerating,
   canSplit,
@@ -215,7 +219,7 @@ export function CommandPalette({
           >
             <CommandItem
               icon={<Columns2 className="h-4 w-4" />}
-              label="Split Pane"
+              label="Split Pane Horizontally"
               shortcut={
                 <KbdGroup>
                   <Kbd>⌘</Kbd>
@@ -224,6 +228,19 @@ export function CommandPalette({
               }
               disabled={!canSplit}
               onSelect={() => { onSplitPane(); onClose() }}
+            />
+            <CommandItem
+              icon={<Rows2 className="h-4 w-4" />}
+              label="Split Pane Vertically"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>⇧</Kbd>
+                  <Kbd>D</Kbd>
+                </KbdGroup>
+              }
+              disabled={!canSplit}
+              onSelect={() => { onSplitPaneVertical(); onClose() }}
             />
             {onClosePane && (
               <CommandItem
@@ -238,6 +255,54 @@ export function CommandPalette({
                 onSelect={() => { onClosePane(); onClose() }}
               />
             )}
+            <CommandItem
+              icon={<ArrowLeft className="h-4 w-4" />}
+              label="Focus Pane Left"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>⌥</Kbd>
+                  <Kbd>←</Kbd>
+                </KbdGroup>
+              }
+              onSelect={() => { onNavigatePane('left'); onClose() }}
+            />
+            <CommandItem
+              icon={<ArrowRight className="h-4 w-4" />}
+              label="Focus Pane Right"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>⌥</Kbd>
+                  <Kbd>→</Kbd>
+                </KbdGroup>
+              }
+              onSelect={() => { onNavigatePane('right'); onClose() }}
+            />
+            <CommandItem
+              icon={<ArrowUp className="h-4 w-4" />}
+              label="Focus Pane Up"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>⌥</Kbd>
+                  <Kbd>↑</Kbd>
+                </KbdGroup>
+              }
+              onSelect={() => { onNavigatePane('up'); onClose() }}
+            />
+            <CommandItem
+              icon={<ArrowDown className="h-4 w-4" />}
+              label="Focus Pane Down"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>⌘</Kbd>
+                  <Kbd>⌥</Kbd>
+                  <Kbd>↓</Kbd>
+                </KbdGroup>
+              }
+              onSelect={() => { onNavigatePane('down'); onClose() }}
+            />
           </Command.Group>
 
           {/* View group */}

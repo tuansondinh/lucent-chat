@@ -23,6 +23,8 @@ export interface PaneRuntime {
   orchestrator: Orchestrator
   sessionService: SessionService
   model: string
+  /** Project root for this pane's file tree / git context (viewer-only, not agent cwd). */
+  projectRoot: string
 }
 
 // ============================================================================
@@ -41,7 +43,8 @@ export class PaneManager {
     processManager: ProcessManager,
     agentBridge: AgentBridge,
     orchestrator: Orchestrator,
-    sessionService: SessionService
+    sessionService: SessionService,
+    projectRoot: string = process.cwd(),
   ): PaneRuntime {
     const pane: PaneRuntime = {
       id: 'pane-0',
@@ -50,6 +53,7 @@ export class PaneManager {
       orchestrator,
       sessionService,
       model: '',
+      projectRoot,
     }
     this.panes.set('pane-0', pane)
     return pane
@@ -116,7 +120,7 @@ export class PaneManager {
 
     await sessionService.loadActiveSessionId()
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '' }
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot: process.cwd() }
     this.panes.set(id, pane)
     return pane
   }

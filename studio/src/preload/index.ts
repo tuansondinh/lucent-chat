@@ -8,6 +8,8 @@ interface ProviderAuthStatus {
   configuredVia: 'auth_file' | 'environment' | null
   removeAllowed: boolean
   recommended?: boolean
+  supportsApiKey: boolean
+  supportsOAuth: boolean
 }
 
 /**
@@ -122,9 +124,74 @@ const bridge = {
   getProviderAuthStatus: (): Promise<ProviderAuthStatus[]> =>
     ipcRenderer.invoke('cmd:get-provider-auth-status'),
 
-  /** Get the static provider catalog (id, label, keyPlaceholder, recommended). */
-  getProviderCatalog: (): Promise<Array<{ id: string; label: string; keyPlaceholder: string; recommended?: boolean }>> =>
+  /** Get the static provider catalog (id, label, keyPlaceholder, recommended, supportsApiKey, supportsOAuth). */
+  getProviderCatalog: (): Promise<Array<{ id: string; label: string; keyPlaceholder?: string; recommended?: boolean; supportsApiKey: boolean; supportsOAuth: boolean }>> =>
     ipcRenderer.invoke('cmd:get-provider-catalog'),
+
+  /** Start an OAuth login flow. Long-running — resolves when complete. */
+  oauthStart: (providerId: string): Promise<{ ok: boolean; message: string; providerStatuses: ProviderAuthStatus[] }> =>
+    ipcRenderer.invoke('cmd:oauth-start', providerId),
+
+  /** Submit a pasted code for an in-flight OAuth code-paste flow. */
+  oauthSubmitCode: (providerId: string, code: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:oauth-submit-code', providerId, code),
+
+  /** Cancel an in-flight OAuth flow. */
+  oauthCancel: (providerId: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:oauth-cancel', providerId),
+
+  /** OAuth progress event (browser open, device code, awaiting input, generic progress). */
+  onOAuthProgress: (
+    cb: (data: {
+      providerId: string
+      type: 'open_browser' | 'awaiting_input' | 'awaiting_code' | 'progress'
+      url?: string
+      instructions?: string
+      message?: string
+      placeholder?: string
+      allowEmpty?: boolean
+    }) => void
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:oauth-progress', handler)
+    return () => ipcRenderer.removeListener('event:oauth-progress', handler)
+  },
+
+  // -------------------------------------------------------------------------
+  // File system commands — pane-scoped
+  // -------------------------------------------------------------------------
+
+  /** List directory contents within the pane's project root. */
+  fsListDir: (paneId: string, relativePath: string): Promise<{ entries: { name: string; type: 'file' | 'directory' }[]; truncated: boolean }> =>
+    ipcRenderer.invoke('cmd:fs-list-dir', paneId, relativePath),
+
+  /** Read a file within the pane's project root. */
+  fsReadFile: (paneId: string, relativePath: string): Promise<{ content: string; size: number; truncated: boolean; isBinary: boolean }> =>
+    ipcRenderer.invoke('cmd:fs-read-file', paneId, relativePath),
+
+  /** Get the current git branch for a pane's project root. */
+  gitBranch: (paneId: string): Promise<string | null> =>
+    ipcRenderer.invoke('cmd:git-branch', paneId),
+
+  /** Get the resolved project root path for a pane. */
+  gitProjectRoot: (paneId: string): Promise<string> =>
+    ipcRenderer.invoke('cmd:git-project-root', paneId),
+
+  /** Get list of modified/untracked files for a pane's project root. */
+  gitModifiedFiles: (paneId: string): Promise<string[]> =>
+    ipcRenderer.invoke('cmd:git-modified-files', paneId),
+
+  /** Get pane info including project root. */
+  getPaneInfo: (paneId: string): Promise<{ paneId: string; projectRoot: string }> =>
+    ipcRenderer.invoke('cmd:get-pane-info', paneId),
+
+  /** Set the project root for a pane's file browsing context. */
+  setPaneRoot: (paneId: string, absolutePath: string): Promise<{ projectRoot: string }> =>
+    ipcRenderer.invoke('cmd:set-pane-root', paneId, absolutePath),
+
+  /** Open native folder picker dialog. Returns selected path or null if cancelled. */
+  pickFolder: (): Promise<string | null> =>
+    ipcRenderer.invoke('cmd:pick-folder'),
 
   // -------------------------------------------------------------------------
   // Terminal commands — not pane-specific

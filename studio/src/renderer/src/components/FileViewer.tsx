@@ -11,11 +11,10 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { useChatStore } from '../store/chat'
-import type { ViewedFile } from '../store/chat'
+import { getPaneStore } from '../store/pane-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Eye, PenLine } from 'lucide-react'
+import { X, Copy, Check, FileText } from 'lucide-react'
 
 // ============================================================================
 // Constants
@@ -214,47 +213,50 @@ function HighlightedCode({ code, language }: HighlightedCodeProps) {
 // ============================================================================
 
 export interface FileViewerProps {
+  paneId: string
   onClose: () => void
 }
 
-export function FileViewer({ onClose }: FileViewerProps) {
-  const viewedFile = useChatStore((s) => s.viewedFile)
+export function FileViewer({ paneId, onClose }: FileViewerProps) {
+  const activeFile = getPaneStore(paneId)((s) =>
+    s.openFiles.find((f) => f.relativePath === s.activeFilePath) ?? null
+  )
   const [showAll, setShowAll] = useState(false)
 
   // Reset "show all" when file changes
   useEffect(() => {
     setShowAll(false)
-  }, [viewedFile?.path])
+  }, [activeFile?.relativePath])
 
   // ---- Empty state ----
-  if (!viewedFile) {
+  if (!activeFile) {
     return (
       <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
-        <FileViewerHeader path={null} tool={null} onClose={onClose} fullContent="" />
+        <FileViewerHeader path={null} onClose={onClose} fullContent="" />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-6">
           <FileText className="size-8 text-text-tertiary opacity-40" />
           <p className="text-sm text-text-tertiary">
             No file selected
           </p>
           <p className="text-xs text-text-tertiary/60 max-w-[200px] leading-relaxed">
-            File activity will appear here when the agent reads or writes files.
+            Open a file from the Explorer to view it here.
           </p>
         </div>
       </div>
     )
   }
 
-  const { path, content, tool } = viewedFile
+  const { relativePath, content, isBinary } = activeFile
 
   // ---- Binary detection ----
-  if (isBinaryContent(content)) {
+  if (isBinary || isBinaryContent(content)) {
     return (
       <div className="flex flex-col h-full bg-bg-secondary border-l border-border">
-        <FileViewerHeader path={path} tool={tool} onClose={onClose} fullContent={content} />
+        <FileViewerHeader path={relativePath} onClose={onClose} fullContent="" />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-6">
           <FileText className="size-8 text-text-tertiary opacity-40" />
           <p className="text-sm text-text-tertiary">Binary file — preview unavailable</p>
-          <p className="text-xs font-mono text-text-tertiary/60 mt-1 break-all">{path}</p>
+          <p className="text-xs font-mono text-text-tertiary/60 mt-1 break-all">{relativePath}</p>
         </div>
       </div>
     )
@@ -264,11 +266,11 @@ export function FileViewer({ onClose }: FileViewerProps) {
   const lines = content.split('\n')
   const isTruncated = !showAll && lines.length > TRUNCATE_LINES
   const displayContent = isTruncated ? lines.slice(0, TRUNCATE_LINES).join('\n') : content
-  const language = extensionToLanguage(path)
+  const language = extensionToLanguage(relativePath)
 
   return (
     <div className="flex flex-col h-full bg-bg-secondary border-l border-border min-w-0">
-      <FileViewerHeader path={path} tool={tool} onClose={onClose} fullContent={content} />
+      <FileViewerHeader path={relativePath} onClose={onClose} fullContent={content} />
 
       {/* Scrollable code area */}
       <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
@@ -299,25 +301,18 @@ export function FileViewer({ onClose }: FileViewerProps) {
 
 interface FileViewerHeaderProps {
   path: string | null
-  tool: 'read' | 'write' | null
   onClose: () => void
   fullContent: string
 }
 
-function FileViewerHeader({ path, tool, onClose, fullContent }: FileViewerHeaderProps) {
+function FileViewerHeader({ path, onClose, fullContent }: FileViewerHeaderProps) {
   const fileName = path ? path.replace(/\\/g, '/').split('/').pop() ?? path : null
   const shortPath = path ? shortenPath(path) : null
 
   return (
     <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-bg-tertiary flex-shrink-0 min-w-0">
-      {/* Tool badge */}
-      {tool === 'read' ? (
-        <Eye className="size-3.5 text-blue-400 flex-shrink-0" aria-label="Read" />
-      ) : tool === 'write' ? (
-        <PenLine className="size-3.5 text-amber-400 flex-shrink-0" aria-label="Write" />
-      ) : (
-        <FileText className="size-3.5 text-text-tertiary flex-shrink-0" />
-      )}
+      {/* File icon */}
+      <FileText className="size-3.5 text-text-tertiary flex-shrink-0" />
 
       {/* File path */}
       <div className="flex-1 min-w-0 overflow-hidden">
