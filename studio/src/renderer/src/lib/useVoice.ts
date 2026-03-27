@@ -100,7 +100,7 @@ class AudioPlaybackQueue {
   private playing = false
   private currentSource: AudioBufferSourceNode | null = null
   private readonly onDrain: () => void
-  private stopped = false
+  private destroyed = false
 
   constructor(onDrain: () => void) {
     this.ctx = new AudioContext({ sampleRate: 24000 })
@@ -109,7 +109,7 @@ class AudioPlaybackQueue {
 
   /** Enqueue a raw Int16 PCM chunk (24 kHz mono). */
   enqueue(int16Data: ArrayBuffer): void {
-    if (this.stopped) return
+    if (this.destroyed) return
     // Resume AudioContext if the browser suspended it (gesture requirement)
     if (this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {})
@@ -143,10 +143,13 @@ class AudioPlaybackQueue {
 
   /** Stop all playback immediately and clear the queue. */
   stop(): void {
-    this.stopped = true
     this.queue = []
+    const source = this.currentSource
+    if (source) {
+      source.onended = null
+    }
     try {
-      this.currentSource?.stop()
+      source?.stop()
     } catch {
       // may throw if already stopped
     }
@@ -156,6 +159,7 @@ class AudioPlaybackQueue {
 
   /** Stop and close the AudioContext. */
   destroy(): void {
+    this.destroyed = true
     this.stop()
     this.ctx.close().catch(() => {})
   }
