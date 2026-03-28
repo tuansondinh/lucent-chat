@@ -21,10 +21,39 @@ import { getPaneStore, type OpenViewerItem, type OpenFile } from '../store/pane-
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye, AlertTriangle } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye, AlertTriangle, WrapText, ZoomIn, ZoomOut } from 'lucide-react'
 import type { GitChangeStatus } from '../../../preload'
 import { getBridge } from '../lib/bridge'
 import { toast } from 'sonner'
+
+// ============================================================================
+// Editor preferences — persisted to localStorage
+// ============================================================================
+
+const LS_WORD_WRAP_KEY = 'lc_editor_word_wrap'
+const LS_FONT_SIZE_KEY = 'lc_editor_font_size'
+const EDITOR_FONT_SIZE_DEFAULT = 13
+const EDITOR_FONT_SIZE_MIN = 8
+const EDITOR_FONT_SIZE_MAX = 32
+
+function readWordWrap(): boolean {
+  try { return localStorage.getItem(LS_WORD_WRAP_KEY) === 'true' } catch { return false }
+}
+
+function readFontSize(): number {
+  try {
+    const v = parseInt(localStorage.getItem(LS_FONT_SIZE_KEY) ?? '', 10)
+    return Number.isFinite(v) ? Math.max(EDITOR_FONT_SIZE_MIN, Math.min(EDITOR_FONT_SIZE_MAX, v)) : EDITOR_FONT_SIZE_DEFAULT
+  } catch { return EDITOR_FONT_SIZE_DEFAULT }
+}
+
+function saveWordWrap(v: boolean): void {
+  try { localStorage.setItem(LS_WORD_WRAP_KEY, v ? 'true' : 'false') } catch { /* ignore */ }
+}
+
+function saveFontSize(v: number): void {
+  try { localStorage.setItem(LS_FONT_SIZE_KEY, String(v)) } catch { /* ignore */ }
+}
 
 // Lazy-load CodeEditor — only needed when user toggles edit mode
 const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })))
@@ -510,6 +539,33 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   // ---- Edit mode state (per-tab, reset when switching tabs) ----
   const [editMode, setEditMode] = useState(false)
 
+  // ---- Editor preferences (persisted to localStorage) ----
+  const [wordWrap, setWordWrap] = useState<boolean>(() => readWordWrap())
+  const [fontSize, setFontSize] = useState<number>(() => readFontSize())
+
+  const handleWordWrapToggle = useCallback(() => {
+    setWordWrap((v) => {
+      saveWordWrap(!v)
+      return !v
+    })
+  }, [])
+
+  const handleFontSizeIncrease = useCallback(() => {
+    setFontSize((v) => {
+      const next = Math.min(v + 1, EDITOR_FONT_SIZE_MAX)
+      saveFontSize(next)
+      return next
+    })
+  }, [])
+
+  const handleFontSizeDecrease = useCallback(() => {
+    setFontSize((v) => {
+      const next = Math.max(v - 1, EDITOR_FONT_SIZE_MIN)
+      saveFontSize(next)
+      return next
+    })
+  }, [])
+
   // ---- Search state ----
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -629,6 +685,29 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeFilePath, handleSave])
+
+  // ---- Cmd+= / Cmd+- / Cmd+0 font size shortcuts (only when in edit mode) ----
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only active when in edit mode
+      if (!editMode) return
+      if (!(e.metaKey || e.ctrlKey)) return
+
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault()
+        handleFontSizeIncrease()
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault()
+        handleFontSizeDecrease()
+      } else if (e.key === '0') {
+        e.preventDefault()
+        setFontSize(EDITOR_FONT_SIZE_DEFAULT)
+        saveFontSize(EDITOR_FONT_SIZE_DEFAULT)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [editMode, handleFontSizeIncrease, handleFontSizeDecrease])
 
   // ---- Window beforeunload guard (dirty tabs) ----
   useEffect(() => {
@@ -891,6 +970,11 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         canEdit={canEdit}
         editDisabledReason={editDisabledReason}
         onEditToggle={() => setEditMode((v) => !v)}
+        wordWrap={wordWrap}
+        onWordWrapToggle={handleWordWrapToggle}
+        fontSize={fontSize}
+        onFontSizeIncrease={handleFontSizeIncrease}
+        onFontSizeDecrease={handleFontSizeDecrease}
       />
 
       {/* Tab strip */}
@@ -915,6 +999,8 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
               filePath={relativePath}
               initialContent={editorContent}
               onUpdate={handleEditorUpdate}
+              wordWrap={wordWrap}
+              fontSize={fontSize}
               className="h-full"
             />
           </Suspense>
@@ -1078,6 +1164,16 @@ interface FileViewerHeaderProps {
   editDisabledReason?: string | null
   /** Callback to toggle edit/view mode. */
   onEditToggle?: () => void
+  /** Whether word wrap is currently enabled (shown only in edit mode). */
+  wordWrap?: boolean
+  /** Callback to toggle word wrap. */
+  onWordWrapToggle?: () => void
+  /** Current editor font size (shown only in edit mode). */
+  fontSize?: number
+  /** Callback to increase font size. */
+  onFontSizeIncrease?: () => void
+  /** Callback to decrease font size. */
+  onFontSizeDecrease?: () => void
 }
 
 function FileViewerHeader({
@@ -1093,6 +1189,11 @@ function FileViewerHeader({
   canEdit = false,
   editDisabledReason = null,
   onEditToggle,
+  wordWrap = false,
+  onWordWrapToggle,
+  fontSize = EDITOR_FONT_SIZE_DEFAULT,
+  onFontSizeIncrease,
+  onFontSizeDecrease,
 }: FileViewerHeaderProps) {
   const handleSegmentClick = useCallback((segmentPath: string) => {
     void getFileTreeStore(paneId).getState().toggleDir(segmentPath)
@@ -1153,6 +1254,52 @@ function FileViewerHeader({
         >
           {editMode ? <Eye className="size-3.5" /> : <Pencil className="size-3.5" />}
         </button>
+      )}
+
+      {/* Editor toolbar — only shown in edit mode */}
+      {path && mode === 'file' && editMode && (
+        <>
+          {/* Word wrap toggle */}
+          <button
+            onClick={onWordWrapToggle}
+            title={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}
+            className={cn(
+              'flex items-center justify-center size-5 rounded transition-colors flex-shrink-0',
+              wordWrap
+                ? 'text-accent bg-accent/10 hover:bg-accent/20'
+                : 'text-text-tertiary hover:text-text-primary hover:bg-bg-hover',
+            )}
+            aria-label={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}
+            aria-pressed={wordWrap}
+          >
+            <WrapText className="size-3.5" />
+          </button>
+
+          {/* Font size controls */}
+          <div className="flex items-center gap-0.5 flex-shrink-0" title={`Font size: ${fontSize}px (⌘= / ⌘-)`}>
+            <button
+              onClick={onFontSizeDecrease}
+              disabled={fontSize <= EDITOR_FONT_SIZE_MIN}
+              title={`Decrease font size (⌘-)`}
+              className="flex items-center justify-center size-5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label="Decrease font size"
+            >
+              <ZoomOut className="size-3.5" />
+            </button>
+            <span className="text-[10px] text-text-tertiary tabular-nums w-6 text-center select-none">
+              {fontSize}
+            </span>
+            <button
+              onClick={onFontSizeIncrease}
+              disabled={fontSize >= EDITOR_FONT_SIZE_MAX}
+              title={`Increase font size (⌘=)`}
+              className="flex items-center justify-center size-5 rounded hover:bg-bg-hover text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              aria-label="Increase font size"
+            >
+              <ZoomIn className="size-3.5" />
+            </button>
+          </div>
+        </>
       )}
 
       {/* Search button — only in view mode */}
