@@ -20,21 +20,23 @@ test('settings contract: sanitizes tavilyApiKey for renderer output', () => {
 
   assert.equal(result.hasTavilyKey, true)
   assert.equal('tavilyApiKey' in result, false)
-  assert.equal(result.remoteAccessToken, 'token-123')
+  // remoteAccessToken is stripped for security — not passed to renderer
+  assert.equal('remoteAccessToken' in result, false)
 })
 
 test('settings contract: validates remote access settings', () => {
+  const token = 'token-secure-longkey-123'
   const result = validateSettingsPatch({
     remoteAccessEnabled: true,
     remoteAccessPort: 8788,
-    remoteAccessToken: 'token-123',
+    remoteAccessToken: token,
     tailscaleServeEnabled: false,
   })
 
   assert.deepEqual(result, {
     remoteAccessEnabled: true,
     remoteAccessPort: 8788,
-    remoteAccessToken: 'token-123',
+    remoteAccessToken: token,
     tailscaleServeEnabled: false,
   })
 })
@@ -44,6 +46,18 @@ test('settings contract: rejects invalid remoteAccessPort', () => {
     () => validateSettingsPatch({ remoteAccessPort: 70_000 }),
     /Invalid remoteAccessPort setting/,
   )
+})
+
+test('settings contract: validates persisted project/file context', () => {
+  const result = validateSettingsPatch({
+    lastProjectRoot: '/tmp/project',
+    lastActiveFilePath: 'src/App.tsx',
+  })
+
+  assert.deepEqual(result, {
+    lastProjectRoot: '/tmp/project',
+    lastActiveFilePath: 'src/App.tsx',
+  })
 })
 
 // ============================================================================

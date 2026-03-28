@@ -139,13 +139,14 @@ test('phase3: evaluateRules returns null for unhandled toolName', () => {
 // classifyToolCall: graceful degradation
 // ============================================================================
 
-test('phase3: classifyToolCall returns approved=true when no API key (accept-on-edit fallback)', async () => {
+test('phase3: classifyToolCall returns approved=false when no API key (require manual approval)', async () => {
   const noKeyAuthService = { getApiKey: async () => undefined } as any
   const svc = new ClassifierService(noKeyAuthService)
 
   const context: ClassifierContext = { userMessages: ['do a thing'], projectInstructions: undefined }
-  const result = await svc.classifyToolCall('test-pane', 'bash', { command: 'ls' }, context)
-  assert.equal(result.approved, true, 'no-key degradation should approve (accept-on-edit behavior)')
+  // Use a command not in built-in allows so it reaches the no-key fallback
+  const result = await svc.classifyToolCall('test-pane', 'bash', { command: 'npm install' }, context)
+  assert.equal(result.approved, false, 'no API key → deny and require manual approval')
   assert.equal(result.source, 'fallback')
 })
 
@@ -164,7 +165,8 @@ test('phase3: classifyToolCall returns cache hit within 30s', async () => {
   }
 
   const context: ClassifierContext = { userMessages: ['hello'], projectInstructions: undefined }
-  const args = { command: 'git status' }
+  // Use a command not in built-in allows so it reaches the classifier
+  const args = { command: 'npm install' }
 
   // First call — should hit API
   const r1 = await svc.classifyToolCall('pane-cache', 'bash', args, context)
@@ -188,8 +190,9 @@ test('phase3: classifyToolCall bypasses cache for different args', async () => {
 
   const context: ClassifierContext = { userMessages: ['hello'] }
 
-  await svc.classifyToolCall('pane-cache2', 'bash', { command: 'git status' }, context)
-  await svc.classifyToolCall('pane-cache2', 'bash', { command: 'npm test' }, context)
+  // Use commands not in built-in allows so they reach the classifier
+  await svc.classifyToolCall('pane-cache2', 'bash', { command: 'npm install' }, context)
+  await svc.classifyToolCall('pane-cache2', 'bash', { command: 'python script.py' }, context)
 
   assert.equal(apiCallCount, 2, 'different args should produce different cache keys')
 })

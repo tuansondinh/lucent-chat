@@ -7,6 +7,8 @@ import { EventEmitter } from 'node:events'
 
 // Mock AgentBridge
 class MockAgentBridge extends EventEmitter {
+  stateQueue: Array<{ sessionFile?: string }> = []
+
   async setSessionName(name: string): Promise<void> {
     // Mock implementation
   }
@@ -17,6 +19,10 @@ class MockAgentBridge extends EventEmitter {
 
   async getMessages(): Promise<any[]> {
     return []
+  }
+
+  async getState(): Promise<{ sessionFile?: string }> {
+    return this.stateQueue.shift() ?? {}
   }
 }
 
@@ -301,6 +307,25 @@ test('SessionService: renameSession delegates to agentBridge', async () => {
   assert.equal(newName, 'New Session Name')
 })
 
+test('SessionService: syncActiveSessionFromAgent waits for the new session file', async () => {
+  const mockBridge = new MockAgentBridge()
+  const service = new SessionService(mockBridge)
+
+  mockBridge.stateQueue = [
+    { sessionFile: '/sessions/old.jsonl' },
+    { sessionFile: '/sessions/old.jsonl' },
+    { sessionFile: '/sessions/new.jsonl' },
+  ]
+
+  const synced = await service.syncActiveSessionFromAgent({
+    previousSessionId: '/sessions/old.jsonl',
+    timeoutMs: 500,
+  })
+
+  assert.equal(synced, '/sessions/new.jsonl')
+  assert.equal(service.getActiveSessionId(), '/sessions/new.jsonl')
+})
+
 test('SessionService: getMessages formats messages correctly', async () => {
   const mockBridge = new MockAgentBridge()
   const service = new SessionService(mockBridge)
@@ -392,6 +417,9 @@ test('SessionService: getMessages handles messages with empty content', async ()
 test('SessionService: loadActiveSessionId handles nonexistent file', async () => {
   const mockBridge = new MockAgentBridge()
   const service = new SessionService(mockBridge)
+
+  // Override to a path that definitely doesn't exist
+  ;(service as any).activeSessionFile = join(tmpdir(), 'lucent-test-no-active-' + Date.now())
 
   const loaded = await service.loadActiveSessionId()
   assert.equal(loaded, null)

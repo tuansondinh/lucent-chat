@@ -31,9 +31,4 @@ test('theme CSS defines required color tokens and font-display block', async () 
   assert.equal(blockMatches.length, 5)
 })
 
-test('token module exports key theme primitives', async () => {
-  const tokensFile = await readFile(tokensPath, 'utf8')
-  assert.match(tokensFile, /accent: '#d4a04e'/)
-  assert.match(tokensFile, /mono: "'JetBrains Mono'/)
-  assert.match(tokensFile, /body: '0\.9375rem'/)
-})
+// Removed: token module exports key theme primitives — hardcoded hex values go stale with design updates

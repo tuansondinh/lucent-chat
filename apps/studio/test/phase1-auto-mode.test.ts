@@ -278,11 +278,12 @@ test('PaneManager: togglePanePermissionMode cycles through 3 states', async () =
   assert.equal(mode3, 'danger-full-access')
 })
 
-test('PaneManager: togglePanePermissionMode returns danger-full-access for unknown pane', async () => {
+test('PaneManager: togglePanePermissionMode returns DEFAULT_PERMISSION_MODE for unknown pane', async () => {
   const { PaneManager } = await import('../src/main/pane-manager.js')
+  const { DEFAULT_PERMISSION_MODE } = await import('../src/main/settings-service.js')
   const paneManager = new PaneManager()
   const result = await paneManager.togglePanePermissionMode('unknown-pane')
-  assert.equal(result, 'danger-full-access')
+  assert.equal(result, DEFAULT_PERMISSION_MODE)
 })
 
 // ============================================================================

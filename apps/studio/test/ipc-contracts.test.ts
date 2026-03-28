@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { ipcMain } from 'electron'
 import { registerIpcHandlers } from '../src/main/ipc-handlers.js'
 import { PaneManager } from '../src/main/pane-manager.js'
@@ -23,6 +24,12 @@ class MockPaneManager {
   }
 
   private createMockPane(id: string) {
+    const state = {
+      model: { provider: 'test', id: 'test-model' },
+      sessionFile: 'test-session.json',
+      sessionName: '',
+      messageCount: 0,
+    }
     return {
       id,
       projectRoot: '/test/root',
@@ -32,22 +39,26 @@ class MockPaneManager {
         getCurrentTurn: () => null,
         setVoicePhase: () => {},
       },
-      agentBridge: {
+      agentBridge: Object.assign(new EventEmitter(), {
         setModel: async () => {},
-        getState: async () => ({
-          model: { provider: 'test', id: 'test-model' },
-          sessionFile: 'test-session.json',
-        }),
+        getState: async () => state,
         getAvailableModels: async () => [],
         newSession: async () => ({ cancelled: false }),
-      },
+        setSessionName: async (name: string) => {
+          state.sessionName = name
+        },
+        respondToClassifier: () => {},
+        respondToUiSelect: () => {},
+      }),
       sessionService: {
         switchSession: async () => {},
         renameSession: async () => {},
         deleteSession: async () => {},
         listSessions: async () => [],
         getMessages: async () => [],
+        getActiveSessionId: () => 'test-session.json',
         setActiveSessionId: () => {},
+        syncActiveSessionFromAgent: async () => 'test-session.json',
       },
       processManager: {
         getStates: () => ({ agent: 'ready' }),
@@ -442,8 +453,8 @@ test('IPC: cmd:get-settings sanitizes output', async (t) => {
 
   // Should not include the actual key
   assert.strictEqual(result.tavilyApiKey, undefined)
-  // Should include a flag indicating presence
-  assert.strictEqual(result.hasTavilyKey, false) // We didn't set it in the mock
+  // Should include a flag indicating presence (we set tavilyApiKey above)
+  assert.strictEqual(result.hasTavilyKey, true)
 })
 
 test('IPC: auth changes trigger restartAllAgents', async (t) => {
@@ -551,7 +562,7 @@ test('IPC: cmd:pane-list returns all pane IDs', async (t) => {
 test('IPC: destroyed window behavior', async (t) => {
   let mainWindowDestroyed = false
   const getMainWindow = () =>
-    mainWindowDestroyed ? null : ({ isDestroyed: () => mainWindowDestroyed } as any)
+    mainWindowDestroyed ? null : ({ isDestroyed: () => mainWindowDestroyed, setTitle: () => {}, getSize: () => [800, 600], setMinimumSize: () => {} } as any)
 
   const paneManager = new MockPaneManager()
   const settingsService = new MockSettingsService()
@@ -717,6 +728,16 @@ test('IPC: session commands work', async (t) => {
   assert.ok(Array.isArray(messages))
 })
 
+test('IPC: first prompt auto-names unnamed session', async (t) => {
+  const { paneManager } = setupIpc()
+  const pane = paneManager.getPane('pane-0')
+
+  await ipcMain.invoke('cmd:prompt', 'pane-0', 'Build the onboarding flow for mobile')
+
+  const state = await pane.agentBridge.getState()
+  assert.equal(state.sessionName, 'Build the onboarding flow for mobile')
+})
+
 test('IPC: git commands work', async (t) => {
   setupIpc()
 
@@ -810,6 +831,6 @@ test('IPC: get models returns available models', async (t) => {
 })
 
 // Cleanup after all tests
-test.teardown(() => {
+process.on('exit', () => {
   ipcMain.removeAllListeners()
 })
