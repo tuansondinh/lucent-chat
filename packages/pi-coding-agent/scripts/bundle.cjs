@@ -27,9 +27,11 @@ const {
   readFileSync,
   readdirSync,
   chmodSync,
+  statSync,
 } = require('fs')
 const { join, relative, dirname } = require('path')
 const { execSync } = require('child_process')
+const { createHash } = require('crypto')
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +80,63 @@ function copyDirRecursive(src, dest, filter) {
  */
 function writeJson(filePath, obj) {
   writeFileSync(filePath, JSON.stringify(obj, null, 2) + '\n', 'utf-8')
+}
+
+// ─── Incremental check ───────────────────────────────────────────────────────
+// Hash the inputs that affect bundle output. If the hash matches the stored
+// .bundle-hash, skip the full wipe+copy — saves 2–5 min on repeat builds.
+//
+// Inputs hashed:
+//   1. pnpm-lock.yaml / package-lock.json  — detects dep changes
+//   2. root dist/ newest mtime             — detects compiled-output changes
+//   3. this script's own mtime             — forces rebuild when bundle logic changes
+
+function computeBundleHash() {
+  const h = createHash('sha256')
+
+  // 1. Lock file content
+  for (const lockName of ['pnpm-lock.yaml', 'package-lock.json']) {
+    const lockPath = join(RUNTIME_DIR, lockName)
+    if (existsSync(lockPath)) {
+      h.update(readFileSync(lockPath))
+      break
+    }
+  }
+
+  // 2. Newest mtime in root dist/ (fast — no recursion needed)
+  const distDir = join(PROJECT_ROOT, 'dist')
+  if (existsSync(distDir)) {
+    let newest = 0
+    function scanMtime(dir) {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, e.name)
+        if (e.isDirectory()) { scanMtime(p) }
+        else {
+          const mt = statSync(p).mtimeMs
+          if (mt > newest) newest = mt
+        }
+      }
+    }
+    scanMtime(distDir)
+    h.update(String(newest))
+  }
+
+  // 3. This script's mtime
+  h.update(String(statSync(__filename).mtimeMs))
+
+  return h.digest('hex')
+}
+
+const HASH_FILE = join(BUNDLE_DIR, '.bundle-hash')
+const FORCE     = process.argv.includes('--force')
+
+if (!FORCE && existsSync(BUNDLE_DIR) && existsSync(HASH_FILE)) {
+  const stored  = readFileSync(HASH_FILE, 'utf-8').trim()
+  const current = computeBundleHash()
+  if (stored === current) {
+    console.log('[bundle] Bundle is up-to-date (inputs unchanged). Use --force to rebuild.')
+    process.exit(0)
+  }
 }
 
 // ─── Step 1: Clean and recreate bundle/ ──────────────────────────────────────
@@ -266,6 +325,13 @@ const DEV_ONLY_DIRS = new Set([
   'tailwindcss',
   // Workspace packages — these are in bundle/packages/ instead
   '@lc',
+  // Build/transpile tools — compile-time only, never needed at runtime
+  'tsx',           // TypeScript runner (agent is pre-compiled)
+  '7zip-bin',      // electron-builder dependency, not a runtime dep
+  'workbox-build', // PWA service-worker build tool
+  'playwright-core', // test framework
+  'esbuild',       // bundler
+  '@esbuild',      // platform-specific esbuild binaries
 ])
 
 const rootNodeModules = join(PROJECT_ROOT, 'node_modules')
@@ -300,7 +366,50 @@ for (const entry of topLevelEntries) {
 
 console.log(`  → copied ${copiedCount} node_modules entries`)
 
-// ─── Step 9: Link workspace packages into bundle/node_modules/@lc/ ──────────
+// ─── Step 9: Post-copy size optimizations ────────────────────────────────────
+// Strip bloat that inflates the bundle without providing runtime value.
+
+// 9a: Strip koffi cross-platform prebuilds (keep only mac; universal builds need
+//     both darwin_arm64 and darwin_x64, everything else is dead weight).
+const koffiBuildDir = join(bundleNodeModules, 'koffi', 'build', 'koffi')
+if (existsSync(koffiBuildDir)) {
+  const KEEP_KOFFI_PLATFORMS = new Set(['darwin_arm64', 'darwin_x64'])
+  let koffiStripped = 0
+  for (const entry of readdirSync(koffiBuildDir, { withFileTypes: true })) {
+    if (!KEEP_KOFFI_PLATFORMS.has(entry.name)) {
+      rmSync(join(koffiBuildDir, entry.name), { recursive: true, force: true })
+      koffiStripped++
+    }
+  }
+  console.log(`  [size] koffi: stripped ${koffiStripped} non-mac platform prebuilds`)
+
+  // Strip koffi source, vendor, and docs — binaries are all that's needed at runtime
+  for (const stripDir of ['src', 'vendor', 'doc']) {
+    const p = join(bundleNodeModules, 'koffi', stripDir)
+    if (existsSync(p)) {
+      rmSync(p, { recursive: true, force: true })
+      console.log(`  [size] koffi: stripped ${stripDir}/`)
+    }
+  }
+}
+
+// 9b: Strip sql.js dist variants — keep only the Node WASM build.
+//     The package ships 15 files (asm, browser, debug, worker variants);
+//     Node runtime only uses sql-wasm.js + sql-wasm.wasm.
+const sqlJsDistDir = join(bundleNodeModules, 'sql.js', 'dist')
+if (existsSync(sqlJsDistDir)) {
+  const KEEP_SQLJS = new Set(['sql-wasm.js', 'sql-wasm.wasm', 'worker.sql-wasm.js'])
+  let sqlStripped = 0
+  for (const entry of readdirSync(sqlJsDistDir, { withFileTypes: true })) {
+    if (!KEEP_SQLJS.has(entry.name)) {
+      rmSync(join(sqlJsDistDir, entry.name), { force: true })
+      sqlStripped++
+    }
+  }
+  console.log(`  [size] sql.js: stripped ${sqlStripped} unused dist variants`)
+}
+
+// ─── Step 11: Link workspace packages into bundle/node_modules/@lc/ ──────────
 // This makes @lc/* imports in entrypoint.js resolve correctly at runtime.
 
 console.log('[bundle] Linking workspace packages into bundle/node_modules/@lc/ ...')
@@ -316,7 +425,7 @@ for (const { name } of wsPackages) {
   }
 }
 
-// ─── Step 10: Copy Node binary ────────────────────────────────────────────────
+// ─── Step 12: Copy Node binary ───────────────────────────────────────────────
 // Use the currently-running Node binary (same version/arch as build machine).
 // This ensures arm64 macOS gets an arm64 binary without downloading.
 
@@ -330,6 +439,9 @@ chmodSync(nodeDest, 0o755)
 console.log(`  → node binary from ${nodeSrc}`)
 
 // ─── Done ─────────────────────────────────────────────────────────────────────
+
+// Write hash so the next run can skip if inputs haven't changed
+writeFileSync(HASH_FILE, computeBundleHash(), 'utf-8')
 
 console.log('[bundle] Bundle complete.')
 console.log(`  Output: ${BUNDLE_DIR}`)

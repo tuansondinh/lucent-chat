@@ -5,7 +5,8 @@
  * attempts to edit or write a file.  The user can Allow or Deny the change.
  * The decision is sent back to the main process via IPC.
  *
- * The modal is rendered in a portal over the entire app so it is always visible.
+ * ApprovalCard is the inline (chat-embedded) version.
+ * ApprovalModal / ApprovalModalContainer are kept for any fallback usage.
  */
 
 import { useState, useEffect, useCallback } from 'react'
@@ -110,6 +111,84 @@ function ApprovalModal({ request, onRespond }: ApprovalModalProps) {
             Allow
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// ApprovalCard — inline chat card version (no overlay)
+// ============================================================================
+
+export function ApprovalCard({ request, onRespond }: ApprovalModalProps) {
+  const actionLabel = {
+    write: 'Write File',
+    edit: 'Edit File',
+    delete: 'Delete File',
+    move: 'Move File',
+  }[request.action] ?? request.action
+
+  const parts = request.message.split('\n\n')
+  const description = parts[0] ?? request.message
+  const diffPreview = parts.length > 1 ? parts.slice(1).join('\n\n') : null
+
+  return (
+    <div
+      role="group"
+      aria-label="File change approval request"
+      data-testid="approval-card"
+      className="mx-4 mb-3 rounded-xl border border-yellow-500/30 bg-yellow-500/5 overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        <ShieldAlert className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0" />
+        <span className="text-xs font-semibold text-yellow-400">{actionLabel}</span>
+        <span
+          className="text-[10px] text-text-tertiary font-mono truncate flex-1 min-w-0"
+          title={request.path}
+          data-testid="approval-card-path"
+        >
+          {request.path}
+        </span>
+      </div>
+
+      {/* Description */}
+      <div className="px-4 pb-2 text-xs text-text-secondary border-t border-yellow-500/10 pt-2">
+        {description}
+      </div>
+
+      {/* Diff preview */}
+      {diffPreview && (
+        <div className="mx-4 mb-2 rounded overflow-hidden border border-border">
+          <pre
+            className="px-3 py-2 text-[10px] font-mono overflow-auto max-h-36 bg-bg-tertiary text-text-secondary leading-relaxed"
+            data-testid="approval-card-diff"
+          >
+            {diffPreview.slice(0, 3000)}
+          </pre>
+        </div>
+      )}
+
+      {/* Buttons */}
+      <div className="flex items-center gap-3 px-4 py-3 border-t border-yellow-500/10">
+        <button
+          className={`${btn.primary} px-4 py-2 text-sm font-medium flex items-center gap-2`}
+          onClick={() => onRespond(true)}
+          data-testid="approval-card-allow"
+        >
+          <Check className="w-3.5 h-3.5" />
+          Allow
+          <kbd className="text-[10px] opacity-70 font-mono bg-white/10 px-1 py-0.5 rounded">⌘↵</kbd>
+        </button>
+        <button
+          className={`${btn.outline} px-4 py-2 text-sm font-medium flex items-center gap-2`}
+          onClick={() => onRespond(false)}
+          data-testid="approval-card-deny"
+        >
+          <X className="w-3.5 h-3.5" />
+          Deny
+          <kbd className="text-[10px] opacity-70 font-mono bg-white/10 px-1 py-0.5 rounded">esc</kbd>
+        </button>
       </div>
     </div>
   )

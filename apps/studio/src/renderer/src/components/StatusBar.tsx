@@ -4,7 +4,7 @@
  * Shows: current model name | voice indicator | session name | file viewer toggle | permission mode | health dot + status
  */
 
-import { Mic, FileText, Shield, ShieldAlert } from 'lucide-react'
+import { Mic, FileText } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
 import { btn, chrome } from '../lib/theme'
 
@@ -37,10 +37,6 @@ interface Props {
   voiceTtsPlaying?: boolean
   /** When true, hide secondary info and file viewer toggle (mobile compact mode). */
   isMobile?: boolean
-  /** Current permission mode. */
-  permissionMode?: 'danger-full-access' | 'accept-on-edit'
-  /** Callback to toggle the permission mode. */
-  onTogglePermissionMode?: () => void
 }
 
 export function StatusBar({
@@ -54,17 +50,9 @@ export function StatusBar({
   voiceSpeaking,
   voiceTtsPlaying,
   isMobile = false,
-  permissionMode,
-  onTogglePermissionMode,
 }: Props) {
   const APP_VERSION = '0.9.0'
   const healthLabel = health === 'ready' ? `v${APP_VERSION}` : health === 'unknown' ? 'connecting' : health
-
-  const isAcceptOnEdit = permissionMode === 'accept-on-edit'
-  const permissionLabel = isAcceptOnEdit ? 'Accept-on-Edit' : 'Full Access'
-  const permissionTitle = isAcceptOnEdit
-    ? 'Permission mode: Accept-on-Edit — click or press ⌘⇧E to toggle'
-    : 'Permission mode: Full Access — click or press ⌘⇧E to toggle'
 
   return (
     <div className={`flex items-center justify-between px-3 py-0.5 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0`}>
@@ -102,21 +90,7 @@ export function StatusBar({
             <span>{fileViewerOpen ? 'Files On' : 'Files'}</span>
           </button>
         )}
-        {!isMobile && permissionMode !== undefined && (
-          <button
-            onClick={onTogglePermissionMode}
-            title={permissionTitle}
-            className={`${btn.ghost} flex items-center gap-1 cursor-pointer disabled:cursor-default`}
-            disabled={!onTogglePermissionMode}
-            data-permission-mode={permissionMode}
-          >
-            {isAcceptOnEdit
-              ? <ShieldAlert className="w-2.5 h-2.5 text-yellow-400" />
-              : <Shield className="w-2.5 h-2.5 text-text-tertiary" />
-            }
-            <span className={isAcceptOnEdit ? 'text-yellow-400' : ''}>{permissionLabel}</span>
-          </button>
-        )}
+
       </div>
 
       {/* Right: health */}

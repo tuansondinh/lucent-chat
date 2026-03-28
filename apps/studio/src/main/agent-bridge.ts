@@ -237,6 +237,7 @@ export class AgentBridge extends EventEmitter {
     }
     const msg = serializeJsonLine({ type: 'approval_response', id, approved })
     this.proc.stdin.write(msg)
+    this.emit('approval-responded', { id, approved })
   }
 
   private send(command: Record<string, unknown>): Promise<any> {

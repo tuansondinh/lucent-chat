@@ -318,22 +318,37 @@ function ToolCallActivity({ subItems }: { subItems: SubItem[] }) {
   return (
     <div className="px-2.5 py-1.5 bg-bg-primary/30 border-t border-border/30">
       {hiddenCount > 0 && (
-        <div className="text-[10px] text-text-tertiary/50 font-mono leading-5 mb-0.5">
+        <div className="text-[10px] text-text-secondary/50 font-mono leading-5 mb-0.5">
           ... {hiddenCount} earlier
         </div>
       )}
       {visibleItems.map((item, idx) => {
+        if (item.type === 'agent-header') {
+          return (
+            <div
+              key={idx}
+              className="text-[11px] font-mono text-text-secondary/80 leading-5 mt-1 flex items-center gap-1.5"
+            >
+              <span className="text-text-tertiary/60">──</span>
+              <span className="text-accent/80 font-medium">{item.name}</span>
+              {item.done
+                ? <Check className="size-3 text-green-400/70 flex-shrink-0" />
+                : <Loader2 className="size-3 text-accent/50 animate-spin flex-shrink-0" />
+              }
+            </div>
+          )
+        }
         if (item.type === 'toolCall') {
           const argSummary = formatSubItemArgs(item.name, item.args)
           return (
             <div
               key={idx}
-              className="text-[11px] font-mono text-text-tertiary leading-5 truncate"
+              className="text-[11px] font-mono text-text-secondary leading-5 truncate pl-4"
             >
-              <span className="text-text-tertiary/60">→ </span>
+              <span className="text-text-secondary/60">→ </span>
               <span>{item.name}</span>
               {argSummary && (
-                <span className="text-text-tertiary/50 ml-1">{argSummary}</span>
+                <span className="text-text-secondary/60 ml-1">{argSummary}</span>
               )}
             </div>
           )
@@ -344,7 +359,7 @@ function ToolCallActivity({ subItems }: { subItems: SubItem[] }) {
         return (
           <div
             key={idx}
-            className="text-[11px] font-mono text-text-tertiary/70 leading-5 truncate"
+            className="text-[11px] font-mono text-text-secondary/70 leading-5 truncate pl-4"
           >
             {preview}
           </div>
@@ -352,6 +367,33 @@ function ToolCallActivity({ subItems }: { subItems: SubItem[] }) {
       })}
     </div>
   )
+}
+
+/** Extract the most meaningful single-line summary from a tool's input object. */
+function getToolInputSummary(tool: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null
+  const inp = input as Record<string, unknown>
+  const lower = tool.toLowerCase()
+  // Bash / shell
+  if (lower.includes('bash') || lower.includes('execute')) {
+    const cmd = inp.command ?? inp.cmd
+    if (typeof cmd === 'string') return cmd.trim().split('\n')[0]
+  }
+  // File tools
+  if (lower.includes('read') || lower.includes('write') || lower.includes('edit') || lower.includes('glob')) {
+    const p = inp.file_path ?? inp.path ?? inp.pattern
+    if (typeof p === 'string') return p
+  }
+  // Search tools
+  if (lower.includes('grep') || lower.includes('search')) {
+    const q = inp.pattern ?? inp.query ?? inp.q
+    if (typeof q === 'string') return q
+  }
+  // Generic: first string value
+  for (const val of Object.values(inp)) {
+    if (typeof val === 'string' && val.length > 0 && val.length < 200) return val.trim().split('\n')[0]
+  }
+  return null
 }
 
 function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
@@ -364,12 +406,13 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     : <Loader2 className="size-3.5 text-accent animate-spin flex-shrink-0" />
 
   const hasDetails = tc.input !== undefined || tc.output !== undefined
+  const inputSummary = tc.input !== undefined ? getToolInputSummary(tc.tool, tc.input) : null
 
   // Show live activity feed when running and sub-items are present
   const showActivity = !tc.done && tc.subItems && tc.subItems.length > 0
 
   // Show collapsed summary when done and there were sub-item tool calls
-  const showSummary = tc.done && tc.subItemCount && tc.subItemCount > 0
+  const showSummary = tc.done && (tc.subItemCount ?? 0) > 0
 
   return (
     <div className="rounded-md overflow-hidden border border-border/50">
@@ -397,13 +440,19 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
         )}
         {statusIcon}
         <span className={cn(
-          'truncate flex-1',
+          'flex-shrink-0',
           tc.done ? 'text-text-secondary' : 'text-accent',
         )}>
           {tc.tool}
         </span>
+        {inputSummary && (
+          <span className="truncate flex-1 text-text-tertiary min-w-0">
+            {inputSummary}
+          </span>
+        )}
+        {!inputSummary && <span className="flex-1" />}
         {!tc.done && (
-          <span className="text-text-tertiary text-[10px] ml-auto">running</span>
+          <span className="text-text-tertiary text-[10px] flex-shrink-0">running</span>
         )}
       </button>
 
@@ -414,7 +463,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
 
       {/* Collapsed summary: shown when done with recorded sub-item tool calls */}
       {showSummary && (
-        <div className="text-[10px] text-text-tertiary/70 px-2.5 py-1 border-t border-border/30 font-mono">
+        <div className="text-[10px] text-text-secondary/70 px-2.5 py-1 border-t border-border/30 font-mono">
           {tc.subItemCount} tool calls
         </div>
       )}

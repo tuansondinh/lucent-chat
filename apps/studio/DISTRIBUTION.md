@@ -13,6 +13,7 @@
 - [Quick Start](#quick-start)
 - [Development Build](#development-build)
 - [Production Build](#production-build)
+- [Bundle Size](#bundle-size)
 - [Code Signing](#code-signing)
 - [Notarization](#notarization)
 - [Creating a DMG](#creating-a-dmg)
@@ -91,6 +92,55 @@ release/
 └── mac-universal/
     └── Lucent Chat.app                   # Unsigned .app bundle
 ```
+
+---
+
+## Bundle Size
+
+### What's in the package
+
+The `.app` bundle breaks down roughly as:
+
+| Component | Size | Notes |
+|-----------|------|-------|
+| Electron Frameworks | ~263 MB | Chromium + Node — unavoidable |
+| `runtime/` (pi-coding-agent) | ~400 MB | See below |
+| `audio-service/`, `voice_bridge/` | ~3 MB | Small |
+
+The `runtime/` directory (shipped via `extraResources`) contains the coding-agent Node process and is the main lever for reducing app size.
+
+### Runtime size breakdown
+
+| Item | Size | Avoidable? |
+|------|------|------------|
+| Bundled Node binary | ~107 MB | No — needed to spawn agent process |
+| `@gsd-build/engine-*.node` | ~74 MB | No — native addon |
+| `koffi` (FFI bindings) | ~76 MB raw | Partially — 18 platform builds shipped; only `darwin_*` needed |
+| `tsx` | ~20 MB | **Yes — build tool, not runtime** |
+| `sql.js` dist variants | ~18 MB raw | Partially — only `sql-wasm.js/wasm` needed |
+| `@babel/` | ~15 MB | Dep of jiti; minimally reducible |
+| `7zip-bin` | ~12 MB | **Yes — electron-builder dep, not runtime** |
+| `workbox-build` | ~11 MB | **Yes — PWA build tool, not runtime** |
+| `esbuild` + `@esbuild` | ~19 MB | **Yes — bundler, not runtime** |
+| `playwright-core` | ~9.6 MB | **Yes — test framework, not runtime** |
+
+### Optimizations applied (in `bundle.cjs`)
+
+The bundle script (`packages/pi-coding-agent/scripts/bundle.cjs`) applies these reductions automatically on every `npm run bundle`:
+
+1. **DEV_ONLY_DIRS exclusions** — `tsx`, `7zip-bin`, `workbox-build`, `playwright-core`, `esbuild`, `@esbuild` are excluded from node_modules copy (~71 MB saved)
+2. **koffi platform stripping** — after copy, all non-mac platform prebuilds are deleted; only `darwin_arm64` and `darwin_x64` are kept for universal builds (~68 MB saved)
+3. **koffi source/docs stripping** — `src/`, `vendor/`, `doc/` are removed from koffi post-copy (~9.5 MB saved)
+4. **sql.js variant stripping** — only `sql-wasm.js`, `sql-wasm.wasm`, `worker.sql-wasm.js` are kept; all asm, browser, and debug variants are removed (~16.5 MB saved)
+
+**Total estimated savings: ~165 MB** off the runtime directory per build.
+
+### Future reduction opportunities
+
+- **Compress the Node binary** with `upx` (can halve the 107 MB binary, but complicates notarization)
+- **Replace `sql.js` WASM with `better-sqlite3`** (native binding, ~2 MB vs 18 MB)
+- **Tree-shake `@babel/`** (jiti may not need all Babel packages)
+- **Strip `@gsd-build` symbols** with `strip -S` after signing (saves ~10–20 MB on native addon)
 
 ---
 

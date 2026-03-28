@@ -28,6 +28,8 @@ export interface PaneRuntime {
   /** Trusted root scope for remote root changes. */
   accessRoot: string
   attachBridge: () => void
+  /** Per-pane permission mode — independent of global settings. */
+  permissionMode: 'danger-full-access' | 'accept-on-edit'
 }
 
 // ============================================================================
@@ -60,6 +62,7 @@ export class PaneManager {
       projectRoot,
       accessRoot: projectRoot,
       attachBridge,
+      permissionMode: 'danger-full-access',
     }
     this.panes.set('pane-0', pane)
     return pane
@@ -130,7 +133,7 @@ export class PaneManager {
 
     await sessionService.loadActiveSessionId()
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge }
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? 'danger-full-access' }
     this.panes.set(id, pane)
     return pane
   }
@@ -195,6 +198,30 @@ export class PaneManager {
     }
     await pane.processManager.shutdownAll()
     this.panes.delete(id)
+  }
+
+  /**
+   * Toggle the permission mode for a single pane and restart its agent with the new env.
+   * Returns the new mode.
+   */
+  async togglePanePermissionMode(id: string): Promise<'danger-full-access' | 'accept-on-edit'> {
+    const pane = this.panes.get(id)
+    if (!pane) return 'danger-full-access'
+    const next = pane.permissionMode === 'danger-full-access' ? 'accept-on-edit' : 'danger-full-access'
+    pane.permissionMode = next
+    try {
+      await pane.orchestrator.abortCurrentTurn()
+    } catch {
+      // ignore — may be idle
+    }
+    await this.restartPaneAgentWithEnv(id, { GSD_STUDIO_PERMISSION_MODE: next })
+    try {
+      const state = await pane.agentBridge.getState()
+      if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile as string)
+    } catch {
+      // non-fatal
+    }
+    return next
   }
 
   getPane(id: string): PaneRuntime | undefined {

@@ -34,12 +34,12 @@ import { useVoiceStore } from './store/voice-store'
 import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
-import { ApprovalModalContainer } from './components/ApprovalModal'
 import { StatusBar } from './components/StatusBar'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 import { chrome } from './lib/theme'
 import { useSwipeGesture } from './lib/useSwipeGesture'
 import { useIOSKeyboard } from './lib/useIOSKeyboard'
+import { getCapabilities } from './lib/capabilities'
 import type { ConnectionStatus } from './lib/web-bridge'
 import type { Bridge } from '../../../preload/index'
 
@@ -189,7 +189,6 @@ export default function App() {
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
-  const [permissionMode, setPermissionMode] = useState<'danger-full-access' | 'accept-on-edit'>('danger-full-access')
   // Reconnect banner state (PWA only)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
 
@@ -231,9 +230,6 @@ export default function App() {
         }
         if (!s.onboardingComplete) {
           setShowOnboarding(true)
-        }
-        if (s.permissionMode === 'danger-full-access' || s.permissionMode === 'accept-on-edit') {
-          setPermissionMode(s.permissionMode)
         }
       })
       .catch(() => {})
@@ -421,14 +417,6 @@ export default function App() {
   const handleToggleSidebar = useCallback(() => {
     setSidebarCollapsed((c) => !c)
   }, [])
-
-  const handleTogglePermissionMode = useCallback(() => {
-    setPermissionMode((current) => {
-      const next = current === 'danger-full-access' ? 'accept-on-edit' : 'danger-full-access'
-      bridge.setSettings({ permissionMode: next }).catch(() => {})
-      return next
-    })
-  }, [bridge])
 
   const handleVoiceAudioEnabledChange = useCallback((enabled: boolean) => {
     setVoiceAudioEnabled(enabled)
@@ -638,11 +626,11 @@ export default function App() {
         return
       }
       if (action === 'toggle-permission-mode') {
-        handleTogglePermissionMode()
+        bridge.togglePanePermissionMode?.(activePaneId).catch(() => {})
       }
     })
     return () => unsubscribe()
-  }, [bridge, handleNewSession, toggleFileViewer, handleTogglePermissionMode])
+  }, [bridge, handleNewSession, toggleFileViewer, activePaneId])
 
   const handleFileViewerResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -950,7 +938,8 @@ export default function App() {
         style={{ height: '100dvh' }}
       >
         {/* Mobile header: no drag region, hamburger left, title center, health right */}
-        <header className="mobile-header">
+        {/* In Electron on macOS, add extra left padding to clear the overlaid traffic lights */}
+        <header className="mobile-header" style={getCapabilities().terminal ? { paddingLeft: '80px' } : undefined}>
           <button
             aria-label="Open navigation menu"
             className="mobile-header__hamburger"
@@ -1157,22 +1146,8 @@ export default function App() {
         )}
       </PanelGroup>
 
-      {/* Global status bar — shows model, session, permission mode, health */}
-      <StatusBar
-        model={activePaneModel}
-        sessionName={activePaneSessionName ?? ''}
-        health={activePaneHealth}
-        fileViewerOpen={fileViewerOpen}
-        onToggleFileViewer={toggleFileViewer}
-        onOpenModelPicker={() => setModelPickerOpen(true)}
-        permissionMode={permissionMode}
-        onTogglePermissionMode={handleTogglePermissionMode}
-      />
-
       {sharedOverlays}
 
-      {/* Approval modal — rendered outside of all panels so it is always on top */}
-      <ApprovalModalContainer />
     </div>
   )
 }

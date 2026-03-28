@@ -36,9 +36,11 @@ export function useIOSKeyboard(): IOSKeyboardState {
     const vv = window.visualViewport
     if (!vv) return
 
-    // Use screen.height as the stable reference — unlike window.innerHeight,
-    // screen.height never changes when the soft keyboard opens on Android Chrome.
-    const screenHeight = window.screen.height
+    // Use innerHeight as the stable reference for keyboard detection.
+    // On iOS, innerHeight stays constant when the soft keyboard opens (only
+    // visualViewport.height shrinks). Using screen.height caused a false positive
+    // in Electron desktop where the window is always smaller than the screen.
+    const screenHeight = window.innerHeight
     const viewportHeight = vv.height
     const isKeyboardOpen = viewportHeight < screenHeight * KEYBOARD_THRESHOLD_RATIO
     const keyboardHeight = isKeyboardOpen ? screenHeight - viewportHeight : 0

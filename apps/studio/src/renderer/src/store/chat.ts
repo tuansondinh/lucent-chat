@@ -45,6 +45,7 @@ export interface UnknownBlock {
 export type SubItem =
   | { type: 'text'; text: string }
   | { type: 'toolCall'; name: string; args?: Record<string, any> }
+  | { type: 'agent-header'; name: string; done: boolean }
 
 /** Ordered content block within an assistant message. */
 export type ContentBlock =
@@ -337,7 +338,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             return {
               ...b,
               subItems,
-              subItemCount: (b.subItemCount ?? 0) + toolCallCount,
+              subItemCount: toolCallCount > 0 ? Math.max(b.subItemCount ?? 0, toolCallCount) : b.subItemCount,
             }
           }
           return b

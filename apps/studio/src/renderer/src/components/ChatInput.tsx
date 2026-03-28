@@ -372,7 +372,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
       <div 
         className={cn(
-          "flex items-end gap-2 rounded-lg border px-2 py-0.5 focus-within:border-accent/50 transition-colors",
+          "flex items-center gap-2 rounded-lg border px-2 py-0.5 focus-within:border-accent/50 transition-colors",
           isDragging 
             ? "border-accent bg-accent/10" 
             : "border-border bg-bg-secondary"

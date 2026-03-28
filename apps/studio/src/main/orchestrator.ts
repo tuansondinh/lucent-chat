@@ -66,6 +66,8 @@ export class Orchestrator extends EventEmitter {
   private lockQueue: Array<() => void> = []
   private agentBridge: AgentBridge
   private callbacks: OrchestratorCallbacks
+  /** Cleanup function for the in-progress turn — clears timers and listeners. */
+  private currentTurnCleanup: (() => void) | null = null
 
   constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks) {
     super()
@@ -132,6 +134,9 @@ export class Orchestrator extends EventEmitter {
 
     this.setTurnState(this.currentTurn, 'aborted')
     this.emit('voice-abort') // renderer listens to stop TTS
+
+    // Clear safety timer and listeners immediately — don't wait for agent_process_exit
+    this.currentTurnCleanup?.()
 
     try {
       await this.agentBridge.abort()
@@ -201,15 +206,25 @@ export class Orchestrator extends EventEmitter {
     let agentEndReceived = false
     let firstActivityReceived = false
 
-    // Rolling idle safety timer — reset on every event, fires after 5 min of silence
+    // Rolling idle safety timer — reset on every event, fires after 5 min of silence.
+    // Paused while waiting for user approval (agent is blocked on stdin, not idle).
     let safetyTimerHandle: ReturnType<typeof setTimeout> | null = null
+    let approvalPending = false
+
+    const pauseSafetyTimer = () => {
+      if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
+      safetyTimerHandle = null
+    }
+
     const resetSafetyTimer = () => {
+      if (approvalPending) return
       if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
       safetyTimerHandle = setTimeout(() => {
         if (!agentEndReceived) {
           console.warn('[orchestrator] safety timeout: no agent_end received, releasing lock')
           clearTimeout(firstActivityTimer)
           unsubscribe()
+          unsubscribeApproval()
           this.callbacks.onError({ source: 'orchestrator', message: 'Generation timed out (5 min idle)' })
           if (turn.state !== 'aborted') {
             this.setTurnState(turn, 'idle')
@@ -219,9 +234,26 @@ export class Orchestrator extends EventEmitter {
       }, 5 * 60 * 1000)
     }
 
+    // Pause safety timer while the user is deciding on an approval request
+    const onApprovalRequest = () => {
+      approvalPending = true
+      pauseSafetyTimer()
+    }
+    const onApprovalResponded = () => {
+      approvalPending = false
+      resetSafetyTimer()
+    }
+    this.agentBridge.on('approval-request', onApprovalRequest)
+    this.agentBridge.on('approval-responded', onApprovalResponded)
+    const unsubscribeApproval = () => {
+      this.agentBridge.off('approval-request', onApprovalRequest)
+      this.agentBridge.off('approval-responded', onApprovalResponded)
+    }
+
     // Set up event listener BEFORE sending prompt to avoid missing events
     const unsubscribe = this.agentBridge.onAgentEvent((event: any) => {
-      if (turn.state === 'aborted') return
+      // Skip non-cleanup events once aborted; still allow agent_process_exit through so timers are cleared
+      if (turn.state === 'aborted' && event.type !== 'agent_process_exit') return
       if (!firstActivityReceived) {
         firstActivityReceived = true
         clearTimeout(firstActivityTimer)
@@ -318,9 +350,18 @@ export class Orchestrator extends EventEmitter {
         })
       } else if (event.type === 'tool_execution_update') {
         // Extract subItems from partialResult.details.results[].messages[]
+        // For parallel/chain mode (multiple results), emit per-agent section headers.
         const subItems: SubItem[] = []
         const results: any[] = event.partialResult?.details?.results ?? []
+        const isMultiAgent = results.length > 1
         for (const result of results) {
+          if (isMultiAgent) {
+            subItems.push({
+              type: 'agent-header',
+              name: result.agent ?? 'agent',
+              done: result.exitCode !== undefined && result.exitCode !== -1,
+            })
+          }
           const messages: any[] = result.messages ?? []
           for (const msg of messages) {
             if (msg.role !== 'assistant') continue
@@ -356,6 +397,7 @@ export class Orchestrator extends EventEmitter {
         if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         clearTimeout(firstActivityTimer)
         unsubscribe()
+        unsubscribeApproval()
         this.callbacks.onError({
           source: 'agent',
           message: `Agent stopped unexpectedly (${event.reason ?? 'unknown'}) — check your provider credentials in Settings (⌘,)`,
@@ -373,6 +415,7 @@ export class Orchestrator extends EventEmitter {
         if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         clearTimeout(firstActivityTimer)
         unsubscribe()
+        unsubscribeApproval()
 
         // If we got no streaming text, try to get it from the final message
         if (!fullText && event.messages && Array.isArray(event.messages)) {
@@ -401,6 +444,7 @@ export class Orchestrator extends EventEmitter {
         console.warn('[orchestrator] first-activity timeout: no response from agent')
         if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         unsubscribe()
+        unsubscribeApproval()
         this.callbacks.onError({
           source: 'orchestrator',
           message: 'No response from AI provider — verify your credentials in Settings (⌘,).',
@@ -416,11 +460,22 @@ export class Orchestrator extends EventEmitter {
     // Start the rolling idle safety timer
     resetSafetyTimer()
 
+    // Register cleanup so abortCurrentTurn can clear timers/listeners immediately
+    this.currentTurnCleanup = () => {
+      if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
+      safetyTimerHandle = null
+      clearTimeout(firstActivityTimer)
+      unsubscribe()
+      unsubscribeApproval()
+      this.currentTurnCleanup = null
+    }
+
     try {
       await this.agentBridge.prompt(turn.text, undefined, turn.images)
     } catch (err: any) {
       if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
       unsubscribe()
+      unsubscribeApproval()
       console.error('[orchestrator] prompt error:', err.message)
       this.callbacks.onError({ source: 'agent', message: err.message })
       this.emitTurnError(turn, err.message)

@@ -6,11 +6,12 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { ChevronDown, Cpu, Folder, GitBranch, Loader2 } from 'lucide-react'
+import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
+import { ApprovalCard, type ApprovalRequest } from './ApprovalModal'
 import { getPaneStore } from '../store/pane-store'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
@@ -55,10 +56,26 @@ function PaneFooter({
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
   const currentModel = getPaneStore(paneId)((s) => s.currentModel)
+  const permissionMode = getPaneStore(paneId)((s) => s.permissionMode)
   const bridge = getBridge()
+  const footerRef = useRef<HTMLDivElement>(null)
+  const [footerWidth, setFooterWidth] = useState(0)
   const [branchListLoading, setBranchListLoading] = useState(false)
   const [branches, setBranches] = useState<string[]>([])
   const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null)
+
+  // Track footer width to conditionally show full permission mode label
+  useEffect(() => {
+    const el = footerRef.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      setFooterWidth(entry.contentRect.width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const showModeLabel = footerWidth > 420
 
   const shortRoot = projectRoot
     ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
@@ -124,7 +141,7 @@ function PaneFooter({
   }, [paneId, bridge])
 
   return (
-    <div className={`flex items-center justify-between gap-3 px-3 py-1 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none`}>
+    <div ref={footerRef} className={`flex items-center justify-between gap-3 px-3 py-1 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none`}>
       <div className="flex min-w-0 items-center gap-3">
         {/* Git branch selector */}
         <div className="flex min-w-0 items-center gap-1">
@@ -171,6 +188,26 @@ function PaneFooter({
         </button>
       </div>
 
+      {/* Right side: permission mode indicator + model picker */}
+      <div className="flex items-center gap-1">
+      {/* Permission mode indicator */}
+      <button
+        onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
+        title={permissionMode === 'accept-on-edit' ? 'Accept Edits — click or Shift+Tab to toggle' : 'Bypass Permissions — click or Shift+Tab to toggle'}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+        data-permission-mode={permissionMode}
+      >
+        {permissionMode === 'accept-on-edit'
+          ? <ShieldAlert className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+          : <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
+        }
+        {showModeLabel && (
+          <span className={`text-[10px] font-medium ${permissionMode === 'accept-on-edit' ? 'text-yellow-400' : 'text-red-400'}`}>
+            {permissionMode === 'accept-on-edit' ? 'Accept Edits' : 'Bypass Permissions'}
+          </span>
+        )}
+      </button>
+
       {/* Model picker */}
       <button
         onClick={(e) => {
@@ -185,6 +222,7 @@ function PaneFooter({
         <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
         <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
       </button>
+      </div>
     </div>
   )
 }
@@ -224,6 +262,7 @@ const keyboardShortcuts = [
   { key: <><Kbd>⌘</Kbd><Kbd>B</Kbd></>, label: 'Toggle sidebar' },
   { key: <><Kbd>⌘</Kbd><Kbd>D</Kbd></>, label: 'Split pane' },
   { key: <><Kbd>⌘</Kbd><Kbd>⌥</Kbd><Kbd>←</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd><Kbd>→</Kbd></>, label: 'Navigate panes' },
+  { key: <><Kbd>⇧</Kbd><Kbd>⇥</Kbd></>, label: 'Toggle permission mode' },
   { key: <><Kbd>esc</Kbd></>, label: 'Interrupt' },
   { key: <><Kbd>⌘</Kbd><Kbd>R</Kbd></>, label: 'Restart app' },
 ]
@@ -287,6 +326,7 @@ export function ChatPane({
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
+  const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
 
   // Load skills for autocomplete
   useEffect(() => {
@@ -501,10 +541,13 @@ export function ChatPane({
         if (pid !== paneId) return
         store.getState().setHealth(states)
       }),
-      bridge.onTurnState(({ paneId: pid, state }) => {
+      bridge.onTurnState(({ paneId: pid, turn_id, state }) => {
         if (pid !== paneId || isStale()) return
         if (state === 'aborted' || state === 'idle') {
           store.getState().setGenerating(false)
+        }
+        if (state === 'aborted') {
+          store.getState().markAllToolsErrored(turn_id)
         }
         void bridge.getState(paneId)
           .then((sessionState) => {
@@ -696,6 +739,50 @@ export function ChatPane({
     setQueuedPrompt(null)
   }, [])
 
+  // Listen for per-pane permission mode changes from main process
+  useEffect(() => {
+    if (!bridge.onPanePermissionModeChanged) return
+    return bridge.onPanePermissionModeChanged((data) => {
+      if (data.paneId !== paneId) return
+      getPaneStore(paneId).getState().setPermissionMode(data.mode)
+    })
+  }, [bridge, paneId])
+
+  // Listen for approval requests for THIS pane and show inline card
+  useEffect(() => {
+    if (!bridge.onApprovalRequest) return
+    return bridge.onApprovalRequest((req) => {
+      if (req.paneId !== paneId) return
+      setPendingApproval(req)
+    })
+  }, [bridge, paneId])
+
+  const handleApprovalRespond = useCallback(async (approved: boolean) => {
+    if (!pendingApproval) return
+    setPendingApproval(null)
+    try {
+      await bridge.approvalRespond?.(pendingApproval.paneId, pendingApproval.id, approved)
+    } catch (err) {
+      console.error('[approval-card] failed to send response:', err)
+    }
+  }, [bridge, pendingApproval])
+
+  // Keyboard shortcuts for approval card: Cmd+Enter = allow, Escape = deny
+  useEffect(() => {
+    if (!pendingApproval) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'Enter') {
+        e.preventDefault()
+        void handleApprovalRespond(true)
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        void handleApprovalRespond(false)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [pendingApproval, handleApprovalRespond])
+
   useEffect(() => {
     const handleStopActivePane = (event: Event) => {
       const detail = (event as CustomEvent<{ paneId: string }>).detail
@@ -835,6 +922,14 @@ export function ChatPane({
           </div>
         )}
         </main>
+
+        {/* Inline approval card — shown when agent requests edit/write approval */}
+        {pendingApproval && (
+          <ApprovalCard
+            request={pendingApproval}
+            onRespond={(approved) => void handleApprovalRespond(approved)}
+          />
+        )}
 
         {/* Input bar */}
         <div className="flex-shrink-0 w-full">

@@ -31,6 +31,27 @@ const TRUNCATE_LINES = 500
 /** Lines at or above this threshold skip Shiki and render plain text. */
 const HIGHLIGHT_LINE_LIMIT = 2000
 
+// ---- Shared code-viewer style constants ----
+// Change these once to update both the file viewer and the git diff viewer.
+
+/** Background for all code/diff panels */
+const CODE_BG = 'bg-[#1c1f26]'
+
+/** Row wrapper flex layout (same for file view and diff view) */
+const CODE_ROW = 'flex items-stretch group/line min-w-full'
+
+/** Row hover — applied when no background colour is active */
+const CODE_ROW_HOVER = 'hover:bg-white/5'
+
+/** Gutter column (line numbers) */
+const CODE_GUTTER = 'w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default'
+
+/** Inline style for gutter line height (keeps file viewer and diff viewer in sync) */
+const CODE_GUTTER_STYLE: React.CSSProperties = { lineHeight: '1.6' }
+
+/** Code content area */
+const CODE_CONTENT = 'flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0'
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -298,29 +319,27 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
   }
 
   return (
-    <div className="overflow-x-auto bg-[#1c1f26]">
+    <div className={cn('overflow-x-auto', CODE_BG)}>
       {/* Large file banner */}
       {isLarge && (
         <div className="px-4 py-1.5 text-[11px] text-amber-400/80 bg-amber-400/5 border-b border-amber-400/10 font-mono">
           File too large for syntax highlighting — showing plain text
         </div>
       )}
-
-      {isLarge
+      {/* eslint-disable-next-line react/forbid-dom-props */}
+      <div style={{ minWidth: '100%', width: 'max-content' }}>
+        {isLarge
         ? /* Plain text with line numbers for large files */
           lines.map((lineText, i) => (
             <div
               key={i}
               ref={getLineRef(i)}
-              className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+              className={cn(CODE_ROW, lineRowClass(i), !lineRowClass(i) && CODE_ROW_HOVER)}
             >
-              <div
-                className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
-                style={{ lineHeight: '1.6' }}
-              >
+              <div className={CODE_GUTTER} style={CODE_GUTTER_STYLE}>
                 {i + 1}
               </div>
-              <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#d4d4d4]">
+              <div className={cn(CODE_CONTENT, 'text-[#d4d4d4]')}>
                 {lineText || '\u00a0'}
               </div>
             </div>
@@ -331,17 +350,14 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
               <div
                 key={i}
                 ref={getLineRef(i)}
-                className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+                className={cn(CODE_ROW, lineRowClass(i), !lineRowClass(i) && CODE_ROW_HOVER)}
               >
                 {/* Gutter */}
-                <div
-                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
-                  style={{ lineHeight: '1.6' }}
-                >
+                <div className={CODE_GUTTER} style={CODE_GUTTER_STYLE}>
                   {i + 1}
                 </div>
                 {/* Code tokens */}
-                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0">
+                <div className={CODE_CONTENT}>
                   {lineTokens.length === 0
                     ? '\n'
                     : lineTokens.map((token, j) => (
@@ -366,20 +382,18 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
               <div
                 key={i}
                 ref={getLineRef(i)}
-                className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
+                className={cn(CODE_ROW, lineRowClass(i), !lineRowClass(i) && CODE_ROW_HOVER)}
               >
-                <div
-                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
-                  style={{ lineHeight: '1.6' }}
-                >
+                <div className={CODE_GUTTER} style={CODE_GUTTER_STYLE}>
                   {i + 1}
                 </div>
-                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#d4d4d4]">
+                <div className={cn(CODE_CONTENT, 'text-[#d4d4d4]')}>
                   {lineText || '\u00a0'}
                 </div>
               </div>
             ))
-      }
+        }
+      </div>
     </div>
   )
 }
@@ -566,7 +580,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           setActiveFile={setActiveFile}
         />
 
-        <div className="flex-1 overflow-auto min-h-0 bg-[#1c1f26]">
+        <div className={cn('flex-1 overflow-auto min-h-0', CODE_BG)}>
           {activeFile.isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <GitBranch className="size-8 text-text-tertiary opacity-40" />
@@ -690,7 +704,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
       )}
 
       {/* Scrollable code area */}
-      <div className="flex-1 overflow-auto min-h-0 bg-[#1c1f26]">
+      <div className={cn('flex-1 overflow-auto min-h-0', CODE_BG)}>
         <HighlightedCode
           code={displayContent}
           language={language}
@@ -733,7 +747,7 @@ function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setAc
   if (openFiles.length === 0) return null
 
   return (
-    <div className="flex overflow-x-auto border-b border-border/60 bg-[#1c1f26] flex-shrink-0 scrollbar-none">
+    <div className={cn('flex overflow-x-auto border-b border-border/60 flex-shrink-0 scrollbar-none', CODE_BG)}>
       {openFiles.map((file) => {
         const fileName = file.relativePath.split('/').pop() ?? file.relativePath
         const isActive = file.tabKey === activeFilePath
@@ -863,30 +877,46 @@ function FileViewerHeader({
 
 function UnifiedDiffView({ lines }: { lines: ParsedDiffLine[] }) {
   return (
-    <div className="overflow-x-auto bg-[#1c1f26]">
-      {lines.map((line, index) => (
-        <div
-          key={`${index}-${line.text}`}
-          className={cn(
-            'flex items-stretch font-mono text-[12px] leading-[1.6]',
-            line.kind === 'add' && 'bg-emerald-500/10 text-emerald-100',
-            line.kind === 'remove' && 'bg-red-500/10 text-red-100',
-            line.kind === 'hunk' && 'bg-sky-500/10 text-sky-200',
-            line.kind === 'meta' && 'bg-white/5 text-text-tertiary',
-            (line.kind === 'context' || line.kind === 'add' || line.kind === 'remove') && 'text-[#d4d4d4]',
-          )}
-        >
-          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#858585] select-none">
-            {line.oldLineNumber ?? ''}
+    <div className={cn('overflow-x-auto', CODE_BG)}>
+      {/* eslint-disable-next-line react/forbid-dom-props */}
+      <div style={{ minWidth: '100%', width: 'max-content' }}>
+        {lines.map((line, index) => {
+        const hasRowBg = line.kind === 'add' || line.kind === 'remove' || line.kind === 'hunk' || line.kind === 'meta'
+        return (
+          <div
+            key={`${index}-${line.text}`}
+            className={cn(
+              CODE_ROW,
+              line.kind === 'add' && 'bg-emerald-500/10',
+              line.kind === 'remove' && 'bg-red-500/10',
+              line.kind === 'hunk' && 'bg-sky-500/10',
+              line.kind === 'meta' && 'bg-white/5',
+              !hasRowBg && CODE_ROW_HOVER,
+            )}
+          >
+            {/* Old line number */}
+            <div className={CODE_GUTTER} style={CODE_GUTTER_STYLE}>
+              {line.oldLineNumber ?? ''}
+            </div>
+            {/* New line number */}
+            <div className={CODE_GUTTER} style={CODE_GUTTER_STYLE}>
+              {line.newLineNumber ?? ''}
+            </div>
+            {/* Content */}
+            <div className={cn(
+              CODE_CONTENT,
+              line.kind === 'add' && 'text-emerald-100',
+              line.kind === 'remove' && 'text-red-100',
+              line.kind === 'hunk' && 'text-sky-200',
+              line.kind === 'meta' && 'text-text-tertiary',
+              (line.kind === 'context') && 'text-[#d4d4d4]',
+            )}>
+              {line.text || ' '}
+            </div>
           </div>
-          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#858585] select-none">
-            {line.newLineNumber ?? ''}
-          </div>
-          <div className="min-w-0 flex-1 whitespace-pre px-4">
-            {line.text || ' '}
-          </div>
-        </div>
-      ))}
+        )
+      })}
+      </div>
     </div>
   )
 }

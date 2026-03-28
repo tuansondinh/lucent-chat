@@ -148,12 +148,12 @@ pre,
 
 /* --- Touch targets: scoped to .mobile-touch wrapper only --- */
 /* Do NOT apply global min-height to button — use .mobile-touch scope */
+/* textarea is intentionally excluded — its touch target is the whole input container */
 .mobile-touch button,
 .mobile-touch [role="button"],
 .mobile-touch a,
 .mobile-touch input,
-.mobile-touch select,
-.mobile-touch textarea {
+.mobile-touch select {
   min-height: 44px;
   min-width: 44px;
 }

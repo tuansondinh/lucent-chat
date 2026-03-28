@@ -18,13 +18,14 @@
     "serve": "tsx src/main/server.ts",
     "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
     "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
+    "bundle-runtime:force": "npm run bundle -w @gsd/pi-coding-agent -- -- --force",
     "pack": "npm run bundle-runtime && electron-builder --dir",
     "pack:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder --dir --arm64",
     "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
     "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
-    "dist:mac:arm64": "npm run build && npm run bundle-runtime && electron-builder -m --arm64",
-    "dist:mac:x64": "npm run build && npm run bundle-runtime && electron-builder -m --x64",
-    "dist:mac:universal": "npm run build && npm run bundle-runtime && electron-builder -m --universal",
+    "dist:mac:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --arm64",
+    "dist:mac:x64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --x64",
+    "dist:mac:universal": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --universal",
     "release": "npm run build && npm run bundle-runtime && electron-builder -m --publish never"
   },
   "dependencies": {
@@ -106,6 +107,7 @@
       }
     ],
     "mac": {
+      "identity": null,
       "target": [
         {
           "target": "dmg",

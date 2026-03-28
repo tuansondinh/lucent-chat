@@ -62,6 +62,8 @@ export interface PaneChatState {
   currentSessionName: string
   /** Last 10 opened file paths (relative), most recent first. */
   recentFiles: string[]
+  /** Per-pane permission mode. */
+  permissionMode: 'danger-full-access' | 'accept-on-edit'
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -102,6 +104,8 @@ export interface PaneChatState {
   setSessionName: (name: string) => void
   /** Add a file to the recent files list (most recent first, capped at 10). */
   addRecentFile: (relativePath: string) => void
+  /** Set the per-pane permission mode. */
+  setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit') => void
   /** Add a new skill block to a turn's assistant message. */
   addSkillBlock: (turn_id: string, skillId: string, skillName: string, trigger: string, totalSteps: number) => void
   /** Update a skill step's progress. */
@@ -173,6 +177,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionPath: null,
     currentSessionName: '',
     recentFiles: [],
+    permissionMode: 'danger-full-access',
 
     addUserMessage: (text, turn_id) =>
       set((s) => ({
@@ -307,7 +312,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
               return {
                 ...b,
                 subItems,
-                subItemCount: (b.subItemCount ?? 0) + toolCallCount,
+                subItemCount: toolCallCount > 0 ? Math.max(b.subItemCount ?? 0, toolCallCount) : b.subItemCount,
               }
             }
             return b
@@ -563,6 +568,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setSessionPath: (path) => set({ currentSessionPath: path }),
 
     setSessionName: (name) => set({ currentSessionName: name }),
+    setPermissionMode: (mode) => set({ permissionMode: mode }),
 
     addRecentFile: (relativePath) =>
       set((s) => {
@@ -658,7 +664,7 @@ export type SplitNode = {
   type: 'split'
   id: string
   orientation: 'horizontal' | 'vertical'
-  children: [LayoutNode, LayoutNode]
+  children: LayoutNode[]  // 2+ elements
 }
 
 export type LeafNode = {
@@ -674,21 +680,29 @@ export type LayoutNode = SplitNode | LeafNode
 
 export function collectLeafIds(node: LayoutNode): string[] {
   if (node.type === 'leaf') return [node.paneId]
-  return [...collectLeafIds(node.children[0]), ...collectLeafIds(node.children[1])]
+  return node.children.flatMap(collectLeafIds)
 }
 
 export function countLeaves(node: LayoutNode): number {
   if (node.type === 'leaf') return 1
-  return countLeaves(node.children[0]) + countLeaves(node.children[1])
+  return node.children.reduce((acc, child) => acc + countLeaves(child), 0)
 }
 
-export function splitLeaf(
+/**
+ * Ghostty-style N-ary split insertion.
+ *
+ * When the active pane's parent already has the SAME orientation as the
+ * requested split, the new pane is inserted flat into that parent (no extra
+ * nesting). When orientations differ, a new nested 2-child split is created.
+ */
+export function splitNode(
   root: LayoutNode,
   targetPaneId: string,
   newPaneId: string,
   orientation: PaneOrientation,
   splitId: string,
 ): { layout: LayoutNode; inserted: boolean } {
+  // Base: root is the target leaf — wrap in a new 2-child split
   if (root.type === 'leaf') {
     if (root.paneId !== targetPaneId) return { layout: root, inserted: false }
     return {
@@ -701,14 +715,44 @@ export function splitLeaf(
       inserted: true,
     }
   }
-  const leftResult = splitLeaf(root.children[0], targetPaneId, newPaneId, orientation, splitId)
-  if (leftResult.inserted) {
-    return { layout: { ...root, children: [leftResult.layout, root.children[1]] }, inserted: true }
+
+  // Check if any DIRECT child is the target leaf
+  for (let i = 0; i < root.children.length; i++) {
+    const child = root.children[i]
+    if (child.type === 'leaf' && child.paneId === targetPaneId) {
+      if (root.orientation === orientation) {
+        // Same orientation → insert flat, right after the target
+        const newChildren = [
+          ...root.children.slice(0, i + 1),
+          { type: 'leaf' as const, paneId: newPaneId },
+          ...root.children.slice(i + 1),
+        ]
+        return { layout: { ...root, children: newChildren }, inserted: true }
+      } else {
+        // Different orientation → create a nested 2-child split
+        const nested: SplitNode = {
+          type: 'split',
+          id: splitId,
+          orientation,
+          children: [child, { type: 'leaf', paneId: newPaneId }],
+        }
+        const newChildren = [...root.children]
+        newChildren[i] = nested
+        return { layout: { ...root, children: newChildren }, inserted: true }
+      }
+    }
   }
-  const rightResult = splitLeaf(root.children[1], targetPaneId, newPaneId, orientation, splitId)
-  if (rightResult.inserted) {
-    return { layout: { ...root, children: [root.children[0], rightResult.layout] }, inserted: true }
+
+  // Recurse into children
+  for (let i = 0; i < root.children.length; i++) {
+    const result = splitNode(root.children[i], targetPaneId, newPaneId, orientation, splitId)
+    if (result.inserted) {
+      const newChildren = [...root.children]
+      newChildren[i] = result.layout
+      return { layout: { ...root, children: newChildren }, inserted: true }
+    }
   }
+
   return { layout: root, inserted: false }
 }
 
@@ -717,6 +761,10 @@ function findFirstLeaf(node: LayoutNode): string {
   return findFirstLeaf(node.children[0])
 }
 
+/**
+ * N-ary remove: removing from a 3+ child split shrinks it; removing from a
+ * 2-child split collapses it (promotes the remaining child up).
+ */
 export function removeLeaf(
   root: LayoutNode,
   paneId: string,
@@ -724,23 +772,34 @@ export function removeLeaf(
   if (root.type === 'leaf') {
     return { layout: root, siblingPaneId: null }
   }
-  const [left, right] = root.children
-  // Direct children check first
-  if (left.type === 'leaf' && left.paneId === paneId) {
-    return { layout: right, siblingPaneId: findFirstLeaf(right) }
+
+  // Check if any direct child is the target leaf
+  const idx = root.children.findIndex(
+    (c) => c.type === 'leaf' && (c as LeafNode).paneId === paneId,
+  )
+  if (idx !== -1) {
+    const newChildren = root.children.filter((_, i) => i !== idx)
+    // Prefer sibling to the left (or the new first if it was first)
+    const siblingIdx = Math.min(idx, newChildren.length - 1)
+    const siblingPaneId = newChildren.length > 0 ? findFirstLeaf(newChildren[siblingIdx]) : null
+
+    if (newChildren.length === 1) {
+      // Collapse — promote sole child
+      return { layout: newChildren[0], siblingPaneId }
+    }
+    return { layout: { ...root, children: newChildren }, siblingPaneId }
   }
-  if (right.type === 'leaf' && right.paneId === paneId) {
-    return { layout: left, siblingPaneId: findFirstLeaf(left) }
+
+  // Recurse
+  for (let i = 0; i < root.children.length; i++) {
+    if (collectLeafIds(root.children[i]).includes(paneId)) {
+      const result = removeLeaf(root.children[i], paneId)
+      const newChildren = [...root.children]
+      newChildren[i] = result.layout
+      return { layout: { ...root, children: newChildren }, siblingPaneId: result.siblingPaneId }
+    }
   }
-  // Recurse into whichever subtree contains paneId
-  if (collectLeafIds(left).includes(paneId)) {
-    const result = removeLeaf(left, paneId)
-    return { layout: { ...root, children: [result.layout, right] }, siblingPaneId: result.siblingPaneId }
-  }
-  if (collectLeafIds(right).includes(paneId)) {
-    const result = removeLeaf(right, paneId)
-    return { layout: { ...root, children: [left, result.layout] }, siblingPaneId: result.siblingPaneId }
-  }
+
   return { layout: root, siblingPaneId: null }
 }
 
@@ -769,7 +828,7 @@ export const usePanesStore = create<PanesLayoutState>((set, get) => ({
   splitPane: (targetPaneId, newPaneId, orientation) => {
     const { layout, nextSplitIndex } = get()
     const splitId = `split-${nextSplitIndex}`
-    const { layout: newLayout, inserted } = splitLeaf(layout, targetPaneId, newPaneId, orientation, splitId)
+    const { layout: newLayout, inserted } = splitNode(layout, targetPaneId, newPaneId, orientation, splitId)
     if (inserted) {
       set({ layout: newLayout, activePaneId: newPaneId, nextSplitIndex: nextSplitIndex + 1 })
     }
