@@ -348,18 +348,23 @@ export function ChatPane({
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
-  const [autoModeState, setAutoModeState] = useState<{ paused: boolean; consecutive: number; total: number }>({
-    paused: false,
-    consecutive: 0,
-    total: 0,
-  })
+  const autoModeState = store((s) => s.autoModeState)
+
+  // Helper to map bridge response to store shape
+  const applyAutoModeState = useCallback((bridgeState: { paused: boolean; consecutive: number; total: number }) => {
+    getPaneStore(paneId).getState().setAutoModeState({
+      paused: bridgeState.paused,
+      consecutiveBlocks: bridgeState.consecutive,
+      totalBlocks: bridgeState.total,
+    })
+  }, [paneId])
 
   // Load auto mode state
   useEffect(() => {
     if (bridge.getAutoModeState && store.getState().permissionMode === 'auto') {
-      bridge.getAutoModeState(paneId).then(setAutoModeState).catch(() => {})
+      bridge.getAutoModeState(paneId).then(applyAutoModeState).catch(() => {})
     }
-  }, [bridge, paneId, store().permissionMode])
+  }, [bridge, paneId, applyAutoModeState, store().permissionMode])
 
   // Load skills for autocomplete
   useEffect(() => {
@@ -624,7 +629,7 @@ export function ChatPane({
       ...(bridge.onClassifierDecision ? [
         bridge.onClassifierDecision((data) => {
           if (data.paneId !== paneId) return
-          bridge.getAutoModeState?.(paneId).then(setAutoModeState).catch(() => {})
+          bridge.getAutoModeState?.(paneId).then(applyAutoModeState).catch(() => {})
           if (!data.approved) {
             toast.error(`Auto mode blocked ${data.toolName} (${data.source})`, {
               duration: 5000,
@@ -635,7 +640,7 @@ export function ChatPane({
       ...(bridge.onAutoModeResumed ? [
         bridge.onAutoModeResumed((data) => {
           if (data.paneId !== paneId) return
-          bridge.getAutoModeState?.(paneId).then(setAutoModeState).catch(() => {})
+          bridge.getAutoModeState?.(paneId).then(applyAutoModeState).catch(() => {})
         }),
       ] : []),
     ]
@@ -982,7 +987,7 @@ export function ChatPane({
         )}
 
         {/* Auto Mode Paused Banner */}
-        {store().permissionMode === 'auto' && autoModeState.paused && (
+        {autoModeState.paused && store().permissionMode === 'auto' && (
           <div className="mx-4 mb-2 flex items-center justify-between gap-3 px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-xs text-yellow-400">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />
@@ -991,7 +996,7 @@ export function ChatPane({
             <button
               onClick={async () => {
                 const newState = await bridge.resumeAutoMode?.(paneId)
-                if (newState) setAutoModeState(newState)
+                if (newState) applyAutoModeState(newState)
               }}
               className="px-2 py-1 bg-yellow-400 text-black font-semibold rounded hover:bg-yellow-300 transition-colors"
             >

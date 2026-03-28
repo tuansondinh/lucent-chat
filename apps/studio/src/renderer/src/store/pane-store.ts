@@ -64,6 +64,8 @@ export interface PaneChatState {
   recentFiles: string[]
   /** Per-pane permission mode. */
   permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
+  /** Auto mode block-tracking state. */
+  autoModeState: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -106,6 +108,8 @@ export interface PaneChatState {
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
   setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit' | 'auto') => void
+  /** Update the auto mode block-tracking state. */
+  setAutoModeState: (state: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }) => void
   /** Add a new skill block to a turn's assistant message. */
   addSkillBlock: (turn_id: string, skillId: string, skillName: string, trigger: string, totalSteps: number) => void
   /** Update a skill step's progress. */
@@ -178,6 +182,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionName: '',
     recentFiles: [],
     permissionMode: 'danger-full-access',
+    autoModeState: { paused: false, consecutiveBlocks: 0, totalBlocks: 0 },
 
     addUserMessage: (text, turn_id) =>
       set((s) => ({
@@ -569,6 +574,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     setSessionName: (name) => set({ currentSessionName: name }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
+    setAutoModeState: (autoModeState) => set({ autoModeState }),
 
     addRecentFile: (relativePath) =>
       set((s) => {

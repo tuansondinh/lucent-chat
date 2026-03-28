@@ -123,6 +123,13 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     if (input.shift && input.code === 'KeyF') {
       event.preventDefault()
       window.webContents.send('event:app-shortcut', { action: 'toggle-file-viewer' })
+      return
+    }
+
+    // Cmd+Shift+E — cycle permission mode (danger-full-access → accept-on-edit → auto)
+    if (input.shift && input.code === 'KeyE') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
     }
   })
 
