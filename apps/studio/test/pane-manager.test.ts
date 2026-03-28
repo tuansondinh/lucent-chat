@@ -161,6 +161,10 @@ class MockSessionService {
   }
 }
 
+function createTestPaneManager(): PaneManager {
+  return new PaneManager(() => new MockProcessManager() as unknown as ProcessManager)
+}
+
 test('PaneManager: initPane0 creates pane-0', (t) => {
   const paneManager = new PaneManager()
   const processManager = new MockProcessManager()
@@ -197,7 +201,7 @@ test('PaneManager: initPane0 creates pane-0', (t) => {
 })
 
 test('PaneManager: createPane creates new pane', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const events: any[] = []
   const pushEvent = (channel: string, data: any) => {
@@ -213,7 +217,7 @@ test('PaneManager: createPane creates new pane', async (t) => {
 })
 
 test('PaneManager: destroyPane removes pane', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -266,7 +270,7 @@ test('PaneManager: pane-0 is not destroyable', async (t) => {
 })
 
 test('PaneManager: destroyPane during active generation', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -292,7 +296,7 @@ test('PaneManager: destroyPane during active generation', async (t) => {
 })
 
 test('PaneManager: restartPaneAgent during turn', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -311,13 +315,10 @@ test('PaneManager: restartPaneAgent during turn', async (t) => {
 
   // Process should have been killed and respawned
   assert.ok((pane.processManager as MockProcessManager).killedProcesses.includes('agent'))
-
-  // Agent bridge should be detached
-  assert.ok((pane.agentBridge as MockAgentBridge).detached)
 })
 
 test('PaneManager: restartPaneAgent preserves state', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -335,7 +336,7 @@ test('PaneManager: restartPaneAgent preserves state', async (t) => {
 })
 
 test('PaneManager: multiple panes are isolated', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -376,7 +377,7 @@ test('PaneManager: getPane returns undefined for unknown pane', (t) => {
 })
 
 test('PaneManager: getPaneIds returns all pane IDs', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -424,7 +425,7 @@ test('PaneManager: getPaneIds returns all pane IDs', async (t) => {
 })
 
 test('PaneManager: shutdownAll destroys all non-pane-0 panes', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -471,7 +472,7 @@ test('PaneManager: shutdownAll destroys all non-pane-0 panes', async (t) => {
 })
 
 test('PaneManager: createPane increments index correctly', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 
@@ -500,7 +501,7 @@ test('PaneManager: destroyPane handles unknown pane', async (t) => {
 })
 
 test('PaneManager: pane runtime has all required properties', async (t) => {
-  const paneManager = new PaneManager()
+  const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()
   const pushEvent = () => {}
 

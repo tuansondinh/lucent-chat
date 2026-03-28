@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage } from 'electron'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
 import { ProcessManager } from './process-manager.js'
 import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator } from './orchestrator.js'
@@ -19,6 +20,7 @@ import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
 import { resolveRemotePaneRoot } from './pane-root-policy.js'
 import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
+import type { AppSettings } from './settings-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -44,14 +46,24 @@ function broadcast(channel: string, data: unknown): void {
   webBridgeServer?.pushEvent(channel, data)
 }
 
-// Extend Electron App type with isQuitting flag
-declare module 'electron' {
-  interface App {
-    isQuitting: boolean
-  }
-}
-app.isQuitting = false
+let isQuitting = false
 app.setName('LC')
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!hasSingleInstanceLock) {
+  isQuitting = true
+  app.quit()
+}
+
+app.on('second-instance', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+  mainWindow.show()
+  mainWindow.focus()
+})
 
 function createWindow(savedBounds?: { x: number; y: number; width: number; height: number }): BrowserWindow {
   const preload = join(__dirname, '../preload/index.cjs')
@@ -133,7 +145,7 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
 
   // Window close → hide to tray (macOS). On other platforms, allow normal close.
   window.on('close', (e) => {
-    if (process.platform === 'darwin' && !app.isQuitting) {
+    if (process.platform === 'darwin' && !isQuitting) {
       e.preventDefault()
       window.hide()
     }
@@ -163,11 +175,25 @@ function buildTrayMenu(agentState: string): Electron.Menu {
     {
       label: 'Quit',
       click: () => {
-        app.isQuitting = true
+        isQuitting = true
         app.quit()
       },
     },
   ])
+}
+
+function resolveInitialProjectRoot(settings: AppSettings): string {
+  const candidate = settings.lastProjectRoot
+  if (typeof candidate === 'string' && candidate.length > 0) {
+    try {
+      if (existsSync(candidate) && statSync(candidate).isDirectory()) {
+        return candidate
+      }
+    } catch {
+      // Fall back to current working directory.
+    }
+  }
+  return process.cwd()
 }
 
 app.whenReady().then(async () => {
@@ -248,7 +274,7 @@ app.whenReady().then(async () => {
   }
 
   // 6. Resolve initial project root from the app's current working directory.
-  const initialProjectRoot = process.cwd()
+  const initialProjectRoot = resolveInitialProjectRoot(settings)
 
   // 7. Spawn agent and attach — pass TAVILY_API_KEY and permission mode if configured
   const agentEnv: Record<string, string> = {}
@@ -283,11 +309,7 @@ app.whenReady().then(async () => {
     onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
     onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
     onTurnComplete: () => {
-      agentBridge.getState()
-        .then((state) => {
-          if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
-        })
-        .catch(() => {})
+      void sessionService.syncActiveSessionFromAgent()
     },
   })
 
@@ -528,9 +550,9 @@ app.on('window-all-closed', () => {
 
 // Graceful shutdown: SIGTERM all children, then exit
 app.on('before-quit', (e) => {
-  if (!app.isQuitting) {
+  if (!isQuitting) {
     e.preventDefault()
-    app.isQuitting = true
+    isQuitting = true
     void (async () => {
       try {
         terminalManager?.destroyAll()

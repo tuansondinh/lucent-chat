@@ -42,6 +42,8 @@ export class PaneManager {
   private nextPaneIndex = 1
   private settingsService: SettingsService | null = null
 
+  constructor(private readonly processManagerFactory: () => ProcessManager = () => new ProcessManager()) {}
+
   setSettingsService(service: SettingsService): void {
     this.settingsService = service
   }
@@ -91,7 +93,7 @@ export class PaneManager {
     // Pass permission mode so the agent registers the stdio approval handler
     agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
 
-    const processManager = new ProcessManager()
+    const processManager = this.processManagerFactory()
     const agentBridge = new AgentBridge()
     const sessionService = new SessionService(agentBridge)
 
@@ -109,11 +111,7 @@ export class PaneManager {
       onTextBlockStart: (d) => pushEvent('event:text-block-start', { paneId: id, ...d }),
       onTextBlockEnd: (d) => pushEvent('event:text-block-end', { paneId: id, ...d }),
       onTurnComplete: () => {
-        agentBridge.getState()
-          .then((state) => {
-            if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
-          })
-          .catch(() => {})
+        void sessionService.syncActiveSessionFromAgent()
       },
     }
     const orchestrator = new Orchestrator(agentBridge, callbacks)

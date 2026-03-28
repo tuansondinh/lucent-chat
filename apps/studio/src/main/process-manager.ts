@@ -32,6 +32,8 @@ const BACKOFF_INITIAL_MS = 1_000
 const BACKOFF_MAX_MS = 30_000
 const KILL_GRACE_MS = 3_000
 
+type SpawnImpl = typeof spawn
+
 /** Path to the agent entry point (built dist). */
 function resolveAgentPath(): string {
   // Packaged mode: use the bundled entrypoint.js from the @gsd/pi-coding-agent bundle.
@@ -55,6 +57,10 @@ function resolveAgentCommand(entry: string): {
   env: NodeJS.ProcessEnv
 } {
   const userSkillsDir = join(homedir(), '.lc', 'agent', 'skills')
+  const mappedEnv = { ...process.env }
+  if (!mappedEnv.LC_CODING_AGENT_DIR && mappedEnv.LUCENT_CONFIG_DIR) {
+    mappedEnv.LC_CODING_AGENT_DIR = join(mappedEnv.LUCENT_CONFIG_DIR, 'agent')
+  }
 
   if (process.resourcesPath && entry.startsWith(join(process.resourcesPath, 'runtime'))) {
     // Packaged mode: use the bundled standalone Node binary.
@@ -63,7 +69,7 @@ function resolveAgentCommand(entry: string): {
     return {
       command: bundledNode,
       args: [entry, '--mode', 'rpc', '--skill', userSkillsDir],
-      env: { ...process.env },
+      env: mappedEnv,
     }
   }
 
@@ -71,15 +77,17 @@ function resolveAgentCommand(entry: string): {
   return {
     command: 'node',
     args: [entry, '--mode', 'rpc', '--skill', userSkillsDir],
-    env: process.env,
+    env: mappedEnv,
   }
 }
 
 export class ProcessManager extends EventEmitter {
   private processes = new Map<string, ManagedProcess>()
+  private readonly spawnImpl: SpawnImpl
 
-  constructor() {
+  constructor(spawnImpl: SpawnImpl = spawn) {
     super()
+    this.spawnImpl = spawnImpl
     this.processes.set('agent', {
       name: 'agent',
       proc: null,
@@ -116,7 +124,7 @@ export class ProcessManager extends EventEmitter {
       managed.extraEnv = { ...managed.extraEnv, ...extraEnv }
     }
 
-    const proc = spawn(launch.command, launch.args, {
+    const proc = this.spawnImpl(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'inherit'],
       detached: true,
       cwd: managed.cwd ?? process.cwd(),
@@ -153,7 +161,7 @@ export class ProcessManager extends EventEmitter {
 
   /** Spawn a voice sidecar process and register it under the 'sidecar' key. */
   spawnSidecar(cmd: string, args: string[], env?: Record<string, string>): ChildProcess {
-    const proc = spawn(cmd, args, {
+    const proc = this.spawnImpl(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: env ? { ...process.env, ...env } : process.env,
       detached: false,
@@ -286,7 +294,7 @@ export class ProcessManager extends EventEmitter {
       void this.killNamed(name)
     }
 
-    const proc = spawn(cmd, args, {
+    const proc = this.spawnImpl(cmd, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       cwd: opts.cwd ?? process.cwd(),
       env: opts.env ? { ...process.env, ...opts.env } : process.env,

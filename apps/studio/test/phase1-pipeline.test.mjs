@@ -139,6 +139,12 @@ test('index.ts: onToolUpdate callback is wired', async () => {
   assert.match(src, /onToolUpdate/, 'index.ts must wire onToolUpdate')
 })
 
+test('index.ts: single-instance lock is enforced', async () => {
+  const src = await readFile(indexMainPath, 'utf8')
+  assert.match(src, /requestSingleInstanceLock\(\)/, 'index.ts must request a single-instance lock')
+  assert.match(src, /second-instance/, 'index.ts must handle second-instance activation')
+})
+
 // ============================================================================
 // preload/index.ts — onToolUpdate IPC listener
 // ============================================================================
