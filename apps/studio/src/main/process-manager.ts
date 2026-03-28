@@ -108,9 +108,9 @@ export class ProcessManager extends EventEmitter {
     if (cwd !== undefined) {
       managed.cwd = cwd
     }
-    // Persist extraEnv so automatic restarts use the same environment
+    // Merge extraEnv so automatic restarts use the same environment
     if (extraEnv !== undefined) {
-      managed.extraEnv = extraEnv
+      managed.extraEnv = { ...managed.extraEnv, ...extraEnv }
     }
 
     const proc = spawn(launch.command, launch.args, {

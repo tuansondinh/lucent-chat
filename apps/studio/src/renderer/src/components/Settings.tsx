@@ -32,6 +32,7 @@ import {
   Wifi,
   Copy,
   RefreshCw,
+  ShieldCheck,
 } from 'lucide-react'
 import {
   Dialog,
@@ -65,7 +66,7 @@ interface SettingsProps {
   isMobile?: boolean
 }
 
-type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts' | 'skills' | 'remote-access'
+type Tab = 'general' | 'apikeys' | 'models' | 'permissions' | 'shortcuts' | 'skills' | 'remote-access'
 
 interface Model {
   provider: string
@@ -81,6 +82,12 @@ interface ProviderStatus {
   recommended?: boolean
   supportsApiKey: boolean
   supportsOAuth: boolean
+}
+
+interface ClassifierRule {
+  toolName: string
+  pattern: string
+  decision: 'allow' | 'deny'
 }
 
 interface TabItem {
@@ -106,6 +113,7 @@ const TABS: TabItem[] = [
   { id: 'general',   label: 'General',   icon: <SettingsIcon className="w-3.5 h-3.5" /> },
   { id: 'apikeys',   label: 'API Keys',  icon: <Key          className="w-3.5 h-3.5" /> },
   { id: 'models',    label: 'Models',    icon: <Cpu          className="w-3.5 h-3.5" /> },
+  { id: 'permissions', label: 'Auto Mode', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
   { id: 'skills',        label: 'Skills',        icon: <Zap      className="w-3.5 h-3.5" /> },
   { id: 'shortcuts',     label: 'Shortcuts',     icon: <Keyboard className="w-3.5 h-3.5" /> },
   { id: 'remote-access', label: 'Remote Access', icon: <Wifi     className="w-3.5 h-3.5" /> },
@@ -162,6 +170,7 @@ export function Settings({
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
   const [skills, setSkills] = useState<Array<{ name: string; description: string; trigger: string; stepCount: number }>>([])
   const [loadingSkills, setLoadingSkills] = useState(false)
+  const [autoModeRules, setAutoModeRules] = useState<ClassifierRule[]>([])
 
   // ---- Remote Access state ----
   const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false)
@@ -245,6 +254,9 @@ export function Settings({
         } else {
           setDefaultModel('')
         }
+        if (Array.isArray(s.autoModeRules)) {
+          setAutoModeRules(s.autoModeRules as ClassifierRule[])
+        }
         // Remote Access
         if (typeof s.remoteAccessEnabled === 'boolean') setRemoteAccessEnabled(s.remoteAccessEnabled)
         if (typeof s.remoteAccessPort === 'number') setRemoteAccessPort(s.remoteAccessPort)
@@ -307,6 +319,11 @@ export function Settings({
     setLocalVoiceAudioEnabled(enabled)
     onVoiceAudioEnabledChange(enabled)
   }, [onVoiceAudioEnabledChange])
+
+  const handleAutoModeRulesChange = useCallback((rules: ClassifierRule[]) => {
+    setAutoModeRules(rules)
+    bridge.setSettings({ autoModeRules: rules }).catch(() => {})
+  }, [bridge])
 
   // Remote Access handlers
   const handleRemoteAccessToggle = useCallback((enabled: boolean) => {
@@ -418,6 +435,12 @@ export function Settings({
                 loading={loadingModels}
                 defaultModel={defaultModel}
                 onDefaultModelChange={handleDefaultModelChange}
+              />
+            )}
+            {activeTab === 'permissions' && (
+              <AutoModeTab
+                rules={autoModeRules}
+                onRulesChange={handleAutoModeRulesChange}
               />
             )}
             {activeTab === 'skills' && (
@@ -1582,6 +1605,125 @@ function RemoteAccessTab({
           <p className="text-text-tertiary pt-1">
             The PWA provides read access to your agent sessions. Terminal and folder picker are not available remotely.
           </p>
+        </div>
+      </Section>
+    </div>
+  )
+}
+
+// ============================================================================
+// AutoModeTab
+// ============================================================================
+
+interface AutoModeTabProps {
+  rules: ClassifierRule[]
+  onRulesChange: (rules: ClassifierRule[]) => void
+}
+
+function AutoModeTab({ rules, onRulesChange }: AutoModeTabProps) {
+  const [newRule, setNewRule] = useState<ClassifierRule>({
+    toolName: 'bash',
+    pattern: '',
+    decision: 'allow',
+  })
+
+  const addRule = () => {
+    if (!newRule.pattern) return
+    onRulesChange([...rules, newRule])
+    setNewRule({ toolName: 'bash', pattern: '', decision: 'allow' })
+  }
+
+  const removeRule = (index: number) => {
+    onRulesChange(rules.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <Section title="Auto Mode Rules">
+        <p className="text-xs text-text-tertiary">
+          Rules are matched against tool calls before the LLM classifier. Patterns support
+          glob-style wildcards (e.g., <code className="bg-bg-tertiary px-1 rounded">git *</code>).
+        </p>
+
+        <div className="space-y-2">
+          {rules.length === 0 ? (
+            <div className="text-xs text-text-tertiary bg-bg-tertiary rounded p-4 border border-dashed border-border text-center">
+              No rules defined. All mutating tool calls will go to the LLM classifier.
+            </div>
+          ) : (
+            rules.map((rule, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 bg-bg-secondary border border-border rounded-lg p-2 group"
+              >
+                <span className="text-[10px] font-mono bg-bg-tertiary px-1.5 py-0.5 rounded text-text-tertiary w-14 text-center">
+                  {rule.toolName}
+                </span>
+                <span className="flex-1 text-xs font-mono truncate">{rule.pattern}</span>
+                <span
+                  className={cn(
+                    'text-[10px] font-bold uppercase px-1.5 py-0.5 rounded',
+                    rule.decision === 'allow'
+                      ? 'bg-green-500/10 text-green-500'
+                      : 'bg-red-500/10 text-red-400',
+                  )}
+                >
+                  {rule.decision}
+                </span>
+                <button
+                  onClick={() => removeRule(i)}
+                  className="p-1 hover:text-red-400 text-text-tertiary transition-colors opacity-0 group-hover:opacity-100"
+                  title="Remove rule"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 pt-4 border-t border-border mt-4">
+          <div className="w-24">
+            <Select
+              value={newRule.toolName}
+              onValueChange={(v) => setNewRule({ ...newRule, toolName: v })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bash">bash</SelectItem>
+                <SelectItem value="edit">edit</SelectItem>
+                <SelectItem value="write">write</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Input
+            value={newRule.pattern}
+            onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
+            placeholder="pattern (e.g. git *)"
+            className="h-8 text-xs flex-1 font-mono"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addRule()
+            }}
+          />
+          <div className="w-24">
+            <Select
+              value={newRule.decision}
+              onValueChange={(v: 'allow' | 'deny') => setNewRule({ ...newRule, decision: v })}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="allow">allow</SelectItem>
+                <SelectItem value="deny">deny</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button size="sm" onClick={addRule} className="h-8 text-xs" disabled={!newRule.pattern}>
+            Add
+          </Button>
         </div>
       </Section>
     </div>

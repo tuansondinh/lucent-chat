@@ -70,6 +70,13 @@ export interface ApprovalRequest {
   message: string
 }
 
+export interface ClassifierRequest {
+  id: string
+  toolName: string
+  toolCallId: string
+  args: any
+}
+
 export class AgentBridge extends EventEmitter {
   private proc: ChildProcess | null = null
   private stopReading: (() => void) | null = null
@@ -222,6 +229,13 @@ export class AgentBridge extends EventEmitter {
       return
     }
 
+    // Intercept classifier requests — emit so the host can evaluate,
+    // then write the response back to the agent's stdin.
+    if (data.type === 'classifier_request' && typeof data.id === 'string') {
+      this.emit('classifier-request', data as ClassifierRequest)
+      return
+    }
+
     // Otherwise treat as an event and broadcast
     this.emit('agent-event', data)
   }
@@ -238,6 +252,20 @@ export class AgentBridge extends EventEmitter {
     const msg = serializeJsonLine({ type: 'approval_response', id, approved })
     this.proc.stdin.write(msg)
     this.emit('approval-responded', { id, approved })
+  }
+
+  /**
+   * Send a classifier response back to the agent stdin.
+   * Called by ipc-handlers after the host evaluates rules or calls the classifier LLM.
+   */
+  respondToClassifier(id: string, approved: boolean): void {
+    if (!this.proc?.stdin) {
+      console.warn('[agent-bridge] respondToClassifier: no agent process stdin available')
+      return
+    }
+    const msg = serializeJsonLine({ type: 'classifier_response', id, approved })
+    this.proc.stdin.write(msg)
+    this.emit('classifier-responded', { id, approved })
   }
 
   private send(command: Record<string, unknown>): Promise<any> {

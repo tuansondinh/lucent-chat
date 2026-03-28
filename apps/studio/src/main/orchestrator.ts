@@ -68,6 +68,7 @@ export class Orchestrator extends EventEmitter {
   private callbacks: OrchestratorCallbacks
   /** Cleanup function for the in-progress turn — clears timers and listeners. */
   private currentTurnCleanup: (() => void) | null = null
+  private userMessages: string[] = []
 
   constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks) {
     super()
@@ -102,6 +103,11 @@ export class Orchestrator extends EventEmitter {
       state: 'queued',
       created_at: Date.now(),
       images,
+    }
+
+    this.userMessages.push(text)
+    if (this.userMessages.length > 20) {
+      this.userMessages.shift()
     }
 
     if (options?.streamingBehavior === 'followUp') {
@@ -149,6 +155,11 @@ export class Orchestrator extends EventEmitter {
   /** Get the current turn (may be null). */
   getCurrentTurn(): Turn | null {
     return this.currentTurn
+  }
+
+  /** Get the last 20 user messages. */
+  getUserMessages(): string[] {
+    return [...this.userMessages]
   }
 
 

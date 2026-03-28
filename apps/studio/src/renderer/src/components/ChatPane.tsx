@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert } from 'lucide-react'
+import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput, type ChatInputHandle } from './ChatInput'
@@ -193,17 +193,38 @@ function PaneFooter({
       {/* Permission mode indicator */}
       <button
         onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
-        title={permissionMode === 'accept-on-edit' ? 'Accept Edits — click or Shift+Tab to toggle' : 'Bypass Permissions — click or Shift+Tab to toggle'}
+        title={
+          permissionMode === 'auto'
+            ? 'Auto Mode — classifier filters tool calls'
+            : permissionMode === 'accept-on-edit'
+            ? 'Accept Edits — prompt before each change'
+            : 'Bypass Permissions — no approval prompts'
+        }
         className="flex items-center gap-1 px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
         data-permission-mode={permissionMode}
       >
-        {permissionMode === 'accept-on-edit'
-          ? <ShieldAlert className="h-3 w-3 text-yellow-400 flex-shrink-0" />
-          : <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
-        }
+        {permissionMode === 'auto' ? (
+          <ShieldCheck className="h-3 w-3 text-green-500 flex-shrink-0" />
+        ) : permissionMode === 'accept-on-edit' ? (
+          <ShieldAlert className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+        ) : (
+          <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
+        )}
         {showModeLabel && (
-          <span className={`text-[10px] font-medium ${permissionMode === 'accept-on-edit' ? 'text-yellow-400' : 'text-red-400'}`}>
-            {permissionMode === 'accept-on-edit' ? 'Accept Edits' : 'Bypass Permissions'}
+          <span
+            className={`text-[10px] font-medium ${
+              permissionMode === 'auto'
+                ? 'text-green-500'
+                : permissionMode === 'accept-on-edit'
+                ? 'text-yellow-400'
+                : 'text-red-400'
+            }`}
+          >
+            {permissionMode === 'auto'
+              ? 'Auto Mode'
+              : permissionMode === 'accept-on-edit'
+              ? 'Accept Edits'
+              : 'Bypass Permissions'}
           </span>
         )}
       </button>
@@ -327,6 +348,18 @@ export function ChatPane({
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
+  const [autoModeState, setAutoModeState] = useState<{ paused: boolean; consecutive: number; total: number }>({
+    paused: false,
+    consecutive: 0,
+    total: 0,
+  })
+
+  // Load auto mode state
+  useEffect(() => {
+    if (bridge.getAutoModeState && store.getState().permissionMode === 'auto') {
+      bridge.getAutoModeState(paneId).then(setAutoModeState).catch(() => {})
+    }
+  }, [bridge, paneId, store().permissionMode])
 
   // Load skills for autocomplete
   useEffect(() => {
@@ -586,6 +619,23 @@ export function ChatPane({
       ...(bridge.onSkillComplete ? [
         bridge.onSkillComplete(({ skillId, status }) => {
           store.getState().finalizeSkillBlock(skillId, status)
+        }),
+      ] : []),
+      ...(bridge.onClassifierDecision ? [
+        bridge.onClassifierDecision((data) => {
+          if (data.paneId !== paneId) return
+          bridge.getAutoModeState?.(paneId).then(setAutoModeState).catch(() => {})
+          if (!data.approved) {
+            toast.error(`Auto mode blocked ${data.toolName} (${data.source})`, {
+              duration: 5000,
+            })
+          }
+        }),
+      ] : []),
+      ...(bridge.onAutoModeResumed ? [
+        bridge.onAutoModeResumed((data) => {
+          if (data.paneId !== paneId) return
+          bridge.getAutoModeState?.(paneId).then(setAutoModeState).catch(() => {})
         }),
       ] : []),
     ]
@@ -929,6 +979,25 @@ export function ChatPane({
             request={pendingApproval}
             onRespond={(approved) => void handleApprovalRespond(approved)}
           />
+        )}
+
+        {/* Auto Mode Paused Banner */}
+        {store().permissionMode === 'auto' && autoModeState.paused && (
+          <div className="mx-4 mb-2 flex items-center justify-between gap-3 px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-xs text-yellow-400">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4" />
+              <span>Auto mode paused due to frequent blocks. Manual approval required.</span>
+            </div>
+            <button
+              onClick={async () => {
+                const newState = await bridge.resumeAutoMode?.(paneId)
+                if (newState) setAutoModeState(newState)
+              }}
+              className="px-2 py-1 bg-yellow-400 text-black font-semibold rounded hover:bg-yellow-300 transition-colors"
+            >
+              Resume
+            </button>
+          </div>
         )}
 
         {/* Input bar */}

@@ -14,6 +14,7 @@ import { VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
+import { ClassifierService } from './classifier-service.js'
 import { SkillRegistry } from './skill-registry.js'
 import { SkillExecutor } from './skill-executor.js'
 import { WebBridgeServer } from './web-bridge-server.js'
@@ -280,6 +281,7 @@ app.whenReady().then(async () => {
 
   // 10. Auth service + IPC handlers
   const authService = new AuthService()
+  const classifierService = new ClassifierService()
   const fileService = new FileService()
   const gitService = new GitService()
   fileWatchService = new FileWatchService((channel, data) => {
@@ -311,6 +313,7 @@ app.whenReady().then(async () => {
     fileWatchService,
     restartAllAgents,
     () => mainWindow,
+    classifierService,
     skillRegistry,
     skillExecutor,
     broadcast,
