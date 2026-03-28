@@ -108,3 +108,5 @@ Skills are discovered on app startup. Restart the app after adding new skills.
 
 - Voice services are prewarmed in the background after app launch.
 - Desktop auth data is stored under `~/.lucent/agent/`.
+- **Remote Access (PWA):** The desktop app can serve a PWA for remote access via Tailscale (port 8788). This is strictly opt-in and `WebBridgeServer` only spins up when `remoteAccessEnabled` is set to `true` in Settings.
+- **Agent Sandbox & Security:** Tool executions (e.g. bash commands) are constrained by a hardened `ClassifierService` which extracts subcommands and evaluates them against user-defined static rules before falling back to an LLM-based validation.
