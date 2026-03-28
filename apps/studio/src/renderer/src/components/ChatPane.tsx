@@ -463,14 +463,20 @@ export function ChatPane({
         const voiceState = useVoiceStore.getState()
         if (isActive && voiceState.active && voiceState.activePaneId === paneId) flushTts(turn_id)
       }),
-      bridge.onToolStart(({ paneId: pid, turn_id, tool, input }) => {
+      bridge.onToolStart(({ paneId: pid, turn_id, toolCallId, tool, input }) => {
         if (pid !== paneId || isStale()) return
-        store.getState().addToolCall(turn_id, tool, input)
+        store.getState().addToolCall(turn_id, toolCallId, tool, input)
       }),
-      bridge.onToolEnd(({ paneId: pid, turn_id, tool, output, isError }) => {
+      bridge.onToolEnd(({ paneId: pid, turn_id, toolCallId, tool, output, isError }) => {
         if (pid !== paneId || isStale()) return
-        store.getState().finalizeToolCall(turn_id, tool, output, isError)
+        store.getState().finalizeToolCall(turn_id, toolCallId, output, isError)
       }),
+      ...(bridge.onToolUpdate ? [
+        bridge.onToolUpdate(({ paneId: pid, turn_id, toolCallId, subItems }) => {
+          if (pid !== paneId || isStale()) return
+          store.getState().updateToolSubItems(turn_id, toolCallId, subItems)
+        }),
+      ] : []),
       bridge.onThinkingStart(({ paneId: pid, turn_id }) => {
         if (pid !== paneId || isStale()) return
         store.getState().addThinking(turn_id)
@@ -512,6 +518,11 @@ export function ChatPane({
       }),
       bridge.onError(({ paneId: pid, message }) => {
         if (pid !== paneId || isStale()) return
+        // Mark all in-flight tools as errored on agent exit/crash
+        const currentTurnId = store.getState().currentTurnId
+        if (currentTurnId) {
+          store.getState().markAllToolsErrored(currentTurnId)
+        }
         store.getState().addErrorMessage(message)
         toast.error(message)
       }),

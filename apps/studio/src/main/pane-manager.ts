@@ -89,6 +89,7 @@ export class PaneManager {
       onDone: (d) => pushEvent('event:agent-done', { paneId: id, ...d }),
       onToolStart: (d) => pushEvent('event:tool-start', { paneId: id, ...d }),
       onToolEnd: (d) => pushEvent('event:tool-end', { paneId: id, ...d }),
+      onToolUpdate: (d) => pushEvent('event:tool-update', { paneId: id, ...d }),
       onTurnState: (d) => pushEvent('event:turn-state', { paneId: id, ...d }),
       onError: (d) => pushEvent('event:error', { paneId: id, ...d }),
       onThinkingStart: (d) => pushEvent('event:thinking-start', { paneId: id, ...d }),
