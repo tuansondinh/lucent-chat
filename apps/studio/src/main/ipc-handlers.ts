@@ -22,6 +22,7 @@ import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
 import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
+import type { ClassifierService } from './classifier-service.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -41,8 +42,9 @@ export function registerIpcHandlers(
   fileWatchService: FileWatchService,
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
+  classifierService: ClassifierService,
   broadcast?: (channel: string, data: unknown) => void,
-): { registerApprovalForwardingForPane: (paneId: string) => void } {
+): { registerApprovalForwardingForPane: (paneId: string) => void; registerClassifierForwardingForPane: (paneId: string) => void } {
   const approvedPaneRoots = new Set<string>()
 
   for (const paneId of paneManager.getPaneIds()) {
@@ -163,8 +165,9 @@ export function registerIpcHandlers(
       broadcast?.(channel, data)
     })
     fileWatchService.watchPane(pane.id, pane.projectRoot)
-    // Register approval forwarding for the new pane
+    // Register forwarding for the new pane
     registerApprovalForwardingForPane(pane.id)
+    registerClassifierForwardingForPane(pane.id)
     return { paneId: pane.id }
   })
 
@@ -442,8 +445,7 @@ export function registerIpcHandlers(
   // --------------------------------------------------------------------------
 
   // Register approval-request listener for each existing pane, and for panes
-  // created later via cmd:pane-create (they call this function indirectly through
-  // the paneManager.createPane callback that already pushes events).
+  // created later via cmd:pane-create.
   const registerApprovalForwardingForPane = (paneId: string): void => {
     const pane = paneManager.getPane(paneId)
     if (!pane) return
@@ -454,14 +456,113 @@ export function registerIpcHandlers(
     })
   }
 
+  const registerClassifierForwardingForPane = (paneId: string): void => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) return
+    pane.agentBridge.on('classifier-request', async (req) => {
+      const win = getMainWindow()
+      const stats = classifierService.getPaneState(paneId)
+
+      // 1. Evaluate static rules
+      const rules = settingsService.get().autoModeRules ?? []
+      const ruleDecision = classifierService.evaluateRules(req.toolName, req.args, rules)
+      if (ruleDecision) {
+        const approved = ruleDecision === 'allow'
+        pane.agentBridge.respondToClassifier(req.id, approved)
+        pushEvent(win, 'event:classifier-decision', { paneId, toolName: req.toolName, approved, source: 'rule' })
+        broadcast?.('event:classifier-decision', { paneId, toolName: req.toolName, approved, source: 'rule' })
+        return
+      }
+
+      // 2. If paused, fallback to manual approval
+      if (stats.paused) {
+        pushEvent(win, 'event:approval-request', {
+          paneId,
+          id: req.id,
+          action: 'bash',
+          path: '',
+          message: `Auto mode paused (too many blocks). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
+        })
+        broadcast?.('event:approval-request', {
+          paneId,
+          id: req.id,
+          action: 'bash',
+          path: '',
+          message: `Auto mode paused (too many blocks). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
+        })
+        return
+      }
+
+      // 3. LLM classifier
+      const projectInstructions = await fs.readFile(join(pane.projectRoot, 'CLAUDE.md'), 'utf8').catch(() => undefined)
+      const context = {
+        userMessages: pane.orchestrator.getUserMessages().slice(-10),
+        projectInstructions,
+      }
+
+      const decision = await classifierService.classifyToolCall(paneId, req.toolName, req.args, context)
+
+      // Fallback to manual if no key or error
+      if (decision.source === 'fallback') {
+        pushEvent(win, 'event:approval-request', {
+          paneId,
+          id: req.id,
+          action: 'bash',
+          path: '',
+          message: `Classifier error (${decision.reason}). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
+        })
+        broadcast?.('event:approval-request', {
+          paneId,
+          id: req.id,
+          action: 'bash',
+          path: '',
+          message: `Classifier error (${decision.reason}). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
+        })
+        return
+      }
+
+      pane.agentBridge.respondToClassifier(req.id, decision.approved)
+      pushEvent(win, 'event:classifier-decision', {
+        paneId,
+        toolName: req.toolName,
+        approved: decision.approved,
+        source: decision.source,
+      })
+      broadcast?.('event:classifier-decision', {
+        paneId,
+        toolName: req.toolName,
+        approved: decision.approved,
+        source: decision.source,
+      })
+    })
+  }
+
   for (const paneId of paneManager.getPaneIds()) {
     registerApprovalForwardingForPane(paneId)
+    registerClassifierForwardingForPane(paneId)
   }
 
   // When new panes are created, auto-register the forwarding listener
   // (paneManager itself doesn't emit events, but pane-create goes through here)
   ipcMain.handle('cmd:approval-respond', (_event, paneId: string, id: string, approved: boolean) => {
-    paneManager.getPane(paneId)?.agentBridge.respondToApproval(id, approved)
+    const bridge = paneManager.getPane(paneId)?.agentBridge
+    if (!bridge) return
+    if (id.startsWith('cls_')) {
+      bridge.respondToClassifier(id, approved)
+    } else {
+      bridge.respondToApproval(id, approved)
+    }
+  })
+
+  // IPC for Auto mode state
+  ipcMain.handle('cmd:get-auto-mode-state', (_event, paneId: string) => {
+    return classifierService.getPaneState(paneId)
+  })
+
+  ipcMain.handle('cmd:resume-auto-mode', (_event, paneId: string) => {
+    classifierService.resume(paneId)
+    pushEvent(getMainWindow(), 'event:auto-mode-resumed', { paneId })
+    return classifierService.getPaneState(paneId)
   })
 
   // --------------------------------------------------------------------------
@@ -502,7 +603,7 @@ export function registerIpcHandlers(
 
   void getMainWindow // referenced by pushEvent callers in index.ts
 
-  return { registerApprovalForwardingForPane }
+  return { registerApprovalForwardingForPane, registerClassifierForwardingForPane }
 }
 
 function isSafeExternalUrl(url: string): boolean {

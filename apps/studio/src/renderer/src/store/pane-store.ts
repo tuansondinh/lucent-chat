@@ -77,7 +77,9 @@ export interface PaneChatState {
   /** Last 10 opened file paths (relative), most recent first. */
   recentFiles: string[]
   /** Per-pane permission mode. */
-  permissionMode: 'danger-full-access' | 'accept-on-edit'
+  permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
+  /** Auto mode block-tracking state. */
+  autoModeState: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -119,7 +121,15 @@ export interface PaneChatState {
   /** Add a file to the recent files list (most recent first, capped at 10). */
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
-  setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit') => void
+  setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit' | 'auto') => void
+  /** Update the auto mode block-tracking state. */
+  setAutoModeState: (state: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }) => void
+  /** Add a new skill block to a turn's assistant message. */
+  addSkillBlock: (turn_id: string, skillId: string, skillName: string, trigger: string, totalSteps: number) => void
+  /** Update a skill step's progress. */
+  updateSkillStep: (skillId: string, stepIndex: number, status: SkillStepState['status'], output?: string, error?: string) => void
+  /** Finalize a skill block's overall status. */
+  finalizeSkillBlock: (skillId: string, status: SkillBlock['status']) => void
   /**
    * Push editor content into draftContent, marking the tab dirty.
    * No-op if the tab doesn't exist or is not a 'file' kind.
@@ -214,6 +224,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionName: '',
     recentFiles: [],
     permissionMode: 'danger-full-access',
+    autoModeState: { paused: false, consecutiveBlocks: 0, totalBlocks: 0 },
 
     addUserMessage: (text, turn_id) =>
       set((s) => ({
@@ -622,6 +633,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     setSessionName: (name) => set({ currentSessionName: name }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
+    setAutoModeState: (autoModeState) => set({ autoModeState }),
 
     // ---- Phase 2: dirty state actions ----
 
@@ -828,6 +840,11 @@ export function splitNode(
 
   return { layout: root, inserted: false }
 }
+
+/**
+ * Alias for splitNode — exported under the legacy name used in tests.
+ */
+export const splitLeaf = splitNode
 
 function findFirstLeaf(node: LayoutNode): string {
   if (node.type === 'leaf') return node.paneId

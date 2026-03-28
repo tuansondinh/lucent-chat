@@ -14,6 +14,7 @@ import { VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
+import { ClassifierService } from './classifier-service.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
 import { resolveRemotePaneRoot } from './pane-root-policy.js'
@@ -120,6 +121,13 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     if (input.shift && input.code === 'KeyF') {
       event.preventDefault()
       window.webContents.send('event:app-shortcut', { action: 'toggle-file-viewer' })
+      return
+    }
+
+    // Cmd+Shift+E — cycle permission mode (danger-full-access → accept-on-edit → auto)
+    if (input.shift && input.code === 'KeyE') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
     }
   })
 
@@ -278,6 +286,7 @@ app.whenReady().then(async () => {
 
   // 10. Auth service + IPC handlers
   const authService = new AuthService()
+  const classifierService = new ClassifierService(authService)
   const fileService = new FileService()
   const gitService = new GitService()
   fileWatchService = new FileWatchService((channel, data) => {
@@ -302,6 +311,7 @@ app.whenReady().then(async () => {
     fileWatchService,
     restartAllAgents,
     () => mainWindow,
+    classifierService,
     broadcast,
   )
 
