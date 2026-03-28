@@ -39,29 +39,39 @@ Implemented fix:
 - Route remote `get-settings` through the same sanitization used by Electron.
 - Route remote `set-settings` through the same validation path before saving.
 
-### P1: Skill execution was wired to orchestrator events that were never emitted
+### P1: Skill execution was wired to orchestrator events that were never emitted (RESOLVED)
 
-`cmd:skill-execute` waits for `pane.orchestrator` to emit `'chunk'` and `'done'` in order to resolve each skill step:
+**Status: Resolved by skill system simplification**
 
-- [`apps/studio/src/main/ipc-handlers.ts:394`](/Users/sonwork/Workspace/voice-bridge-desktop/apps/studio/src/main/ipc-handlers.ts#L394)
-- [`apps/studio/src/main/ipc-handlers.ts:408`](/Users/sonwork/Workspace/voice-bridge-desktop/apps/studio/src/main/ipc-handlers.ts#L408)
-- [`apps/studio/src/main/ipc-handlers.ts:411`](/Users/sonwork/Workspace/voice-bridge-desktop/apps/studio/src/main/ipc-handlers.ts#L411)
+The skill system previously used `cmd:skill-execute` IPC handler with `SkillExecutor` and `SkillRegistry` classes for multi-step execution with progress tracking. This has been removed and replaced with a simpler approach:
 
-But `Orchestrator` only calls callback hooks such as `callbacks.onChunk(...)` and `callbacks.onDone(...)`; it does not emit matching EventEmitter events:
+**What was removed:**
+- `SkillRegistry` class (main process) — no longer validates or registers skills
+- `SkillExecutor` class (main process) — no longer chains steps or emits progress events
+- `SkillProgressBlock` component (renderer) — no longer renders skill progress UI
+- `cmd:skill-execute` and `cmd:skill-abort` IPC handlers
+- `SkillBlock` and `SkillStepState` types from renderer store
+- Store actions: `addSkillBlock`, `updateSkillStep`, `finalizeSkillBlock`
+- Preload bridge methods: `skillExecute`, `skillAbort`, `onSkillProgress`, `onSkillComplete`
+- Multi-step skill execution and progress event wiring
 
-- [`apps/studio/src/main/orchestrator.ts:151`](/Users/sonwork/Workspace/voice-bridge-desktop/apps/studio/src/main/orchestrator.ts#L151)
-- [`apps/studio/src/main/orchestrator.ts:235`](/Users/sonwork/Workspace/voice-bridge-desktop/apps/studio/src/main/orchestrator.ts#L235)
+**What changed:**
+- Skills are now discovered at runtime via `cmd:skill-list` which scans `~/.lc/agent/skills/` (global) and `.lc/skills/` (project-local) directly via filesystem
+- `/skill-name` in chat is sent as a regular message to the agent
+- The agent handles skill invocation via the Skill tool (in `packages/pi-coding-agent/src/core/skills.ts`)
+- User-facing config directory renamed from `.pi` to `.lc` (piConfig in `packages/pi-coding-agent/package.json`)
 
-Impact:
+**What still works:**
+- Skill autocomplete dropdown in ChatInput (floats above input with max-height)
+- Skills section in CommandPalette (Cmd+K) — sends `/skill-name` messages
+- Skills tab in Settings — sources from `cmd:skill-list`
+- Bundled skills in `src/resources/skills/` and `apps/studio/src/resources/skills/`
 
-- The promise created for a skill step never resolves.
-- Any slash skill can hang indefinitely on its first step.
-- The UI can show a running skill that never completes.
-
-Implemented fix:
-
-- Either emit orchestrator-level `'chunk'` and `'done'` events alongside the existing callbacks, or
-- Change skill execution to hook into a completion path that actually exists.
+**Impact:**
+- Simplified architecture with no complex event-waiting or step-chaining in main process
+- Skills are now handled entirely by the agent's LLM reasoning and tooling system
+- Reduced complexity: no state machines, no progress tracking, no orchestrator integration
+- User-facing skill discovery and invocation unchanged
 
 ## Notes
 

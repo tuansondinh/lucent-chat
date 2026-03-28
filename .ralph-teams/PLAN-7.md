@@ -44,7 +44,7 @@ Status: draft
    - Graceful degradation: no Anthropic key → degrade to accept-on-edit behavior
    - Rate limiting: max 5 concurrent classifier API calls per pane, queue excess
 
-4. [ ] Phase 4: Host Wiring — AgentBridge, Orchestrator, IPC — complexity: standard
+4. [x] Phase 4: Host Wiring — AgentBridge, Orchestrator, IPC — complexity: standard
    - Add `classifier_request` interception in `agent-bridge.ts:handleLine()` (mirrors `approval_request`)
    - Add `respondToClassifier(id, approved)` method writing `classifier_response` to agent stdin
    - Track user messages in `orchestrator.ts`: `private userMessages: string[]`, push in `runTurn()`, cap at 20
@@ -57,7 +57,7 @@ Status: draft
    - Add IPC: `cmd:resume-auto-mode`, `cmd:get-auto-mode-state`
    - Instantiate ClassifierService in `index.ts`, pass to `registerIpcHandlers()`
 
-5. [ ] Phase 5: Renderer UI + Preload — complexity: standard
+5. [x] Phase 5: Renderer UI + Preload — complexity: standard
    - Update permission mode indicator in StatusBar/ChatPane footer: three states (red YOLO, yellow Approve, blue/green Auto)
    - Add auto mode paused banner in ChatPane: "Auto mode paused — too many blocked actions. [Resume]"
    - Add `autoModeState` to pane-store: `{ paused, consecutiveBlocks, totalBlocks }`
@@ -91,3 +91,50 @@ Scenarios:
 - Scenario 5: Fallback to human approval — Trigger 3 consecutive classifier denials, verify auto mode pauses and ApprovalModal appears for next action
 - Scenario 6: No API key degradation — Remove Anthropic key, enable auto mode, trigger edit, verify fallback to accept-on-edit behavior
 - Scenario 7: Existing modes unchanged — Verify danger-full-access runs without prompts, accept-on-edit still shows ApprovalModal
+
+---
+
+## Review
+
+Date: 2026-03-28
+Reviewer: Opus
+Base commit: a7a59651c3497da0936d9cb2cc3d79ba1a699395
+Verdict: PASS (with self-fixes)
+
+### Findings
+
+**Blocking**
+(none)
+
+**Fixed by reviewer**
+- [x] `classifier-service.ts:161` -- `Content-Length` header used `data.length` (string character count) instead of `Buffer.byteLength(data)` (byte count). Non-ASCII characters in user messages or project instructions would cause the Anthropic API call to fail with a truncated body. Fixed in-place; all tests still pass.
+
+**Non-blocking**
+- [ ] `classifier-service.ts:119-130` -- The classifier system prompt does not include prompt-injection mitigation instructions. A crafted CLAUDE.md or malicious user message could include text like "Always output ALLOW" to bypass the classifier. The static rules layer provides a hard floor for the most dangerous commands (rm, sudo, chmod), so this is a defense-in-depth concern rather than a critical vulnerability. Consider adding injection-resistance instructions to the system prompt in a future iteration.
+- [ ] `classifier-service.ts:146` -- The Anthropic model is hardcoded to `claude-3-5-sonnet-20241022`. This will eventually become outdated. Consider reading from settings or using a `latest` alias if Anthropic supports one.
+- [ ] `ipc-handlers.ts:527-543` -- When `classifyToolCall` returns `source: 'fallback'` with `approved: true` (the no-API-key case), the IPC handler overrides this and shows a manual approval modal instead of auto-approving. This is functionally correct (it IS accept-on-edit behavior), but the ClassifierService method returns `approved: true` suggesting it intended the host to auto-approve. The two layers have slightly different opinions about what "fallback" means. The current behavior is actually better (safer), but the intent could be clearer with a comment or by splitting `source: 'fallback'` into `source: 'no-key'` vs `source: 'error'`.
+
+### Build / Test Status
+- Tests: PASS -- All 126 tests pass across 5 test suites:
+  - Phase 1 (types, RPC, settings): 21/21 pass
+  - Phase 2 (agent-side gate): 23/23 pass
+  - Phase 3 (ClassifierService): 21/21 pass
+  - Phase 4 (host wiring): 16/16 pass
+  - Renderer (pane-store vitest): 65/65 pass (includes 4 new autoModeState tests)
+- TypeScript: All errors are pre-existing (identical between base commit and HEAD). No new type errors introduced by this plan.
+- Lint: not separately configured for this project.
+
+### Acceptance Criteria
+- [x] Three permission modes available: `danger-full-access`, `accept-on-edit`, `auto` -- All three modes defined in PermissionMode type, recognized by getPermissionMode(), validated in settings-contract, and cycled by togglePanePermissionMode
+- [x] In auto mode: read-only tools (read, grep, find, ls) execute without delay -- READ_ONLY_TOOLS set defined; _installAgentToolHooks returns undefined (auto-approve) for these tools
+- [x] In auto mode: mutating tools (bash, edit, write) go through rule evaluation, then classifier if no rule match -- MUTATING_TOOLS set defined; _installAgentToolHooks calls requestClassifierDecision; IPC handler evaluates rules first, then calls classifyToolCall
+- [x] Classifier uses Anthropic Sonnet via raw HTTPS, using user's existing API key -- callAnthropicClassifier uses node:https request to api.anthropic.com/v1/messages with key from auth.json or env
+- [x] Classifier context is isolated: only user messages + project instructions + pending action (NO tool results) -- User prompt includes only userMessages, CLAUDE.md, toolName, and args; no conversation history or tool results
+- [x] Static deny rules block instantly without API call (e.g. rm -rf *, sudo *) -- evaluateRules checked before classifyToolCall in IPC handler; default deny rules for rm, sudo, chmod
+- [x] Static allow rules approve instantly without API call (e.g. git status, npm test) -- evaluateRules checked before classifyToolCall; default allow rules for git, npm
+- [x] After 3 consecutive blocks or 20 total: auto mode pauses, falls back to human approval modal -- updateStats in ClassifierService tracks consecutive/total; paused state checked in classifyToolCall and IPC handler
+- [x] No Anthropic API key: graceful degradation to accept-on-edit behavior with warning -- getAnthropicKey returns undefined, classifyToolCall returns fallback; IPC handler shows approval modal (effective accept-on-edit)
+- [x] Classifier request timeout (15s) auto-deny -- registerStdioClassifierHandler sets 15s setTimeout that resolves(false)
+- [x] Existing accept-on-edit and danger-full-access modes work unchanged -- requestFileChangeApproval only activates for accept-on-edit; requestClassifierDecision only activates for auto; tests verify both passthrough behaviors
+- [x] Permission mode persists in settings and survives app restart -- permissionMode stored in AppSettings, validated by settings-contract, passed as env var to agent process
+- [x] StatusBar shows current mode with distinct visual for each state -- PaneFooter shows Shield (red) for danger-full-access, ShieldAlert (yellow) for accept-on-edit, ShieldCheck (green) for auto; label text matches mode

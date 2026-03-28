@@ -445,13 +445,13 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
           {tc.tool}
         </span>
         {inputSummary && (
-          <span className="truncate flex-1 text-text-tertiary min-w-0">
+          <span className="truncate flex-1 text-text-secondary min-w-0">
             {inputSummary}
           </span>
         )}
         {!inputSummary && <span className="flex-1" />}
         {!tc.done && (
-          <span className="text-text-tertiary text-[10px] flex-shrink-0">running</span>
+          <span className="text-text-secondary text-[10px] flex-shrink-0">running</span>
         )}
       </button>
 
@@ -471,18 +471,18 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
         <div className="border-t border-border/50 bg-bg-primary">
           {tc.input !== undefined && (
             <div className="p-2">
-              <p className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 px-1">Input</p>
-              <pre className="text-[11px] text-text-secondary font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 bg-bg-tertiary rounded p-2">
+              <p className="text-[10px] text-text-secondary uppercase tracking-wide mb-1 px-1">Input</p>
+              <pre className="text-[11px] text-text-primary/80 font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 bg-bg-tertiary rounded p-2">
                 {JSON.stringify(tc.input, null, 2)}
               </pre>
             </div>
           )}
           {tc.output !== undefined && (
             <div className="p-2 border-t border-border/30">
-              <p className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1 px-1">Output</p>
+              <p className="text-[10px] text-text-secondary uppercase tracking-wide mb-1 px-1">Output</p>
               <pre className={cn(
                 'text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 rounded p-2',
-                tc.isError ? 'text-red-300 bg-red-900/20' : 'text-text-secondary bg-bg-tertiary',
+                tc.isError ? 'text-red-300 bg-red-900/20' : 'text-text-primary/80 bg-bg-tertiary',
               )}>
                 {typeof tc.output === 'string'
                   ? tc.output

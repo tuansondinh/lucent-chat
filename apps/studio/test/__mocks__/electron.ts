@@ -166,7 +166,7 @@ class AppMock extends EventEmitter {
   exit = vi.fn()
   focus = vi.fn()
   getVersion = () => '0.9.0'
-  getName = () => 'Lucent Chat'
+  getName = () => 'Lucent Code'
   getAppPath = () => '/app/path'
   getPath = (name: string) => {
     const paths: Record<string, string> = {

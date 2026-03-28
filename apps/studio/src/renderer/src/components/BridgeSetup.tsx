@@ -54,7 +54,7 @@ export function BridgeSetup({ onConnect }: Props) {
     <div className="min-h-screen bg-bg-primary flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-bg-secondary border border-border rounded-xl p-8 space-y-6">
         <div className="space-y-1">
-          <h1 className="text-text-primary text-xl font-semibold">Connect to Lucent Chat</h1>
+          <h1 className="text-text-primary text-xl font-semibold">Connect to Lucent Code</h1>
           <p className="text-text-secondary text-sm">
             Enter the token shown in the Electron app console when it starts.
           </p>

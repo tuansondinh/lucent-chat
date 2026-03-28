@@ -43,7 +43,7 @@ export function IOSInstallBanner() {
       <Share className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
 
       <p className="flex-1 leading-snug">
-        <span className="font-medium text-text-primary">Install Lucent Chat</span>
+        <span className="font-medium text-text-primary">Install Lucent Code</span>
         <br />
         Tap the{' '}
         <Share className="inline w-3.5 h-3.5 align-[-2px]" aria-hidden="true" />{' '}

@@ -824,7 +824,7 @@ export function ChatPane({
         >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="text-2xl font-semibold text-text-primary">Lucent Chat</div>
+            <div className="text-2xl font-semibold text-text-primary">Lucent Code</div>
             <p className="text-sm text-text-secondary max-w-xs">
               {agentHealth === 'ready'
                 ? 'Ask anything to get started.'

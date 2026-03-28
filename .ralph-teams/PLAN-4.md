@@ -39,12 +39,12 @@ Key files:
 
 1. [x] Phase 1: PWA Infrastructure + Capability Audit — complexity: standard
    - Install `vite-plugin-pwa` as dev dependency
-   - Create `apps/studio/src/renderer/public/manifest.json` with app name "Lucent Chat", theme color `#0a192f`, `display: standalone`, placeholder SVG icons (192x192, 512x512)
+   - Create `apps/studio/src/renderer/public/manifest.json` with app name "Lucent Code", theme color `#0a192f`, `display: standalone`, placeholder SVG icons (192x192, 512x512)
    - Update `vite.pwa.config.ts` to integrate `vite-plugin-pwa` with Workbox: precache static assets only (HTML, CSS, JS, fonts, icons). **Do NOT cache API calls or WebSocket-backed state** — offline mode is shell-only
-   - Update `index.html`: add `<link rel="manifest">`, `<meta name="theme-color" content="#0a192f">`, `<meta name="apple-mobile-web-app-capable" content="yes">`, `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`, `<link rel="apple-touch-icon">`, `<meta name="apple-mobile-web-app-title" content="Lucent Chat">`. Update viewport to include `viewport-fit=cover`
+   - Update `index.html`: add `<link rel="manifest">`, `<meta name="theme-color" content="#0a192f">`, `<meta name="apple-mobile-web-app-capable" content="yes">`, `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`, `<link rel="apple-touch-icon">`, `<meta name="apple-mobile-web-app-title" content="Lucent Code">`. Update viewport to include `viewport-fit=cover`
    - Update CSP meta tag to allow service worker scope
    - Register service worker in `main.tsx` conditionally (only when `!window.__ELECTRON__`)
-   - Create minimal offline fallback page showing "Lucent Chat — Connect to your desktop to continue"
+   - Create minimal offline fallback page showing "Lucent Code — Connect to your desktop to continue"
    - **Runtime capability audit**: Create `apps/studio/src/renderer/src/lib/capabilities.ts` — exports a `getCapabilities()` function that returns `{ terminal: boolean, fileSystem: boolean, oauth: boolean, multiPane: boolean, splitPane: boolean }` based on whether running in Electron or PWA. Reads from `window.__ELECTRON__` and the web bridge connection state
    - **Safari/iOS install**: Handle absence of `beforeinstallprompt` on iOS — detect standalone mode via `navigator.standalone`, show "Add to Home Screen" instructions for Safari users when not in standalone mode
 
@@ -136,7 +136,7 @@ Verdict: PASS (with self-fixes)
 - Lint: N/A (no linter configured)
 
 ### Acceptance Criteria
-- [x] PWA installable from Chrome/Safari with proper app name, icon, and standalone display -- manifest.json has `"name": "Lucent Chat"`, SVG icons at 192 and 512, `"display": "standalone"`
+- [x] PWA installable from Chrome/Safari with proper app name, icon, and standalone display -- manifest.json has `"name": "Lucent Code"`, SVG icons at 192 and 512, `"display": "standalone"`
 - [x] Service worker caches static assets only; app shows offline fallback when disconnected -- Workbox generateSW with `navigateFallbackDenylist` for `/api/` and `/events`; offline.html included
 - [x] At 400px viewport width: single-pane layout, no horizontal scroll, no overflow -- App.tsx renders single ChatPane full-width on mobile; `overflow-hidden` on root
 - [x] Sidebar renders as left slide-out drawer on mobile (NOT bottom nav) with swipe gesture support -- `.mobile-sidebar-drawer` with translateX animation; `useSwipeGesture` hook with 20px edge zone, 50px delta threshold, velocity-aware

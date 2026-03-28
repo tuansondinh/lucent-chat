@@ -35,6 +35,7 @@ interface CliFlags {
   model?: string
   listModels?: string | true
   extensions: string[]
+  skills: string[]
   appendSystemPrompt?: string
   tools?: string[]
   messages: string[]
@@ -59,7 +60,7 @@ function exitIfManagedResourcesAreNewer(currentAgentDir: string): void {
 }
 
 function parseCliArgs(argv: string[]): CliFlags {
-  const flags: CliFlags = { extensions: [], messages: [] }
+  const flags: CliFlags = { extensions: [], skills: [], messages: [] }
   const args = argv.slice(2) // skip node + script
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
@@ -74,6 +75,8 @@ function parseCliArgs(argv: string[]): CliFlags {
       flags.noSession = true
     } else if (arg === '--model' && i + 1 < args.length) {
       flags.model = args[++i]
+    } else if (arg === '--skill' && i + 1 < args.length) {
+      flags.skills.push(args[++i])
     } else if (arg === '--extension' && i + 1 < args.length) {
       flags.extensions.push(args[++i])
     } else if (arg === '--append-system-prompt' && i + 1 < args.length) {
@@ -371,6 +374,7 @@ if (isPrintMode) {
   const resourceLoader = new DefaultResourceLoader({
     agentDir,
     additionalExtensionPaths: cliFlags.extensions.length > 0 ? cliFlags.extensions : undefined,
+    additionalSkillPaths: cliFlags.skills.length > 0 ? cliFlags.skills : undefined,
     appendSystemPrompt,
   })
   await resourceLoader.reload()
@@ -491,7 +495,7 @@ const sessionManager = cliFlags._selectedSessionPath
 exitIfManagedResourcesAreNewer(agentDir)
 initResources(agentDir)
 markStartup('initResources')
-const resourceLoader = buildResourceLoader(agentDir)
+const resourceLoader = buildResourceLoader(agentDir, cliFlags.skills)
 await resourceLoader.reload()
 markStartup('resourceLoader.reload')
 

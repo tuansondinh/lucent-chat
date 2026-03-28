@@ -389,6 +389,11 @@ app.whenReady().then(async () => {
           }
           return null
         }
+        // Voice sidecar
+        case 'voice-probe': return voiceService?.probe() ?? { available: false, reason: 'Voice service unavailable' }
+        case 'voice-start': return voiceService?.start()
+        case 'voice-stop': return voiceService?.stop()
+        case 'voice-status': return voiceService?.getStatus() ?? { available: false, state: 'unavailable', port: null, token: null }
         // No-ops for remote context
         case 'open-external': return null
         case 'set-window-title': return null
@@ -451,13 +456,13 @@ app.whenReady().then(async () => {
     '9hAAAAFElEQVQ4T2NkYGD4z8BQDwAEgAF/AAAyxgF/AAAAAElFTkSuQmCC'
   const trayIcon = nativeImage.createFromDataURL(iconDataUrl)
   tray = new Tray(trayIcon)
-  tray.setToolTip('Lucent Chat')
+  tray.setToolTip('Lucent Code')
 
   const updateTray = () => {
     const states = processManager!.getStates()
     const agentState = states.agent ?? 'stopped'
     tray!.setContextMenu(buildTrayMenu(agentState))
-    tray!.setToolTip(`Lucent Chat — agent: ${agentState}`)
+    tray!.setToolTip(`Lucent Code — agent: ${agentState}`)
   }
 
   updateTray()

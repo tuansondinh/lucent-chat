@@ -1,5 +1,5 @@
 /**
- * Settings — tabbed settings dialog for Lucent Chat Desktop.
+ * Settings — tabbed settings dialog for Lucent Code Desktop.
  *
  * Tabs:
  *   - General:    font size

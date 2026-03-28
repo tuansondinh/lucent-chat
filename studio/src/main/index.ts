@@ -246,13 +246,13 @@ app.whenReady().then(async () => {
     '9hAAAAFElEQVQ4T2NkYGD4z8BQDwAEgAF/AAAyxgF/AAAAAElFTkSuQmCC'
   const trayIcon = nativeImage.createFromDataURL(iconDataUrl)
   tray = new Tray(trayIcon)
-  tray.setToolTip('Lucent Chat')
+  tray.setToolTip('Lucent Code')
 
   const updateTray = () => {
     const states = processManager!.getStates()
     const agentState = states.agent ?? 'stopped'
     tray!.setContextMenu(buildTrayMenu(agentState))
-    tray!.setToolTip(`Lucent Chat — agent: ${agentState}`)
+    tray!.setToolTip(`Lucent Code — agent: ${agentState}`)
   }
 
   updateTray()

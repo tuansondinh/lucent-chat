@@ -436,7 +436,7 @@ function getBundledExtensionKeys(): Set<string> {
   return _bundledExtensionKeys
 }
 
-export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
+export function buildResourceLoader(agentDir: string, skillPaths: string[] = []): DefaultResourceLoader {
   const registry = loadRegistry()
   const piAgentDir = join(homedir(), '.pi', 'agent')
   const piExtensionsDir = join(piAgentDir, 'extensions')
@@ -452,5 +452,6 @@ export function buildResourceLoader(agentDir: string): DefaultResourceLoader {
   return new DefaultResourceLoader({
     agentDir,
     additionalExtensionPaths: piExtensionPaths,
+    additionalSkillPaths: skillPaths,
   })
 }

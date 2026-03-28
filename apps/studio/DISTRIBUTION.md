@@ -1,8 +1,8 @@
-# Lucent Chat Distribution Guide
+# Lucent Code Distribution Guide
 
 <div align="center">
 
-**Building and distributing Lucent Chat for macOS**
+**Building and distributing Lucent Code for macOS**
 
 </div>
 
@@ -43,7 +43,7 @@ npm install
 # Build universal DMG (recommended for distribution)
 npm run dist:mac:universal
 
-# Output: release/Lucent Chat-0.1.0-universal.dmg
+# Output: release/Lucent Code-0.1.0-universal.dmg
 ```
 
 ---
@@ -56,7 +56,7 @@ npm run dist:mac:universal
 # Build and package without creating installer
 npm run pack
 
-# Output: release/mac-universal/Lucent Chat.app
+# Output: release/mac-universal/Lucent Code.app
 ```
 
 This creates an unsigned `.app` bundle that you can:
@@ -87,10 +87,10 @@ After running `npm run dist:mac:universal`:
 
 ```
 release/
-├── Lucent Chat-0.1.0-universal.dmg      # DMG installer (for distribution)
-├── Lucent Chat-0.1.0-universal.zip      # ZIP archive (alternative)
+├── Lucent Code-0.1.0-universal.dmg      # DMG installer (for distribution)
+├── Lucent Code-0.1.0-universal.zip      # ZIP archive (alternative)
 └── mac-universal/
-    └── Lucent Chat.app                   # Unsigned .app bundle
+    └── Lucent Code.app                   # Unsigned .app bundle
 ```
 
 ---
@@ -206,10 +206,10 @@ Or add to package.json build config:
 ```bash
 # After building, sign manually
 codesign --force --deep --sign "Developer ID Application: Your Name (TEAM_ID)" \
-  "release/mac-universal/Lucent Chat.app"
+  "release/mac-universal/Lucent Code.app"
 
 # Verify signature
-codesign --verify --verbose "release/mac-universal/Lucent Chat.app"
+codesign --verify --verbose "release/mac-universal/Lucent Code.app"
 ```
 
 ---
@@ -230,7 +230,7 @@ Apple's security check for apps distributed outside the App Store. Required for:
 ```bash
 # Go to: https://appleid.apple.com
 # Sign In → Security → App-Specific Passwords
-# Generate: Label "Lucent Chat Notarization"
+# Generate: Label "Lucent Code Notarization"
 # Copy the password (format: abcd-efgh-ijkl-mnop)
 ```
 
@@ -273,7 +273,7 @@ Add to package.json:
 ```bash
 # 1. Create the app (run dist:mac:universal)
 # 2. Zip the app
-zip -r LucentChat.zip "release/mac-universal/Lucent Chat.app"
+zip -r LucentChat.zip "release/mac-universal/Lucent Code.app"
 
 # 3. Submit for notarization
 xcrun notarytool submit \
@@ -284,7 +284,7 @@ xcrun notarytool submit \
   --wait
 
 # 4. Staple the ticket to the app
-xcrun stapler staple "release/mac-universal/Lucent Chat.app"
+xcrun stapler staple "release/mac-universal/Lucent Code.app"
 ```
 
 ---
@@ -299,7 +299,7 @@ The build process automatically creates a DMG. Here's how it's configured:
 {
   "build": {
     "dmg": {
-      "title": "Lucent Chat",
+      "title": "Lucent Code",
       "background": "build/dmg-background.png",
       "icon": "build/icon.icns",
       "iconSize": 80,
@@ -327,11 +327,11 @@ Place your background at `build/dmg-background.png`:
 Example layout:
 ```
 ┌─────────────────────────────────────────┐
-│  Lucent Chat                            │
+│  Lucent Code                            │
 │                                          │
 │     [APP ICON]    →→→ [Applications]    │
 │                                          │
-│  Drag Lucent Chat to Applications        │
+│  Drag Lucent Code to Applications        │
 │                                          │
 └─────────────────────────────────────────┘
 ```
@@ -480,10 +480,10 @@ Before distributing publicly:
 
 ```bash
 # Remove extended attributes
-xattr -cr "release/mac-universal/Lucent Chat.app"
+xattr -cr "release/mac-universal/Lucent Code.app"
 
 # If signed, verify signature
-codesign --verify --verbose "release/mac-universal/Lucent Chat.app"
+codesign --verify --verbose "release/mac-universal/Lucent Code.app"
 ```
 
 ### Notarization Failed
@@ -560,7 +560,7 @@ npm run dist:mac:x64
       "fileAssociations": [
         {
           "ext": "lc",
-          "name": "Lucent Chat Session",
+          "name": "Lucent Code Session",
           "role": "Editor"
         }
       ]
@@ -577,7 +577,7 @@ npm run dist:mac:x64
     "publish": {
       "provider": "github",
       "owner": "your-username",
-      "repo": "lucent-chat"
+      "repo": "lucent-code"
     }
   }
 }

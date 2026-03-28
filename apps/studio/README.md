@@ -1,4 +1,4 @@
-# Lucent Chat Studio
+# Lucent Code Studio
 
 <div align="center">
 
@@ -12,7 +12,7 @@ Built with Electron + React + TypeScript + Python
 
 ## Overview
 
-Lucent Chat is a desktop AI chat application with voice input/output capabilities, multi-pane chat sessions, file browsing, and integrated terminal. It runs locally on your machine and connects to AI providers for conversations.
+Lucent Code is a desktop AI chat application with voice input/output capabilities, multi-pane chat sessions, file browsing, and integrated terminal. It runs locally on your machine and connects to AI providers for conversations.
 
 ### Key Features
 
@@ -172,7 +172,7 @@ npm run release:arm64:dry
 2. **`gh` CLI** — `brew install gh && gh auth login`
 3. **Notarization credentials** (for `--notarize` only):
    ```bash
-   xcrun notarytool store-credentials "lucent-chat-notary" \
+   xcrun notarytool store-credentials "lucent-code-notary" \
      --apple-id "tuansondinh96@gmail.com" \
      --team-id "34UMY69QMK"
    ```

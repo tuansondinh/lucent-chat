@@ -1,5 +1,5 @@
 /**
- * AuthService — manages LLM provider API keys and OAuth credentials for Lucent Chat Desktop.
+ * AuthService — manages LLM provider API keys and OAuth credentials for Lucent Code Desktop.
  *
  * Reads/writes ~/.lucent/agent/auth.json using the same storage format as the
  * desktop app onboarding flow.
@@ -184,7 +184,7 @@ function validateViaHttp(
           headers: {
             Authorization: `Bearer ${apiKey}`,
             'HTTP-Referer': 'https://lucent.chat',
-            'X-Title': 'Lucent Chat',
+            'X-Title': 'Lucent Code',
           },
         }
         break

@@ -8,6 +8,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -53,13 +54,15 @@ function resolveAgentCommand(entry: string): {
   args: string[]
   env: NodeJS.ProcessEnv
 } {
+  const userSkillsDir = join(homedir(), '.lc', 'agent', 'skills')
+
   if (process.resourcesPath && entry.startsWith(join(process.resourcesPath, 'runtime'))) {
     // Packaged mode: use the bundled standalone Node binary.
     // No ELECTRON_RUN_AS_NODE — the bundled node is a plain Node binary, not Electron.
     const bundledNode = join(process.resourcesPath, 'runtime', 'node')
     return {
       command: bundledNode,
-      args: [entry, '--mode', 'rpc'],
+      args: [entry, '--mode', 'rpc', '--skill', userSkillsDir],
       env: { ...process.env },
     }
   }
@@ -67,7 +70,7 @@ function resolveAgentCommand(entry: string): {
   // Dev mode: use system node binary.
   return {
     command: 'node',
-    args: [entry, '--mode', 'rpc'],
+    args: [entry, '--mode', 'rpc', '--skill', userSkillsDir],
     env: process.env,
   }
 }

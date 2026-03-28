@@ -7,7 +7,7 @@ Status: complete
 
 ## Problem
 
-When a subagent is running in Lucent Chat, the user has no visibility into what the subagent is doing — they only see a spinning loader for the `subagent` tool. In the GSD CLI, subagent tool calls are rendered live (e.g., `→ $ ls -la`, `→ read README.md`, `→ read package.json`), giving the user confidence the agent isn't stuck.
+When a subagent is running in Lucent Code, the user has no visibility into what the subagent is doing — they only see a spinning loader for the `subagent` tool. In the GSD CLI, subagent tool calls are rendered live (e.g., `→ $ ls -la`, `→ read README.md`, `→ read package.json`), giving the user confidence the agent isn't stuck.
 
 Additionally, the 5-minute safety timeout in the orchestrator is a fixed timer that fires even when the agent is actively working (e.g., a subagent running for 10+ minutes producing events), killing legitimate long-running turns.
 

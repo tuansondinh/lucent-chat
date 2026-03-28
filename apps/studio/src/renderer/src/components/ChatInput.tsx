@@ -128,10 +128,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [value])
 
   // Skill autocomplete: filter by text after `/`
+  // Only show dropdown while typing the trigger — not after a space (skill already selected)
   const filteredSkills = (() => {
     if (!value.startsWith('/') || !skills.length) return []
-    const typed = value.slice(1).split(/\s/)[0].toLowerCase()
-    if (!typed && value === '/') return skills
+    const afterSlash = value.slice(1)
+    if (afterSlash.includes(' ')) return [] // skill selected, stop suggesting
+    const typed = afterSlash.toLowerCase()
+    if (!typed) return skills
     return skills.filter((s) => s.trigger.toLowerCase().startsWith(typed))
   })()
 
@@ -286,7 +289,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   })()
 
   return (
-    <div className="border-t border-border bg-bg-secondary px-2 py-1.5">
+    <div className="relative border-t border-border bg-bg-secondary px-2 py-1.5">
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
         <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
@@ -325,23 +328,23 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       )}
 
-      {/* Skill autocomplete dropdown */}
+      {/* Skill autocomplete dropdown — positioned above the input */}
       {skillDropdownOpen && filteredSkills.length > 0 && (
-        <div className="mb-1.5 rounded-lg border border-border bg-bg-secondary shadow-lg overflow-hidden">
+        <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 rounded-lg border border-border bg-bg-secondary shadow-lg overflow-y-auto max-h-[240px] z-50">
           {filteredSkills.map((skill, i) => (
             <button
               key={skill.trigger}
               type="button"
               onClick={() => selectSkill(skill)}
               className={cn(
-                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
                 i === selectedSkillIndex
                   ? 'bg-accent/15 text-text-primary'
                   : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
               )}
             >
-              <Zap className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
-              <span className="font-medium text-text-primary">/{skill.trigger}</span>
+              <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
+              <span className="font-medium text-text-primary whitespace-nowrap">/{skill.trigger}</span>
               <span className="text-xs text-text-tertiary truncate">{skill.description}</span>
             </button>
           ))}

@@ -1,4 +1,4 @@
-# Lucent Chat Architecture
+# Lucent Code Architecture
 
 <div align="center">
 
@@ -24,7 +24,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Lucent Chat                                   │
+│                              Lucent Code                                   │
 │                                                                              │
 │  ┌──────────────┐         ┌──────────────┐         ┌──────────────┐      │
 │  │   Renderer   │         │ Main Process │         │  Agent Proc  │      │
@@ -61,7 +61,7 @@
 │  ┌───────────────────────────────────────────────────────────┐ │
 │  │  Top Bar                                                  │ │
 │  │  ┌─────────────┐         App Name         Health Status │ │
-│  │  │ Traffic Lights│  "Lucent Chat"        "connecting"    │ │
+│  │  │ Traffic Lights│  "Lucent Code"        "connecting"    │ │
 │  │  └─────────────┘                                       │ │
 │  └───────────────────────────────────────────────────────────┘ │
 │                                                                 │
@@ -515,6 +515,9 @@ interface BridgeAPI {
   // Settings
   getSettings(): Promise<AppSettings>
   setSettings(settings: Partial<AppSettings>): Promise<void>
+
+  // Skills
+  skillList(): Promise<SkillInfo[]>
 }
 ```
 

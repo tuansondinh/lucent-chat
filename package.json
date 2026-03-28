@@ -1,15 +1,15 @@
 {
-  "name": "voice-bridge-desktop",
+  "name": "lucent-code",
   "version": "2.42.0",
-  "description": "Lucent Chat desktop app",
+  "description": "Lucent Code desktop app",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tuansondinh/lucent-chat.git"
+    "url": "https://github.com/tuansondinh/lucent-code.git"
   },
-  "homepage": "https://github.com/tuansondinh/lucent-chat#readme",
+  "homepage": "https://github.com/tuansondinh/lucent-code#readme",
   "bugs": {
-    "url": "https://github.com/tuansondinh/lucent-chat/issues"
+    "url": "https://github.com/tuansondinh/lucent-code/issues"
   },
   "type": "module",
   "workspaces": [

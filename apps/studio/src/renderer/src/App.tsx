@@ -311,7 +311,7 @@ export default function App() {
   // -------------------------------------------------------------------------
 
   useEffect(() => {
-    const title = activePaneSessionName ? activePaneSessionName : 'Lucent Chat'
+    const title = activePaneSessionName ? activePaneSessionName : 'Lucent Code'
     bridge.setWindowTitle(title).catch(() => {})
   }, [activePaneSessionName]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -948,7 +948,7 @@ export default function App() {
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="mobile-header__title">Lucent Chat</div>
+          <div className="mobile-header__title">Lucent Code</div>
           <div className="mobile-header__health">
             <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${healthDotColor}`} />
             <span className="text-xs text-text-tertiary capitalize">
@@ -1071,7 +1071,7 @@ export default function App() {
 
         {/* App name */}
         <div className="flex-1 font-semibold">
-          Lucent Chat
+          Lucent Code
         </div>
 
         {/* Agent health / status */}

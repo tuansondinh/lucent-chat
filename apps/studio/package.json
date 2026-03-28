@@ -82,8 +82,8 @@
     "vitest": "4.1.2"
   },
   "build": {
-    "appId": "com.lucent.chat",
-    "productName": "Lucent Chat",
+    "appId": "com.lucent.code",
+    "productName": "Lucent Code",
     "electronVersion": "41.0.3",
     "afterSign": "notarize.cjs",
     "directories": {
@@ -136,7 +136,7 @@
       "darkModeSupport": true
     },
     "dmg": {
-      "title": "Lucent Chat",
+      "title": "Lucent Code",
       "background": "build/dmg-background.png",
       "icon": "build/icon.icns",
       "iconSize": 80,

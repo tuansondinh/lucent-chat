@@ -197,7 +197,7 @@ function WelcomeStep({ onGetStarted }: { onGetStarted: () => void }) {
         <Sparkles className="w-8 h-8 text-accent" />
       </div>
       <div className="space-y-2">
-        <h1 className="text-2xl font-bold text-text-primary">Welcome to Lucent Chat</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Welcome to Lucent Code</h1>
         <p className="text-sm text-text-secondary leading-relaxed">
           Your desktop AI assistant for coding, research, and focused productivity.
           Let's get you set up in a few quick steps.
@@ -748,7 +748,7 @@ function VoiceStep({ onEnable, onSkip }: VoiceStepProps) {
         </div>
         <h2 className="text-xl font-semibold text-text-primary">Voice Features</h2>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Lucent Chat supports voice input and text-to-speech responses. This requires downloading
+          Lucent Code supports voice input and text-to-speech responses. This requires downloading
           ~1 GB of local models on first use. You can enable this now or skip and activate it
           later by clicking the mic button.
         </p>
@@ -815,7 +815,7 @@ function TavilyStep({
         </div>
         <h2 className="text-xl font-semibold text-text-primary">Web Search</h2>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Lucent Chat is an open-source AI client, so it does not ship with its own hosted web
+          Lucent Code is an open-source AI client, so it does not ship with its own hosted web
           search service. If you want the assistant to search the live web, add your own Tavily
           API key here. You can skip this step and add it later in{' '}
           <kbd className="font-mono text-xs bg-bg-secondary border border-border rounded px-1 py-0.5 text-text-tertiary">
@@ -897,7 +897,7 @@ function ReadyStep({ onFinish, saving }: { onFinish: () => void; saving: boolean
       <div className="space-y-3">
         <h2 className="text-2xl font-bold text-text-primary">You're all set!</h2>
         <p className="text-sm text-text-secondary leading-relaxed">
-          Lucent Chat is ready to go. Update your API keys and preferences anytime by pressing{' '}
+          Lucent Code is ready to go. Update your API keys and preferences anytime by pressing{' '}
           <kbd className="font-mono text-xs bg-bg-secondary border border-border rounded px-1.5 py-0.5 text-text-tertiary">
             ⌘,
           </kbd>

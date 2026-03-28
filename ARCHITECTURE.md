@@ -29,7 +29,7 @@ The GSD CLI is a terminal-based coding agent. It is composed of a thin CLI entry
 │                          Consumers                               │
 │                                                                  │
 │   ┌────────────────────┐        ┌────────────────────────────┐  │
-│   │   gsd CLI          │        │   Lucent Chat (Electron)   │  │
+│   │   gsd CLI          │        │   Lucent Code (Electron)   │  │
 │   │   src/ → dist/     │        │   apps/studio/             │  │
 │   └─────────┬──────────┘        └──────────────┬─────────────┘  │
 │             │                                  │                 │
@@ -169,7 +169,7 @@ Glue layer that assembles all packages into a usable runtime. This is the only p
 - `settings-manager.ts` — user settings read/write
 - `auth-storage.ts` — API key storage (system keychain)
 - `model-registry.ts` / `model-resolver.ts` — model selection
-- `skills.ts` / `skill-tool.test.ts` — skill system (YAML frontmatter + steps)
+- `skills.ts` / `skill-tool.test.ts` — skill discovery and Skill tool (agent-side skill invocation)
 - `extensions/` — extension discovery and loading
 - `tools/` — bundled tool implementations
 - `lsp/` — LSP integration
