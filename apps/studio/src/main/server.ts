@@ -58,7 +58,8 @@ async function main(): Promise<void> {
   voiceService.probe()
     .then((result) => {
       if (!result.available) return
-      // Prewarm the Python voice sidecar so the first mic use is fast
+      // Only prewarm if the user opted in — keeps behaviour consistent with index.ts.
+      if (settings.voiceOptIn !== true) return
       setTimeout(() => {
         voiceService.start().catch((err: Error) => {
           console.warn('[server] voice background start failed:', err.message)

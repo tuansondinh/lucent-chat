@@ -38,6 +38,7 @@ export interface RendererSettings {
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
   voiceAudioEnabled?: boolean
   voiceModelsDownloaded?: boolean
+  voiceOptIn?: boolean
   hasTavilyKey: boolean
   /** Agent file-mutation permission mode. */
   permissionMode?: 'danger-full-access' | 'accept-on-edit'
@@ -477,6 +478,19 @@ const bridge = {
   /** Send an approval decision (Allow/Deny) back to the agent. */
   approvalRespond: (paneId: string, id: string, approved: boolean): Promise<void> =>
     ipcRenderer.invoke('cmd:approval-respond', paneId, id, approved),
+
+  /** Toggle the permission mode for a specific pane. Returns the new mode. */
+  togglePanePermissionMode: (paneId: string): Promise<'danger-full-access' | 'accept-on-edit'> =>
+    ipcRenderer.invoke('cmd:toggle-pane-permission-mode', paneId),
+
+  /** Subscribe to per-pane permission mode changes. Returns unsubscribe function. */
+  onPanePermissionModeChanged: (
+    cb: (data: { paneId: string; mode: 'danger-full-access' | 'accept-on-edit' }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:pane-permission-mode-changed', handler)
+    return () => ipcRenderer.removeListener('event:pane-permission-mode-changed', handler)
+  },
 
   // -------------------------------------------------------------------------
   // Voice — not pane-specific (sidecar is app-global)

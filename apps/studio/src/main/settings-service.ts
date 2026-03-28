@@ -34,6 +34,8 @@ export interface AppSettings {
   voiceAudioEnabled?: boolean
   /** Whether voice models have already been downloaded on this machine. */
   voiceModelsDownloaded?: boolean
+  /** Whether the user opted in to voice features during onboarding. */
+  voiceOptIn?: boolean
 
   // ---------------------------------------------------------------------------
   // Remote Access (PWA / Tailscale)

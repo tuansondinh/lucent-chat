@@ -13,7 +13,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Key, ArrowRight, Check, Sparkles, ChevronDown, ChevronUp,
-  Loader2, Eye, EyeOff, Globe, Lock, LogIn, X,
+  Loader2, Eye, EyeOff, Globe, Lock, LogIn, X, Mic,
 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -27,7 +27,7 @@ interface OnboardingProps {
   onComplete: () => void
 }
 
-type Step = 1 | 2 | 3 | 4
+type Step = 1 | 2 | 3 | 4 | 5
 
 interface ProviderStatus {
   id: string
@@ -115,6 +115,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setStep(4)
   }
 
+  const handleVoiceOptIn = async (optIn: boolean) => {
+    let saved = false
+    try { await bridge.setSettings({ voiceOptIn: optIn }); saved = true } catch { /* non-fatal */ }
+    if (optIn && saved) {
+      // Kick off the voice server/download in the background — banner will show after onboarding closes.
+      bridge.voiceStart().catch(() => {})
+    }
+    setStep(5)
+  }
+
   const handleFinish = async () => {
     setSaving(true)
     try { await bridge.setSettings({ onboardingComplete: true }) } catch { /* best-effort */ }
@@ -126,7 +136,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   // Render
   // -------------------------------------------------------------------------
 
-  const stepNums: Step[] = [1, 2, 3, 4]
+  const stepNums: Step[] = [1, 2, 3, 4, 5]
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-bg-primary">
@@ -164,7 +174,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
             onSkip={() => setStep(4)}
           />
         )}
-        {step === 4 && <ReadyStep onFinish={() => void handleFinish()} saving={saving} />}
+        {step === 4 && (
+          <VoiceStep
+            onEnable={() => void handleVoiceOptIn(true)}
+            onSkip={() => void handleVoiceOptIn(false)}
+          />
+        )}
+        {step === 5 && <ReadyStep onFinish={() => void handleFinish()} saving={saving} />}
       </div>
     </div>
   )
@@ -712,6 +728,67 @@ function OAuthWidget({ state, onStart, onSubmitCode, onCancel }: OAuthWidgetProp
         </div>
       )
   }
+}
+
+// ============================================================================
+// VoiceStep
+// ============================================================================
+
+interface VoiceStepProps {
+  onEnable: () => void
+  onSkip: () => void
+}
+
+function VoiceStep({ onEnable, onSkip }: VoiceStepProps) {
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <div className="text-center space-y-2">
+        <div className="mx-auto w-12 h-12 rounded-xl bg-accent/15 flex items-center justify-center">
+          <Mic className="w-6 h-6 text-accent" />
+        </div>
+        <h2 className="text-xl font-semibold text-text-primary">Voice Features</h2>
+        <p className="text-sm text-text-secondary leading-relaxed">
+          Lucent Chat supports voice input and text-to-speech responses. This requires downloading
+          ~1 GB of local models on first use. You can enable this now or skip and activate it
+          later by clicking the mic button.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-bg-secondary p-4 space-y-2 text-left">
+        <p className="text-xs font-semibold text-text-tertiary uppercase tracking-wider mb-2">
+          What's included
+        </p>
+        {[
+          'Push-to-talk voice input',
+          'Text-to-speech assistant responses',
+          'Models run fully on-device — no data sent to external servers',
+        ].map((item) => (
+          <div key={item} className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onSkip}
+          className="flex-1 px-4 py-2 rounded-lg border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+        >
+          Skip for now
+        </button>
+        <button
+          type="button"
+          onClick={onEnable}
+          className="flex-1 px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90 transition-colors flex items-center justify-center gap-2"
+        >
+          <Mic className="w-4 h-4" />
+          Enable Voice
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ============================================================================

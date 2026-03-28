@@ -100,6 +100,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.voiceModelsDownloaded = partial.voiceModelsDownloaded
   }
 
+  if ('voiceOptIn' in partial) {
+    if (typeof partial.voiceOptIn !== 'boolean') {
+      throw new Error('Invalid voiceOptIn setting')
+    }
+    validated.voiceOptIn = partial.voiceOptIn
+  }
+
   if ('remoteAccessEnabled' in partial) {
     if (typeof partial.remoteAccessEnabled !== 'boolean') {
       throw new Error('Invalid remoteAccessEnabled setting')

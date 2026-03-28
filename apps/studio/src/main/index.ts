@@ -104,6 +104,13 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
   window.webContents.on('before-input-event', (event, input) => {
+    // Shift+Tab (no Meta) — toggle active pane permission mode
+    if (input.shift && input.code === 'Tab' && !input.meta && !input.control && !input.alt) {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
+      return
+    }
+
     if (!input.meta || input.control || input.alt) return
 
     if (!input.shift && input.code === 'KeyN') {
@@ -115,12 +122,6 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     if (input.shift && input.code === 'KeyF') {
       event.preventDefault()
       window.webContents.send('event:app-shortcut', { action: 'toggle-file-viewer' })
-      return
-    }
-
-    if (input.shift && input.code === 'KeyE') {
-      event.preventDefault()
-      window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
     }
   })
 
@@ -188,7 +189,10 @@ app.whenReady().then(async () => {
   voiceService.probe()
     .then((result) => {
       if (!result.available) return
-      // Prewarm the Python voice sidecar shortly after launch so first mic use is fast.
+      // Only prewarm the sidecar if the user has opted in to voice features.
+      // On first launch (voiceOptIn undefined), skip — the onboarding will ask.
+      // Clicking the mic always starts on demand regardless of this flag.
+      if (settings.voiceOptIn !== true) return
       setTimeout(() => {
         voiceService?.start().catch((err: Error) => {
           console.warn('[voice] background start failed:', err.message)
