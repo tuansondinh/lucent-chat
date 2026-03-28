@@ -47,6 +47,10 @@ import type { Bridge } from '../../../preload/index'
 const Terminal = lazy(() => import('./components/Terminal').then((m) => ({ default: m.Terminal })))
 const FileViewer = lazy(() => import('./components/FileViewer').then((m) => ({ default: m.FileViewer })))
 
+// Import save-nonce utilities for self-save suppression.
+// Using dynamic import to avoid circular deps; nonce module is module-level singleton.
+import { consumeSaveNonce } from './components/FileViewer'
+
 const MIN_FILE_VIEWER_WIDTH = 360
 const MAX_FILE_VIEWER_WIDTH = 840
 const MIN_CHAT_AREA_WIDTH = 420
@@ -191,6 +195,14 @@ export default function App() {
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
   // Reconnect banner state (PWA only)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
+
+  // External file change conflict state — shown when a dirty tab is changed on disk
+  const [fileConflict, setFileConflict] = useState<{
+    paneId: string
+    tabKey: string
+    relativePath: string
+    newDiskContent: string
+  } | null>(null)
 
   // iOS keyboard state — used to pin input bar above keyboard
   const { isKeyboardOpen, keyboardHeight } = useIOSKeyboard()
@@ -585,14 +597,22 @@ export default function App() {
                 return
               }
 
+              // Check if this change was caused by our own save — if so, skip reload
+              if (consumeSaveNonce(openTab.relativePath)) return
+
               const result = await bridge.fsReadFile(paneId, openTab.relativePath)
-              paneStore.getState().openFile({
-                relativePath: openTab.relativePath,
-                content: result.content,
-                source: 'user',
-                truncated: result.truncated,
-                isBinary: result.isBinary,
-              })
+              const outcome = paneStore.getState().externalReload(openTab.tabKey, result.content)
+
+              if (outcome === 'conflict') {
+                // Tab is dirty — show "Reload / Keep mine" dialog instead of silently reloading
+                setFileConflict({
+                  paneId,
+                  tabKey: openTab.tabKey,
+                  relativePath: openTab.relativePath,
+                  newDiskContent: result.content,
+                })
+              }
+              // outcome === 'reloaded' means already updated in store
             } catch {
               paneStore.getState().closeFile(openTab.tabKey)
             }
@@ -934,6 +954,56 @@ export default function App() {
 
       {/* Toast notifications — bottom-right, dark theme */}
       <Toaster position="bottom-right" theme="dark" richColors />
+
+      {/* External file change conflict dialog */}
+      {fileConflict && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="File changed on disk"
+        >
+          <div className="bg-bg-secondary border border-border rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-shrink-0 size-8 rounded-full bg-amber-500/15 flex items-center justify-center">
+                <span className="text-amber-400 text-sm">!</span>
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-text-primary">File changed on disk</h2>
+                <p className="text-xs text-text-tertiary mt-0.5">{fileConflict.relativePath}</p>
+              </div>
+            </div>
+            <p className="text-xs text-text-secondary mb-6">
+              This file was modified on disk while you have unsaved changes in the editor.
+              Would you like to reload from disk (discarding your edits) or keep your version?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  // Keep mine — dismiss dialog, leave dirty state intact
+                  setFileConflict(null)
+                }}
+                className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded hover:bg-bg-hover transition-colors"
+              >
+                Keep mine
+              </button>
+              <button
+                onClick={() => {
+                  // Reload from disk — discard draft
+                  getPaneStore(fileConflict.paneId).getState().discardDraft(
+                    fileConflict.tabKey,
+                    fileConflict.newDiskContent,
+                  )
+                  setFileConflict(null)
+                }}
+                className="px-3 py-1.5 text-xs bg-accent text-white rounded hover:bg-accent/80 transition-colors"
+              >
+                Reload from disk
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 

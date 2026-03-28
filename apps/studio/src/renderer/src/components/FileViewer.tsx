@@ -21,11 +21,48 @@ import { getPaneStore, type OpenViewerItem, type OpenFile } from '../store/pane-
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye, AlertTriangle } from 'lucide-react'
 import type { GitChangeStatus } from '../../../preload'
+import { getBridge } from '../lib/bridge'
+import { toast } from 'sonner'
 
 // Lazy-load CodeEditor — only needed when user toggles edit mode
 const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })))
+
+// ============================================================================
+// Self-save nonce registry
+// A nonce set shared with App.tsx to suppress watcher reloads triggered by
+// our own saves. Each save tags a nonce, and the watcher ignores events for
+// nonces present in this set.
+// ============================================================================
+
+/** Exported so App.tsx can check and clear nonces. */
+export const selfSaveNonces = new Set<string>()
+
+/**
+ * Generate a save nonce and record it. Automatically expires after 2 seconds
+ * to guard against missed file-change events.
+ */
+export function createSaveNonce(relativePath: string): string {
+  const nonce = `${relativePath}:${Date.now()}`
+  selfSaveNonces.add(nonce)
+  setTimeout(() => selfSaveNonces.delete(nonce), 2_000)
+  return nonce
+}
+
+/**
+ * Check whether a file-change event should be suppressed as a self-save.
+ * Clears the nonce if found.
+ */
+export function consumeSaveNonce(relativePath: string): boolean {
+  for (const nonce of selfSaveNonces) {
+    if (nonce.startsWith(`${relativePath}:`)) {
+      selfSaveNonces.delete(nonce)
+      return true
+    }
+  }
+  return false
+}
 
 // ============================================================================
 // Constants
@@ -453,9 +490,22 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   const closeFile = getPaneStore(paneId)((s) => s.closeFile)
   const setActiveFile = getPaneStore(paneId)((s) => s.setActiveFile)
   const setDraftContent = getPaneStore(paneId)((s) => s.setDraftContent)
+  const commitSave = getPaneStore(paneId)((s) => s.commitSave)
+  const discardDraft = getPaneStore(paneId)((s) => s.discardDraft)
+  const hasDirtyTabs = getPaneStore(paneId)((s) => s.hasDirtyTabs)
   const changedFilesMap = getFileTreeStore(paneId)((s) => s.changedFilesMap)
+  const bridge = getBridge()
 
   const [showAll, setShowAll] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // ---- Unsaved changes close guard dialog ----
+  const [closeGuard, setCloseGuard] = useState<{
+    tabKey: string
+    relativePath: string
+    /** 'tab' = closing a single tab, 'panel' = closing the whole file viewer */
+    reason: 'tab' | 'panel'
+  } | null>(null)
 
   // ---- Edit mode state (per-tab, reset when switching tabs) ----
   const [editMode, setEditMode] = useState(false)
@@ -514,6 +564,85 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     }
   }, [searchOpen])
 
+  // ---- Save handler ----
+  const handleSave = useCallback(async (tabKey: string) => {
+    const store = getPaneStore(paneId).getState()
+    const file = store.openFiles.find((f) => f.tabKey === tabKey)
+    if (!file || file.kind !== 'file' || !file.isDirty || file.draftContent === null) return
+
+    setIsSaving(true)
+    try {
+      // Tag this save so the file watcher can ignore the resulting change event
+      createSaveNonce(file.relativePath)
+
+      await bridge.fsWriteFile(paneId, file.relativePath, file.draftContent)
+      commitSave(tabKey)
+      toast.success(`Saved ${file.relativePath.split('/').pop() ?? file.relativePath}`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('EACCES') || msg.includes('permission denied')) {
+        toast.error(`Permission denied — cannot write ${file.relativePath}`)
+      } else if (msg.includes('ENOSPC') || msg.includes('disk full') || msg.includes('no space')) {
+        toast.error('Disk full — save failed')
+      } else if (msg.includes('ENOENT') || msg.includes('no such file')) {
+        toast.error(`File no longer exists: ${file.relativePath}`)
+      } else {
+        toast.error(`Save failed: ${msg}`)
+      }
+    } finally {
+      setIsSaving(false)
+    }
+  }, [paneId, bridge, commitSave])
+
+  // ---- Guarded tab close (shows dialog if tab is dirty) ----
+  const handleCloseTab = useCallback((tabKey: string) => {
+    const store = getPaneStore(paneId).getState()
+    const file = store.openFiles.find((f) => f.tabKey === tabKey)
+    if (file?.kind === 'file' && file.isDirty) {
+      setCloseGuard({ tabKey, relativePath: file.relativePath, reason: 'tab' })
+    } else {
+      closeFile(tabKey)
+    }
+  }, [paneId, closeFile])
+
+  // ---- Guarded panel close (shows dialog if any tab is dirty) ----
+  const handlePanelClose = useCallback(() => {
+    const store = getPaneStore(paneId).getState()
+    const firstDirty = store.openFiles.find((f) => f.kind === 'file' && f.isDirty)
+    if (firstDirty) {
+      setCloseGuard({ tabKey: firstDirty.tabKey, relativePath: firstDirty.relativePath, reason: 'panel' })
+    } else {
+      onClose()
+    }
+  }, [paneId, onClose])
+
+  // ---- Cmd+S / Ctrl+S save shortcut ----
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore when no active file
+      if (!activeFilePath) return
+      const isSaveKey = (e.metaKey || e.ctrlKey) && e.key === 's'
+      if (!isSaveKey) return
+      e.preventDefault()
+      void handleSave(activeFilePath)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeFilePath, handleSave])
+
+  // ---- Window beforeunload guard (dirty tabs) ----
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasDirtyTabs()) {
+        e.preventDefault()
+        // Modern browsers show a generic message; the returnValue sets it for older ones
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?'
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [hasDirtyTabs])
+
   const activeFile = openFiles.find((f) => f.tabKey === activeFilePath) ?? null
 
   // Compute display content before early returns — hooks must not be conditional
@@ -568,7 +697,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         <FileViewerHeader
           path={null}
           paneId={paneId}
-          onClose={onClose}
+          onClose={handlePanelClose}
           onSearchOpen={() => setSearchOpen(true)}
           fullContent=""
         />
@@ -595,7 +724,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           path={activeFile.relativePath}
           paneId={paneId}
           mode="diff"
-          onClose={onClose}
+          onClose={handlePanelClose}
           onSearchOpen={() => {}}
           fullContent={fullContent}
           diffStatus={activeFile.status}
@@ -606,7 +735,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           openFiles={openFiles}
           activeFilePath={activeFilePath}
           changedFilesMap={changedFilesMap}
-          closeFile={closeFile}
+          closeFile={handleCloseTab}
           setActiveFile={setActiveFile}
         />
 
@@ -640,7 +769,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         <FileViewerHeader
           path={relativePath}
           paneId={paneId}
-          onClose={onClose}
+          onClose={handlePanelClose}
           onSearchOpen={() => setSearchOpen(true)}
           fullContent=""
         />
@@ -648,7 +777,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           openFiles={openFiles}
           activeFilePath={activeFilePath}
           changedFilesMap={changedFilesMap}
-          closeFile={closeFile}
+          closeFile={handleCloseTab}
           setActiveFile={setActiveFile}
         />
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-6">
@@ -682,11 +811,80 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   }, [activeFilePath, setDraftContent])
 
   return (
+    <>
+    {/* Unsaved changes close guard dialog */}
+    {closeGuard && (
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Unsaved changes"
+      >
+        <div className="bg-bg-secondary border border-border rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex-shrink-0 size-8 rounded-full bg-amber-500/15 flex items-center justify-center">
+              <AlertTriangle className="size-4 text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-text-primary">Unsaved changes</h2>
+              <p className="text-xs text-text-tertiary mt-0.5 truncate max-w-xs">
+                {closeGuard.relativePath.split('/').pop()}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-text-secondary mb-6">
+            {closeGuard.reason === 'panel'
+              ? 'You have unsaved changes. Closing the file viewer will discard your edits.'
+              : 'This file has unsaved changes. Do you want to save before closing?'}
+          </p>
+          <div className="flex gap-3 justify-end">
+            <button
+              onClick={() => setCloseGuard(null)}
+              className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded hover:bg-bg-hover transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                // Discard and proceed
+                const store = getPaneStore(paneId).getState()
+                if (closeGuard.reason === 'tab') {
+                  store.clearDraftContent(closeGuard.tabKey)
+                  store.closeFile(closeGuard.tabKey)
+                } else {
+                  // Close panel — discard all dirty tabs first
+                  store.openFiles.forEach((f) => {
+                    if (f.kind === 'file' && f.isDirty) store.clearDraftContent(f.tabKey)
+                  })
+                  onClose()
+                }
+                setCloseGuard(null)
+              }}
+              className="px-3 py-1.5 text-xs text-text-secondary border border-border rounded hover:bg-bg-hover transition-colors"
+            >
+              Discard
+            </button>
+            {closeGuard.reason === 'tab' && (
+              <button
+                onClick={async () => {
+                  await handleSave(closeGuard.tabKey)
+                  getPaneStore(paneId).getState().closeFile(closeGuard.tabKey)
+                  setCloseGuard(null)
+                }}
+                className="px-3 py-1.5 text-xs bg-accent text-white rounded hover:bg-accent/80 transition-colors"
+              >
+                Save & close
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
       <FileViewerHeader
         path={relativePath}
         paneId={paneId}
-        onClose={onClose}
+        onClose={handlePanelClose}
         onSearchOpen={() => { setSearchOpen(true) }}
         fullContent={editMode ? (activeFileAsFile.draftContent ?? content) : content}
         editMode={editMode}
@@ -700,7 +898,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         openFiles={openFiles}
         activeFilePath={activeFilePath}
         changedFilesMap={changedFilesMap}
-        closeFile={closeFile}
+        closeFile={handleCloseTab}
         setActiveFile={setActiveFile}
       />
 
@@ -791,6 +989,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         </>
       )}
     </div>
+    </>
   )
 }
 

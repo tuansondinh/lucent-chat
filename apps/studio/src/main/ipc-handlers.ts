@@ -280,6 +280,18 @@ export function registerIpcHandlers(
     return fileService.readFile(root, relativePath)
   })
 
+  ipcMain.handle('cmd:fs-read-full', async (_e, paneId: string, relativePath: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) throw new Error(`Unknown pane: ${paneId}`)
+    return fileService.readFileFull(root, relativePath)
+  })
+
+  ipcMain.handle('cmd:fs-write-file', async (_e, paneId: string, relativePath: string, content: string) => {
+    const root = paneManager.getPane(paneId)?.projectRoot
+    if (!root) throw new Error(`Unknown pane: ${paneId}`)
+    return fileService.writeFile(root, relativePath, content)
+  })
+
   // --------------------------------------------------------------------------
   // Git — pane-scoped
   // --------------------------------------------------------------------------

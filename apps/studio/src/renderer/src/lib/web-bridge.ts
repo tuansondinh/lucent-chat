@@ -324,6 +324,14 @@ export class WebBridge implements Bridge {
     return this.cmd('fs-read-file', paneId, relativePath)
   }
 
+  fsReadFull(paneId: string, relativePath: string): Promise<{ content: string; size: number; truncated: boolean; isBinary: boolean }> {
+    return this.cmd('fs-read-full', paneId, relativePath)
+  }
+
+  fsWriteFile(paneId: string, relativePath: string, content: string): Promise<{ bytesWritten: number }> {
+    return this.cmd('fs-write-file', paneId, relativePath, content)
+  }
+
   onFileChanged(cb: (data: unknown) => void): () => void {
     return this.bus.on('event:file-changed', cb)
   }

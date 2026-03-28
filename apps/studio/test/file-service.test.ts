@@ -309,3 +309,140 @@ test('FileService: readFile handles files with many non-printable characters', a
     await rm(base, { recursive: true, force: true })
   }
 })
+
+// ============================================================================
+// Phase 2: writeFile tests
+// ============================================================================
+
+test('FileService: writeFile writes content to an existing file', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    await service.writeFile(base, 'text.txt', 'new content')
+    const actual = await readFile(join(base, 'text.txt'), 'utf8')
+    assert.equal(actual, 'new content')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: writeFile creates a new file if it does not exist', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    await service.writeFile(base, 'newfile.txt', 'brand new')
+    const actual = await readFile(join(base, 'newfile.txt'), 'utf8')
+    assert.equal(actual, 'brand new')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: writeFile rejects path traversal attempts', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    await assert.rejects(
+      async () => await service.writeFile(base, '../../../etc/passwd', 'evil'),
+      /Path traversal detected/
+    )
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: writeFile preserves LF line endings', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    const content = 'line1\nline2\nline3'
+    await service.writeFile(base, 'lf.txt', content)
+    const actual = await readFile(join(base, 'lf.txt'), 'utf8')
+    assert.equal(actual, content)
+    assert.ok(!actual.includes('\r\n'), 'Should not contain CRLF')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: writeFile preserves CRLF line endings when content has CRLF', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    const content = 'line1\r\nline2\r\nline3'
+    await service.writeFile(base, 'crlf.txt', content)
+    const actual = await readFile(join(base, 'crlf.txt'), 'utf8')
+    assert.equal(actual, content)
+    assert.ok(actual.includes('\r\n'), 'Should preserve CRLF')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: writeFile writes atomically (temp rename)', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    // Write original
+    await writeFile(join(base, 'atomic.txt'), 'original', 'utf8')
+    // Write via service
+    await service.writeFile(base, 'atomic.txt', 'updated atomically')
+    const actual = await readFile(join(base, 'atomic.txt'), 'utf8')
+    assert.equal(actual, 'updated atomically')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+// ============================================================================
+// Phase 2: readFileFull tests
+// ============================================================================
+
+test('FileService: readFileFull reads full file content bypassing truncation', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    // readFile truncates at 1MB; readFileFull should return all bytes
+    const result = await service.readFileFull(base, 'large.txt')
+    assert.equal(result.content.length, 2 * 1024 * 1024) // full 2MB
+    assert.equal(result.truncated, false)
+    assert.equal(result.isBinary, false)
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: readFileFull validates paths securely (absolute path)', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    // Using an absolute path that definitely resolves outside root
+    await assert.rejects(
+      async () => await service.readFileFull(base, '/tmp'),
+      /Path traversal detected/
+    )
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('FileService: readFileFull detects binary files', async () => {
+  const base = await createTestDir()
+  const service = new FileService()
+
+  try {
+    const result = await service.readFileFull(base, 'image.png')
+    assert.equal(result.isBinary, true)
+    assert.equal(result.content, '')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})

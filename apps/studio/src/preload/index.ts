@@ -217,6 +217,14 @@ const bridge = {
   fsReadFile: (paneId: string, relativePath: string): Promise<{ content: string; size: number; truncated: boolean; isBinary: boolean }> =>
     ipcRenderer.invoke('cmd:fs-read-file', paneId, relativePath),
 
+  /** Read full file content (no size cap) — used when entering edit mode. */
+  fsReadFull: (paneId: string, relativePath: string): Promise<{ content: string; size: number; truncated: boolean; isBinary: boolean }> =>
+    ipcRenderer.invoke('cmd:fs-read-full', paneId, relativePath),
+
+  /** Write content to a file within the pane's project root (atomic write). */
+  fsWriteFile: (paneId: string, relativePath: string, content: string): Promise<{ bytesWritten: number }> =>
+    ipcRenderer.invoke('cmd:fs-write-file', paneId, relativePath, content),
+
   /** Subscribe to filesystem changes under a pane's current project root. */
   onFileChanged: (
     cb: (data: {

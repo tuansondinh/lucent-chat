@@ -7,6 +7,8 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import os from 'node:os'
+import crypto from 'node:crypto'
 
 // ============================================================================
 // Types
@@ -27,6 +29,11 @@ export interface ReadFileResult {
   size: number
   truncated: boolean
   isBinary: boolean
+}
+
+export interface WriteFileResult {
+  /** Bytes written to disk. */
+  bytesWritten: number
 }
 
 // ============================================================================
@@ -117,6 +124,101 @@ export class FileService {
     }
 
     return { entries, truncated: false }
+  }
+
+  /**
+   * Write `content` to a file at `relativePath` within `rootPath`.
+   *
+   * Security: validates that the target stays within the root (same as readFile).
+   * Atomicity: writes to a temp file in the same directory, then renames.
+   * Line endings: content is written as-is (caller is responsible for preserving
+   * the correct line endings — the renderer detects CRLF vs LF from the loaded
+   * baselineContent and normalises before calling this method).
+   */
+  async writeFile(rootPath: string, relativePath: string, content: string): Promise<WriteFileResult> {
+    // Resolve root
+    const rootReal = await fs.realpath(rootPath)
+
+    // Compute candidate path (file may not exist yet — do not call realpath)
+    const candidate = path.resolve(rootReal, relativePath)
+
+    // Path traversal check on the computed candidate
+    const rel = path.relative(rootReal, candidate)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('Path traversal detected')
+    }
+
+    // Ensure parent directory exists
+    const dir = path.dirname(candidate)
+    await fs.mkdir(dir, { recursive: true })
+
+    // Atomic write: write to a temp file in the same directory, then rename.
+    // Using the same directory ensures the rename is on the same filesystem.
+    const nonce = crypto.randomBytes(8).toString('hex')
+    const tmpPath = path.join(dir, `.lc-tmp-${nonce}`)
+    const buf = Buffer.from(content, 'utf8')
+
+    try {
+      await fs.writeFile(tmpPath, buf)
+      await fs.rename(tmpPath, candidate)
+    } catch (err) {
+      // Clean up temp file on failure
+      await fs.unlink(tmpPath).catch(() => {})
+      throw err
+    }
+
+    return { bytesWritten: buf.length }
+  }
+
+  /**
+   * Read the FULL content of a file (no size cap), used when entering edit mode.
+   *
+   * Same security model as readFile — symlink and path-traversal safe.
+   * Binary files return empty content with isBinary=true.
+   */
+  async readFileFull(rootPath: string, relativePath: string): Promise<ReadFileResult> {
+    // Step 1: resolve root
+    const rootReal = await fs.realpath(rootPath)
+
+    // Step 2: compute candidate
+    const candidate = path.resolve(rootReal, relativePath)
+
+    // Step 3: resolve candidate (catches symlink escapes)
+    let candidateReal: string
+    try {
+      candidateReal = await fs.realpath(candidate)
+    } catch {
+      throw new Error(`File not found: ${relativePath}`)
+    }
+
+    // Step 4: verify still inside root
+    const rel = path.relative(rootReal, candidateReal)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('Path traversal detected')
+    }
+
+    // Step 5: read full file (no size cap)
+    const stat = await fs.stat(candidateReal)
+    const size = stat.size
+
+    let fd: fs.FileHandle | null = null
+    try {
+      fd = await fs.open(candidateReal, 'r')
+      const buffer = Buffer.allocUnsafe(size)
+      const { bytesRead } = await fd.read(buffer, 0, size, 0)
+      const actualBuffer = buffer.subarray(0, bytesRead)
+
+      // Binary detection on first BINARY_SAMPLE_SIZE bytes
+      const sample = actualBuffer.subarray(0, BINARY_SAMPLE_SIZE)
+      if (isBinaryBuffer(sample)) {
+        return { content: '', size, truncated: false, isBinary: true }
+      }
+
+      const content = actualBuffer.toString('utf8')
+      return { content, size, truncated: false, isBinary: false }
+    } finally {
+      await fd?.close()
+    }
   }
 
   /**

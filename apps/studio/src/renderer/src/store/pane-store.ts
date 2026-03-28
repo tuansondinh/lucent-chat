@@ -133,8 +133,21 @@ export interface PaneChatState {
   /**
    * On successful save: promote draftContent → baselineContent and clear draft.
    * No-op if there is no draftContent (already clean).
+   * Alias: commitSave
    */
   saveFile: (tabKey: string) => void
+  /** Commit a successful save: promotes draftContent → baselineContent, clears draft. Alias for saveFile. */
+  commitSave: (tabKey: string) => void
+  /**
+   * Handle an external file change:
+   * - 'reloaded' if tab was clean (content + baseline updated)
+   * - 'conflict' if tab was dirty (nothing changed, caller should show dialog)
+   */
+  externalReload: (tabKey: string, newContent: string) => 'reloaded' | 'conflict'
+  /** User chose "Reload" (discard): reload content from disk, clear dirty. */
+  discardDraft: (tabKey: string, diskContent: string) => void
+  /** Returns true if any open file tab has unsaved changes. */
+  hasDirtyTabs: () => boolean
 }
 
 // ============================================================================
@@ -182,7 +195,7 @@ function nextToolId(turn_id: string): string {
 export type PaneChatStore = UseBoundStore<StoreApi<PaneChatState>>
 
 export function createPaneChatStore(paneId: string): PaneChatStore {
-  return create<PaneChatState>((set) => ({
+  return create<PaneChatState>((set, get) => ({
     paneId,
     messages: [],
     currentTurnId: null,
@@ -610,11 +623,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setSessionName: (name) => set({ currentSessionName: name }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
 
-    addRecentFile: (relativePath) =>
-      set((s) => {
-        const filtered = s.recentFiles.filter((p) => p !== relativePath)
-        return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
-      }),
+    // ---- Phase 2: dirty state actions ----
 
     setDraftContent: (tabKey, content) =>
       set((s) => ({
@@ -623,6 +632,54 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
           return { ...f, draftContent: content, isDirty: true }
         }),
       })),
+
+    commitSave: (tabKey) =>
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          if (f.draftContent === null) return f
+          return {
+            ...f,
+            content: f.draftContent,
+            baselineContent: f.draftContent,
+            draftContent: null,
+            isDirty: false,
+          }
+        }),
+      })),
+
+    externalReload: (tabKey, newContent) => {
+      let result: 'reloaded' | 'conflict' = 'reloaded'
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          if (f.isDirty) {
+            result = 'conflict'
+            return f  // do NOT overwrite
+          }
+          return { ...f, content: newContent, baselineContent: newContent, draftContent: null, isDirty: false }
+        }),
+      }))
+      return result
+    },
+
+    discardDraft: (tabKey, diskContent) =>
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          return { ...f, content: diskContent, baselineContent: diskContent, draftContent: null, isDirty: false }
+        }),
+      })),
+
+    hasDirtyTabs: () => {
+      return get().openFiles.some((f) => f.kind === 'file' && f.isDirty)
+    },
+
+    addRecentFile: (relativePath) =>
+      set((s) => {
+        const filtered = s.recentFiles.filter((p) => p !== relativePath)
+        return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
+      }),
 
     clearDraftContent: (tabKey) =>
       set((s) => ({
