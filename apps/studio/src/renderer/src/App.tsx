@@ -690,6 +690,19 @@ export default function App() {
       const isModalOpen = commandPaletteOpenRef.current || settingsOpenRef.current || modelPickerOpenRef.current
       const mobile = isMobileRef.current
 
+      // Suppress app-level shortcuts when focus is inside a CodeMirror editor.
+      // CM6 handles Cmd+F (search), Cmd+H (replace), Cmd+G (go-to-line), etc.
+      // internally without propagation, but we add this guard for safety.
+      const targetEl = e.target instanceof HTMLElement ? e.target : null
+      if (targetEl?.closest('[data-codemirror="true"]')) {
+        // Only Cmd+K is allowed to pass through (command palette, always works)
+        if (e.metaKey && e.key === 'k') {
+          e.preventDefault()
+          setCommandPaletteOpen((v) => !v)
+        }
+        return
+      }
+
       // Cmd+K — open command palette (always works, even in inputs)
       if (e.metaKey && e.key === 'k') {
         e.preventDefault()

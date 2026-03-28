@@ -12,16 +12,20 @@
  * - In-file search (Cmd+F) with match highlighting and navigation
  * - Breadcrumb navigation showing full path segments
  * - Calls onClose() when last tab is closed
+ * - Edit mode toggle (pencil icon) — switches from Shiki read-only to CodeMirror editor
  */
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react'
 import type { ThemedToken } from 'shiki'
-import { getPaneStore, type OpenViewerItem } from '../store/pane-store'
+import { getPaneStore, type OpenViewerItem, type OpenFile } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search, GitBranch } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye } from 'lucide-react'
 import type { GitChangeStatus } from '../../../preload'
+
+// Lazy-load CodeEditor — only needed when user toggles edit mode
+const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })))
 
 // ============================================================================
 // Constants
@@ -448,9 +452,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   const activeFilePath = getPaneStore(paneId)((s) => s.activeFilePath)
   const closeFile = getPaneStore(paneId)((s) => s.closeFile)
   const setActiveFile = getPaneStore(paneId)((s) => s.setActiveFile)
+  const setDraftContent = getPaneStore(paneId)((s) => s.setDraftContent)
   const changedFilesMap = getFileTreeStore(paneId)((s) => s.changedFilesMap)
 
   const [showAll, setShowAll] = useState(false)
+
+  // ---- Edit mode state (per-tab, reset when switching tabs) ----
+  const [editMode, setEditMode] = useState(false)
 
   // ---- Search state ----
   const [searchOpen, setSearchOpen] = useState(false)
@@ -462,9 +470,10 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   // Track previous openFiles.length to detect transition to 0
   const prevOpenFilesLengthRef = useRef(openFiles.length)
 
-  // Reset "show all" when active file changes
+  // Reset "show all" AND edit mode when active file changes
   useEffect(() => {
     setShowAll(false)
+    setEditMode(false)
   }, [activeFilePath])
 
   // Reset search when active file changes
@@ -481,9 +490,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     prevOpenFilesLengthRef.current = openFiles.length
   }, [openFiles.length, onClose])
 
-  // Cmd+F — open search within FileViewer container
+  // Cmd+F — open search within FileViewer container (only in view mode;
+  // in edit mode CM6 handles it via the container's onKeyDown suppression)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // If focus is inside a CodeMirror editor, let it handle Cmd+F
+      const targetEl = e.target instanceof HTMLElement ? e.target : null
+      if (targetEl?.closest('[data-codemirror="true"]')) return
       if (e.metaKey && e.key === 'f') {
         e.preventDefault()
         setSearchOpen(true)
@@ -508,27 +521,44 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     activeFile &&
     activeFile.kind !== 'diff' &&
     !activeFile.isBinary &&
-    !isBinaryContent(activeFile.content),
+    !isBinaryContent((activeFile as OpenFile).content),
   )
-  const rawContent = isRegularTextFile && activeFile ? activeFile.content : ''
+  const rawContent = (isRegularTextFile && activeFile && activeFile.kind === 'file') ? activeFile.content : ''
   const contentLines = rawContent.split('\n')
   const isTruncated = !showAll && contentLines.length > TRUNCATE_LINES
   const displayContent = isTruncated ? contentLines.slice(0, TRUNCATE_LINES).join('\n') : rawContent
   const language = activeFile && activeFile.kind !== 'diff' ? extensionToLanguage(activeFile.relativePath) : 'text'
 
+  // ---- Edit capability check ----
+  // Edit is disabled for: binary files, diff views, and truncated files
+  // (truncated = content cap hit — editing a partial buffer is unsafe)
+  const editDisabledReason: string | null = (() => {
+    if (!activeFile || activeFile.kind === 'diff') return 'Editing is not available for diff views'
+    if (!isRegularTextFile) return 'Editing is not available for binary files'
+    if (activeFile.truncated) return 'Editing is disabled because this file is too large (content was truncated)'
+    return null
+  })()
+  const canEdit = editDisabledReason === null
+
+  // Get the editable content: prefer draftContent if available, else content
+  const editorContent = (() => {
+    if (!activeFile || activeFile.kind !== 'file') return rawContent
+    return activeFile.draftContent ?? activeFile.content
+  })()
+
   // ---- Search match computation (must be before early returns — Rules of Hooks) ----
-  const matchLines = useMemo(() => {
+  const matchLines = useMemo((): number[] => {
     if (!searchQuery || !isRegularTextFile) return []
     const q = searchCaseSensitive ? searchQuery : searchQuery.toLowerCase()
     return displayContent.split('\n')
-      .map((line, i) => {
+      .map((line: string, i: number): number => {
         const l = searchCaseSensitive ? line : line.toLowerCase()
         return l.includes(q) ? i : -1
       })
-      .filter((i) => i !== -1)
+      .filter((i: number): i is number => i !== -1)
   }, [searchQuery, searchCaseSensitive, displayContent, isRegularTextFile])
 
-  const matchLineIndices = useMemo(() => new Set(matchLines), [matchLines])
+  const matchLineIndices = useMemo(() => new Set<number>(matchLines), [matchLines])
   const activeMatchLineIndex = matchLines.length > 0 ? (matchLines[searchMatchIndex] ?? null) : null
 
   // ---- Empty state ----
@@ -599,7 +629,9 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     )
   }
 
-  const { relativePath, content, isBinary } = activeFile
+  // By this point activeFile.kind is always 'file' (diff was handled above)
+  const activeFileAsFile = activeFile as OpenFile
+  const { relativePath, content, isBinary } = activeFileAsFile
 
   // ---- Binary detection ----
   if (!isRegularTextFile) {
@@ -643,6 +675,12 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     }
   }
 
+  const handleEditorUpdate = useCallback((content: string) => {
+    if (activeFilePath) {
+      setDraftContent(activeFilePath, content)
+    }
+  }, [activeFilePath, setDraftContent])
+
   return (
     <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
       <FileViewerHeader
@@ -650,7 +688,11 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         paneId={paneId}
         onClose={onClose}
         onSearchOpen={() => { setSearchOpen(true) }}
-        fullContent={content}
+        fullContent={editMode ? (activeFileAsFile.draftContent ?? content) : content}
+        editMode={editMode}
+        canEdit={canEdit}
+        editDisabledReason={editDisabledReason}
+        onEditToggle={() => setEditMode((v) => !v)}
       />
 
       {/* Tab strip */}
@@ -662,71 +704,92 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         setActiveFile={setActiveFile}
       />
 
-      {/* Search bar */}
-      {searchOpen && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40 bg-bg-secondary flex-shrink-0">
-          <Search className="size-3 text-text-tertiary flex-shrink-0" />
-          <input
-            ref={searchInputRef}
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setSearchMatchIndex(0) }}
-            onKeyDown={handleSearchKeyDown}
-            placeholder="Search..."
-            className="flex-1 bg-transparent text-[12px] text-text-primary placeholder:text-text-tertiary outline-none"
-          />
-          {/* Match count */}
-          <span className="text-[11px] text-text-tertiary flex-shrink-0">
-            {matchLines.length > 0
-              ? `${searchMatchIndex + 1} / ${matchLines.length}`
-              : searchQuery
-                ? '0 results'
-                : ''}
-          </span>
-          {/* Case sensitive toggle */}
-          <button
-            onClick={() => setSearchCaseSensitive((v) => !v)}
-            className={cn(
-              'text-[11px] px-1 rounded',
-              searchCaseSensitive ? 'text-accent bg-accent/10' : 'text-text-tertiary',
-            )}
-            title="Case sensitive"
-          >
-            Aa
-          </button>
-          {/* Close */}
-          <button
-            onClick={() => { setSearchOpen(false); setSearchQuery('') }}
-            className="text-text-tertiary hover:text-text-primary"
-          >
-            <X className="size-3" />
-          </button>
+      {/* Edit mode: CodeMirror editor */}
+      {editMode && canEdit && activeFile?.kind === 'file' ? (
+        <div className={cn('flex-1 min-h-0', CODE_BG)}>
+          <Suspense fallback={
+            <div className={cn('flex-1 h-full flex items-center justify-center', CODE_BG)}>
+              <span className="text-xs text-text-tertiary">Loading editor...</span>
+            </div>
+          }>
+            <CodeEditor
+              key={activeFilePath ?? ''}
+              filePath={relativePath}
+              initialContent={editorContent}
+              onUpdate={handleEditorUpdate}
+              className="h-full"
+            />
+          </Suspense>
         </div>
-      )}
+      ) : (
+        <>
+          {/* Search bar — only shown in view mode */}
+          {searchOpen && (
+            <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/40 bg-bg-secondary flex-shrink-0">
+              <Search className="size-3 text-text-tertiary flex-shrink-0" />
+              <input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setSearchMatchIndex(0) }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search..."
+                className="flex-1 bg-transparent text-[12px] text-text-primary placeholder:text-text-tertiary outline-none"
+              />
+              {/* Match count */}
+              <span className="text-[11px] text-text-tertiary flex-shrink-0">
+                {matchLines.length > 0
+                  ? `${searchMatchIndex + 1} / ${matchLines.length}`
+                  : searchQuery
+                    ? '0 results'
+                    : ''}
+              </span>
+              {/* Case sensitive toggle */}
+              <button
+                onClick={() => setSearchCaseSensitive((v) => !v)}
+                className={cn(
+                  'text-[11px] px-1 rounded',
+                  searchCaseSensitive ? 'text-accent bg-accent/10' : 'text-text-tertiary',
+                )}
+                title="Case sensitive"
+              >
+                Aa
+              </button>
+              {/* Close */}
+              <button
+                onClick={() => { setSearchOpen(false); setSearchQuery('') }}
+                className="text-text-tertiary hover:text-text-primary"
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
 
-      {/* Scrollable code area */}
-      <div className={cn('flex-1 overflow-auto min-h-0', CODE_BG)}>
-        <HighlightedCode
-          code={displayContent}
-          language={language}
-          matchLineIndices={matchLineIndices}
-          activeMatchLineIndex={activeMatchLineIndex}
-        />
+          {/* Scrollable code area */}
+          <div className={cn('flex-1 overflow-auto min-h-0', CODE_BG)}>
+            <HighlightedCode
+              code={displayContent}
+              language={language}
+              matchLineIndices={matchLineIndices}
+              activeMatchLineIndex={activeMatchLineIndex}
+            />
 
-        {/* Truncation notice */}
-        {isTruncated && (
-          <div className="flex items-center justify-center py-3 px-4 border-t border-border/30 bg-bg-secondary/80">
-            <span className="text-xs text-text-tertiary mr-3">
-              Showing first {TRUNCATE_LINES} of {contentLines.length} lines
-            </span>
-            <button
-              onClick={() => setShowAll(true)}
-              className="text-xs text-accent hover:text-accent-hover underline underline-offset-2 transition-colors"
-            >
-              Show all {contentLines.length} lines
-            </button>
+            {/* Truncation notice */}
+            {isTruncated && (
+              <div className="flex items-center justify-center py-3 px-4 border-t border-border/30 bg-bg-secondary/80">
+                <span className="text-xs text-text-tertiary mr-3">
+                  Showing first {TRUNCATE_LINES} of {contentLines.length} lines
+                </span>
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="text-xs text-accent hover:text-accent-hover underline underline-offset-2 transition-colors"
+                >
+                  Show all {contentLines.length} lines
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }
@@ -752,7 +815,9 @@ function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setAc
         const fileName = file.relativePath.split('/').pop() ?? file.relativePath
         const isActive = file.tabKey === activeFilePath
         const fileChange = changedFilesMap.get(file.relativePath)
-        const isModified = Boolean(fileChange)
+        const isGitModified = Boolean(fileChange)
+        // Show an editor-dirty dot when the file has unsaved edits in the editor
+        const isEditorDirty = file.kind === 'file' && file.isDirty
         return (
           <div
             key={file.tabKey}
@@ -767,10 +832,15 @@ function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setAc
             ].join(' ')}
             onClick={() => setActiveFile(file.tabKey)}
             onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.tabKey) } }}
-            title={file.relativePath}
+            title={file.relativePath + (isEditorDirty ? ' (unsaved changes)' : '')}
           >
-            {isModified && (
+            {/* Git modification dot */}
+            {isGitModified && (
               <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', fileChange?.status === 'D' ? 'bg-red-400' : fileChange?.status === 'A' || fileChange?.status === '??' ? 'bg-emerald-400' : fileChange?.status === 'R' ? 'bg-sky-400' : 'bg-amber-400')} />
+            )}
+            {/* Editor unsaved changes dot */}
+            {isEditorDirty && !isGitModified && (
+              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-blue-400" aria-label="unsaved changes" />
             )}
             {file.kind === 'diff' && <GitBranch className="size-3 text-text-tertiary flex-shrink-0" />}
             <span className="truncate">{fileName}</span>
@@ -801,6 +871,14 @@ interface FileViewerHeaderProps {
   fullContent: string
   diffStatus?: GitChangeStatus
   previousPath?: string
+  /** Whether the editor is currently in edit mode. */
+  editMode?: boolean
+  /** Whether edit mode can be activated for this file. */
+  canEdit?: boolean
+  /** Explanation of why edit is unavailable (shown as tooltip). */
+  editDisabledReason?: string | null
+  /** Callback to toggle edit/view mode. */
+  onEditToggle?: () => void
 }
 
 function FileViewerHeader({
@@ -812,6 +890,10 @@ function FileViewerHeader({
   fullContent,
   diffStatus,
   previousPath,
+  editMode = false,
+  canEdit = false,
+  editDisabledReason = null,
+  onEditToggle,
 }: FileViewerHeaderProps) {
   const handleSegmentClick = useCallback((segmentPath: string) => {
     void getFileTreeStore(paneId).getState().toggleDir(segmentPath)
@@ -847,8 +929,35 @@ function FileViewerHeader({
         )}
       </div>
 
-      {/* Search button */}
+      {/* Edit mode toggle button — only shown for regular files */}
       {path && mode === 'file' && (
+        <button
+          onClick={canEdit ? onEditToggle : undefined}
+          disabled={!canEdit}
+          title={
+            editDisabledReason
+              ? editDisabledReason
+              : editMode
+                ? 'Switch to read-only view (view mode)'
+                : 'Edit file (edit mode)'
+          }
+          className={cn(
+            'flex items-center justify-center size-5 rounded transition-colors flex-shrink-0',
+            canEdit
+              ? editMode
+                ? 'text-accent bg-accent/10 hover:bg-accent/20'
+                : 'text-text-tertiary hover:text-text-primary hover:bg-bg-hover'
+              : 'text-text-tertiary/30 cursor-not-allowed',
+          )}
+          aria-label={editMode ? 'Switch to view mode' : 'Edit file'}
+          aria-pressed={editMode}
+        >
+          {editMode ? <Eye className="size-3.5" /> : <Pencil className="size-3.5" />}
+        </button>
+      )}
+
+      {/* Search button — only in view mode */}
+      {path && mode === 'file' && !editMode && (
         <button
           onClick={onSearchOpen}
           title="Search in file (⌘F)"

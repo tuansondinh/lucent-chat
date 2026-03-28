@@ -21,6 +21,20 @@ export interface OpenFile {
   source: 'user'
   truncated: boolean
   isBinary: boolean
+  /**
+   * The last-known saved/loaded content for this file. Used as the editor's
+   * clean baseline. Set on open and on successful save.
+   */
+  baselineContent: string
+  /**
+   * Current unsaved editor content, or null when the editor is clean
+   * (matches baselineContent). Use `isDirty` to check edit status.
+   */
+  draftContent: string | null
+  /**
+   * Derived: true when draftContent !== null (tab has unsaved edits).
+   */
+  isDirty: boolean
 }
 
 export interface OpenDiff {
@@ -88,7 +102,7 @@ export interface PaneChatState {
   addErrorMessage: (message: string) => void
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
   /** Open a file tab (or switch to it if already open). */
-  openFile: (file: Omit<OpenFile, 'kind' | 'tabKey'>) => void
+  openFile: (file: Omit<OpenFile, 'kind' | 'tabKey' | 'baselineContent' | 'draftContent' | 'isDirty'>) => void
   /** Open a diff tab (or switch to it if already open). */
   openDiff: (diff: Omit<OpenDiff, 'kind' | 'tabKey'>) => void
   /** Close a file tab, selecting the nearest neighbor if it was active. */
@@ -106,6 +120,21 @@ export interface PaneChatState {
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
   setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit') => void
+  /**
+   * Push editor content into draftContent, marking the tab dirty.
+   * No-op if the tab doesn't exist or is not a 'file' kind.
+   */
+  setDraftContent: (tabKey: string, content: string) => void
+  /**
+   * Clear draftContent (marks tab clean) without updating baselineContent.
+   * No-op if tab doesn't exist.
+   */
+  clearDraftContent: (tabKey: string) => void
+  /**
+   * On successful save: promote draftContent → baselineContent and clear draft.
+   * No-op if there is no draftContent (already clean).
+   */
+  saveFile: (tabKey: string) => void
 }
 
 // ============================================================================
@@ -483,22 +512,39 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     openFile: (file) =>
       set((s) => {
+        const tabKey = file.relativePath
+        const existingTab = s.openFiles.find((f) => f.tabKey === tabKey)
+        const filtered = s.recentFiles.filter((p) => p !== file.relativePath)
+        const newRecent = [file.relativePath, ...filtered].slice(0, 10)
+
+        if (existingTab && existingTab.kind === 'file') {
+          // Re-opening an existing tab: update disk content + baseline.
+          // If the tab is dirty, preserve draftContent so unsaved edits are not lost.
+          const updatedTab: OpenFile = {
+            ...existingTab,
+            content: file.content,
+            truncated: file.truncated,
+            isBinary: file.isBinary,
+            baselineContent: file.content,
+            // Preserve draftContent when dirty so the user's edits survive
+            draftContent: existingTab.draftContent,
+            isDirty: existingTab.draftContent !== null,
+          }
+          return {
+            openFiles: s.openFiles.map((f) => f.tabKey === tabKey ? updatedTab : f),
+            activeFilePath: tabKey,
+            recentFiles: newRecent,
+          }
+        }
+
+        // New tab
         const nextFile: OpenFile = {
           ...file,
           kind: 'file',
-          tabKey: file.relativePath,
-        }
-        const exists = s.openFiles.some((f) => f.tabKey === nextFile.tabKey)
-        const filtered = s.recentFiles.filter((p) => p !== file.relativePath)
-        const newRecent = [file.relativePath, ...filtered].slice(0, 10)
-        if (exists) {
-          return {
-            openFiles: s.openFiles.map((openFile) =>
-              openFile.tabKey === nextFile.tabKey ? nextFile : openFile,
-            ),
-            activeFilePath: nextFile.tabKey,
-            recentFiles: newRecent,
-          }
+          tabKey,
+          baselineContent: file.content,
+          draftContent: null,
+          isDirty: false,
         }
         return {
           openFiles: [nextFile, ...s.openFiles],
@@ -569,6 +615,37 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         const filtered = s.recentFiles.filter((p) => p !== relativePath)
         return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
       }),
+
+    setDraftContent: (tabKey, content) =>
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          return { ...f, draftContent: content, isDirty: true }
+        }),
+      })),
+
+    clearDraftContent: (tabKey) =>
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          return { ...f, draftContent: null, isDirty: false }
+        }),
+      })),
+
+    saveFile: (tabKey) =>
+      set((s) => ({
+        openFiles: s.openFiles.map((f) => {
+          if (f.tabKey !== tabKey || f.kind !== 'file') return f
+          if (f.draftContent === null) return f
+          return {
+            ...f,
+            baselineContent: f.draftContent,
+            content: f.draftContent,
+            draftContent: null,
+            isDirty: false,
+          }
+        }),
+      })),
   }))
 }
 
