@@ -11,7 +11,7 @@
 import { ipcMain, type BrowserWindow } from 'electron'
 import fs from 'node:fs/promises'
 import type { PaneManager } from './pane-manager.js'
-import type { AppSettings, SettingsService } from './settings-service.js'
+import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
 import type { AuthService } from './auth-service.js'
 import type { VoiceService } from './voice-service.js'
@@ -20,6 +20,7 @@ import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
 import type { SkillRegistry } from './skill-registry.js'
 import type { SkillExecutor } from './skill-executor.js'
+import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -54,7 +55,7 @@ export function registerIpcHandlers(
   // Pane-specific commands — all accept paneId as first arg
   // --------------------------------------------------------------------------
 
-  ipcMain.handle('cmd:prompt', async (_event, paneId: string, text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }) => {
+  ipcMain.handle('cmd:prompt', async (_event, paneId: string, text: string, imageDataUrl?: string, options?: { streamingBehavior?: 'steer' | 'followUp' }) => {
     const pane = paneManager.getPane(paneId)
     if (!pane) throw new Error(`Unknown pane: ${paneId}`)
 
@@ -87,7 +88,15 @@ export function registerIpcHandlers(
       if (msg.includes('is not configured')) throw err
     }
 
-    return pane.orchestrator.submitTurn(text, 'text', options)
+    // Parse data URL into ImageContent if provided
+    let images: Array<{ type: 'image'; data: string; mimeType: string }> | undefined
+    if (imageDataUrl) {
+      const match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
+      if (match) {
+        images = [{ type: 'image', data: match[2], mimeType: match[1] }]
+      }
+    }
+    return pane.orchestrator.submitTurn(text, 'text', options, images)
   })
 
   ipcMain.handle('cmd:abort', (_event, paneId: string) => {
@@ -336,7 +345,7 @@ export function registerIpcHandlers(
     if (!approvedPaneRoots.has(resolvedPath) && currentRoot !== resolvedPath) {
       throw new Error('Pane root must be selected through the folder picker first')
     }
-    await paneManager.restartPaneAgent(paneId, resolvedPath)
+    await paneManager.restartPaneAgent(paneId, resolvedPath, { updateAccessRoot: true })
     fileWatchService.watchPane(paneId, resolvedPath)
     fileWatchService.notifyRootChanged(paneId)
     return { projectRoot: resolvedPath }
@@ -401,20 +410,31 @@ export function registerIpcHandlers(
     // Step runner: delegates to pane orchestrator
     const runStep = async (step: import('./skill-registry.js').SkillStep, context: string): Promise<string> => {
       const prompt = context ? `${step.prompt}\n\nContext:\n${context}` : step.prompt
-      return new Promise<string>((resolve) => {
+      return new Promise<string>((resolve, reject) => {
         const turnId = pane.orchestrator.submitTurn(prompt, 'text')
         // Collect agent output for chaining
         let accumulated = ''
-        const unsub1 = pane.orchestrator.on('chunk', (data: { turn_id: string; text: string }) => {
+        const handleChunk = (data: { turn_id: string; text: string }) => {
           if (data.turn_id === turnId) accumulated += data.text
-        })
-        const unsub2 = pane.orchestrator.once('done', (data: { turn_id: string }) => {
-          if (data.turn_id === turnId) {
-            pane.orchestrator.removeListener('chunk', unsub1 as any)
-            resolve(accumulated)
-          }
-        })
-        void unsub2
+        }
+        const cleanup = () => {
+          pane.orchestrator.removeListener('chunk', handleChunk)
+          pane.orchestrator.removeListener('done', handleDone)
+          pane.orchestrator.removeListener('turn-error', handleError)
+        }
+        const handleDone = (data: { turn_id: string; full_text?: string }) => {
+          if (data.turn_id !== turnId) return
+          cleanup()
+          resolve(accumulated || data.full_text || '')
+        }
+        const handleError = (data: { turn_id: string; message: string }) => {
+          if (data.turn_id !== turnId) return
+          cleanup()
+          reject(new Error(data.message))
+        }
+        pane.orchestrator.on('chunk', handleChunk)
+        pane.orchestrator.on('done', handleDone)
+        pane.orchestrator.on('turn-error', handleError)
       })
     }
 
@@ -465,114 +485,6 @@ export function registerIpcHandlers(
   })
 
   void getMainWindow // referenced by pushEvent callers in index.ts
-}
-
-type RendererSettings = Omit<AppSettings, 'tavilyApiKey'> & { hasTavilyKey: boolean }
-
-function sanitizeSettingsForRenderer(settings: AppSettings): RendererSettings {
-  const { tavilyApiKey, ...rest } = settings
-  return {
-    ...rest,
-    hasTavilyKey: typeof tavilyApiKey === 'string' && tavilyApiKey.length > 0,
-  }
-}
-
-function validateSettingsPatch(partial: Record<string, unknown>): Partial<AppSettings> {
-  const validated: Partial<AppSettings> = {}
-
-  if ('defaultModel' in partial) {
-    const value = partial.defaultModel
-    if (
-      value === undefined
-      || (
-        typeof value === 'object'
-        && typeof (value as { provider?: unknown }).provider === 'string'
-        && typeof (value as { modelId?: unknown }).modelId === 'string'
-      )
-    ) {
-      validated.defaultModel = value as AppSettings['defaultModel']
-    } else {
-      throw new Error('Invalid defaultModel setting')
-    }
-  }
-
-  if ('theme' in partial) {
-    if (partial.theme !== 'dark') throw new Error('Invalid theme setting')
-    validated.theme = 'dark'
-  }
-
-  if ('fontSize' in partial) {
-    if (typeof partial.fontSize !== 'number' || !Number.isFinite(partial.fontSize)) {
-      throw new Error('Invalid fontSize setting')
-    }
-    validated.fontSize = partial.fontSize
-  }
-
-  if ('tavilyApiKey' in partial) {
-    if (typeof partial.tavilyApiKey !== 'string') {
-      throw new Error('Invalid tavilyApiKey setting')
-    }
-    validated.tavilyApiKey = partial.tavilyApiKey
-  }
-
-  if ('sidebarCollapsed' in partial) {
-    if (typeof partial.sidebarCollapsed !== 'boolean') {
-      throw new Error('Invalid sidebarCollapsed setting')
-    }
-    validated.sidebarCollapsed = partial.sidebarCollapsed
-  }
-
-  if ('windowBounds' in partial) {
-    const value = partial.windowBounds
-    if (
-      value === undefined
-      || (
-        value !== null
-        && typeof value === 'object'
-        && ['x', 'y', 'width', 'height'].every((key) => typeof (value as Record<string, unknown>)[key] === 'number')
-      )
-    ) {
-      validated.windowBounds = value as AppSettings['windowBounds']
-    } else {
-      throw new Error('Invalid windowBounds setting')
-    }
-  }
-
-  if ('onboardingComplete' in partial) {
-    if (typeof partial.onboardingComplete !== 'boolean') {
-      throw new Error('Invalid onboardingComplete setting')
-    }
-    validated.onboardingComplete = partial.onboardingComplete
-  }
-
-  if ('voicePttShortcut' in partial) {
-    const value = partial.voicePttShortcut
-    if (value !== 'space' && value !== 'alt+space' && value !== 'cmd+shift+space') {
-      throw new Error('Invalid voicePttShortcut setting')
-    }
-    validated.voicePttShortcut = value
-  }
-
-  if ('voiceAudioEnabled' in partial) {
-    if (typeof partial.voiceAudioEnabled !== 'boolean') {
-      throw new Error('Invalid voiceAudioEnabled setting')
-    }
-    validated.voiceAudioEnabled = partial.voiceAudioEnabled
-  }
-
-  if ('voiceModelsDownloaded' in partial) {
-    if (typeof partial.voiceModelsDownloaded !== 'boolean') {
-      throw new Error('Invalid voiceModelsDownloaded setting')
-    }
-    validated.voiceModelsDownloaded = partial.voiceModelsDownloaded
-  }
-
-  const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))
-  if (unknownKeys.length > 0) {
-    throw new Error(`Unknown settings key: ${unknownKeys[0]}`)
-  }
-
-  return validated
 }
 
 function isSafeExternalUrl(url: string): boolean {

@@ -128,13 +128,13 @@ export function startSupervisedStdinReader(
         }
         break
       case 'prompt':
-        client.prompt(String(msg.message ?? ''))
+        client.prompt(String(msg.message ?? ''), Array.isArray(msg.images) ? msg.images as any : undefined)
         break
       case 'steer':
-        client.steer(String(msg.message ?? ''))
+        client.steer(String(msg.message ?? ''), Array.isArray(msg.images) ? msg.images as any : undefined)
         break
       case 'follow_up':
-        client.followUp(String(msg.message ?? ''))
+        client.followUp(String(msg.message ?? ''), Array.isArray(msg.images) ? msg.images as any : undefined)
         break
       default:
         process.stderr.write(`[headless] Warning: unknown message type "${type}" from orchestrator stdin\n`)

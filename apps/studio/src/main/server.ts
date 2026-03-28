@@ -28,6 +28,8 @@ import { GitService } from './git-service.js'
 import { VoiceService } from './voice-service.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
+import { resolveRemotePaneRoot } from './pane-root-policy.js'
+import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -99,8 +101,12 @@ async function main(): Promise<void> {
 
   const dispatchCmd = async (name: string, args: unknown[]): Promise<unknown> => {
     switch (name) {
-      case 'get-settings': return settingsService.get()
-      case 'set-settings': return settingsService.save(args[0] as Record<string, unknown>)
+      case 'get-settings': return sanitizeSettingsForRenderer(settingsService.get())
+      case 'set-settings': {
+        const validated = validateSettingsPatch(args[0] as Record<string, unknown>)
+        settingsService.save(validated)
+        return sanitizeSettingsForRenderer(settingsService.get())
+      }
       case 'pane-list': return paneManager.getPaneIds()
       case 'pane-create': { const p = await paneManager.createPane(settingsService, broadcast); return { paneId: p.id } }
       case 'pane-close': return paneManager.destroyPane(args[0] as string)
@@ -124,8 +130,9 @@ async function main(): Promise<void> {
       case 'set-pane-root': {
         const p2 = pane(args)
         if (!p2) throw new Error('Unknown pane')
-        await paneManager.restartPaneAgent(args[0] as string, args[1] as string)
-        return { projectRoot: args[1] }
+        const resolvedPath = await resolveRemotePaneRoot(p2.accessRoot, args[1] as string)
+        await paneManager.restartPaneAgent(args[0] as string, resolvedPath)
+        return { projectRoot: resolvedPath }
       }
       case 'fs-list-dir': return root(args) ? fileService.listDirectory(root(args)!, args[1] as string) : { entries: [], truncated: false }
       case 'fs-read-file': return root(args) ? fileService.readFile(root(args)!, args[1] as string) : null

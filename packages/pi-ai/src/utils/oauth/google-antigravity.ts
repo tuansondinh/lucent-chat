@@ -24,12 +24,6 @@ type AntigravityCredentials = OAuthCredentials & {
 const CLIENT_ID = process.env.GOOGLE_ANTIGRAVITY_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_ANTIGRAVITY_CLIENT_SECRET || "";
 
-if (!CLIENT_ID || !CLIENT_SECRET) {
-	throw new Error(
-		"GOOGLE_ANTIGRAVITY_CLIENT_ID and GOOGLE_ANTIGRAVITY_CLIENT_SECRET environment variables are required. " +
-			"Set them in your environment or .env file.",
-	);
-}
 
 const REDIRECT_URI = "http://localhost:51121/oauth-callback";
 

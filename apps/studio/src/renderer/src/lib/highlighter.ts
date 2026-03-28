@@ -18,7 +18,7 @@ export async function getHighlighter(): Promise<HighlighterCore> {
   ]).then(async ([core, jsEngine]) => {
     const hl = await core.createHighlighterCore({
       themes: [
-        import('@shikijs/themes/github-dark-default'),
+        import('shiki/themes/dark-plus'),
       ],
       langs: [
         import('@shikijs/langs/typescript'),

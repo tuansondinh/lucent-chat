@@ -3,7 +3,7 @@
  *
  * Each pane has its own ProcessManager, AgentBridge, Orchestrator, and SessionService.
  * Pane-0 is always present (bootstrapped from index.ts at startup).
- * Additional panes (1-3) are created on demand via cmd:pane-create.
+ * Additional panes are created on demand via cmd:pane-create.
  */
 
 import { ProcessManager } from './process-manager.js'
@@ -25,6 +25,8 @@ export interface PaneRuntime {
   model: string
   /** Project root for this pane's explorer, git context, and agent cwd. */
   projectRoot: string
+  /** Trusted root scope for remote root changes. */
+  accessRoot: string
   attachBridge: () => void
 }
 
@@ -56,6 +58,7 @@ export class PaneManager {
       sessionService,
       model: '',
       projectRoot,
+      accessRoot: projectRoot,
       attachBridge,
     }
     this.panes.set('pane-0', pane)
@@ -124,17 +127,24 @@ export class PaneManager {
 
     await sessionService.loadActiveSessionId()
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, attachBridge }
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge }
     this.panes.set(id, pane)
     return pane
   }
 
-  async restartPaneAgent(id: string, projectRoot?: string): Promise<void> {
+  async restartPaneAgent(
+    id: string,
+    projectRoot?: string,
+    options?: { updateAccessRoot?: boolean },
+  ): Promise<void> {
     const pane = this.panes.get(id)
     if (!pane) return
 
     if (projectRoot) {
       pane.projectRoot = projectRoot
+      if (options?.updateAccessRoot) {
+        pane.accessRoot = projectRoot
+      }
     }
 
     try {

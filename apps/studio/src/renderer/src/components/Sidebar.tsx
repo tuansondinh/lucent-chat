@@ -42,7 +42,7 @@ import {
 } from './ui/dialog'
 import { Input } from './ui/input'
 import { cn } from '../lib/utils'
-import { btn } from '../lib/theme'
+import { btn, chrome } from '../lib/theme'
 import { relativeTime } from '../lib/time'
 import { formatModelDisplay } from '../lib/models'
 import type { GitChangeStatus } from '../../../preload'
@@ -193,7 +193,7 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-10 flex-shrink-0 flex-col overflow-hidden border-r border-border bg-bg-secondary">
+      <div className={`flex h-full w-10 flex-shrink-0 flex-col overflow-hidden border-r border-border ${chrome.bar}`}>
         <div className="flex flex-1 flex-col items-center gap-1.5 px-1 py-2">
           <button
             onClick={onToggleCollapse}
@@ -271,7 +271,7 @@ export function Sidebar({
 
   return (
     <>
-      <div className="flex flex-col h-full w-full min-w-0 border-r border-border bg-bg-secondary overflow-hidden">
+      <div className={`flex flex-col h-full w-full min-w-0 border-r border-border ${chrome.bar} overflow-hidden`}>
         {/* Header actions */}
         <div className="px-3 py-2 flex-shrink-0 flex items-center gap-2">
           <button

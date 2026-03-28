@@ -1,0 +1,78 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, mkdir, rm, realpath } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { sanitizeSettingsForRenderer, validateSettingsPatch } from '../src/main/settings-contract.js'
+import { resolveRemotePaneRoot } from '../src/main/pane-root-policy.js'
+
+test('settings contract: sanitizes tavilyApiKey for renderer output', () => {
+  const result = sanitizeSettingsForRenderer({
+    theme: 'dark',
+    fontSize: 14,
+    sidebarCollapsed: true,
+    tavilyApiKey: 'secret-key',
+    remoteAccessEnabled: true,
+    remoteAccessPort: 8788,
+    remoteAccessToken: 'token-123',
+    tailscaleServeEnabled: false,
+  })
+
+  assert.equal(result.hasTavilyKey, true)
+  assert.equal('tavilyApiKey' in result, false)
+  assert.equal(result.remoteAccessToken, 'token-123')
+})
+
+test('settings contract: validates remote access settings', () => {
+  const result = validateSettingsPatch({
+    remoteAccessEnabled: true,
+    remoteAccessPort: 8788,
+    remoteAccessToken: 'token-123',
+    tailscaleServeEnabled: false,
+  })
+
+  assert.deepEqual(result, {
+    remoteAccessEnabled: true,
+    remoteAccessPort: 8788,
+    remoteAccessToken: 'token-123',
+    tailscaleServeEnabled: false,
+  })
+})
+
+test('settings contract: rejects invalid remoteAccessPort', () => {
+  assert.throws(
+    () => validateSettingsPatch({ remoteAccessPort: 70_000 }),
+    /Invalid remoteAccessPort setting/,
+  )
+})
+
+test('remote pane root policy: allows descendants within scope root', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'studio-pane-root-'))
+  try {
+    const projectRoot = join(base, 'project')
+    const nestedRoot = join(projectRoot, 'src', 'nested')
+    await mkdir(nestedRoot, { recursive: true })
+
+    const resolved = await resolveRemotePaneRoot(projectRoot, nestedRoot)
+    assert.equal(resolved, await realpath(nestedRoot))
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('remote pane root policy: rejects paths outside scope root', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'studio-pane-root-'))
+  try {
+    const projectRoot = join(base, 'project')
+    const outsideRoot = join(base, 'outside')
+    await mkdir(projectRoot, { recursive: true })
+    await mkdir(outsideRoot, { recursive: true })
+
+    await assert.rejects(
+      () => resolveRemotePaneRoot(projectRoot, outsideRoot),
+      /must stay within the pane project root/,
+    )
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})

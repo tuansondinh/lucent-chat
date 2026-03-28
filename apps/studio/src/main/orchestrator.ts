@@ -30,6 +30,7 @@ export interface Turn {
   text: string
   state: TurnState
   created_at: number
+  images?: Array<{ type: 'image'; data: string; mimeType: string }>
 }
 
 export interface OrchestratorCallbacks {
@@ -71,14 +72,16 @@ export class Orchestrator extends EventEmitter {
     text: string,
     inputType: 'voice' | 'text' = 'text',
     options?: { streamingBehavior?: 'steer' | 'followUp' },
+    images?: Array<{ type: 'image'; data: string; mimeType: string }>,
   ): string {
-    return this.submitTurnWithOptions(text, inputType, options)
+    return this.submitTurnWithOptions(text, inputType, options, images)
   }
 
   submitTurnWithOptions(
     text: string,
     inputType: 'voice' | 'text' = 'text',
     options?: { streamingBehavior?: 'steer' | 'followUp' },
+    images?: Array<{ type: 'image'; data: string; mimeType: string }>,
   ): string {
     const turn: Turn = {
       turn_id: randomUUID(),
@@ -87,11 +90,12 @@ export class Orchestrator extends EventEmitter {
       text,
       state: 'queued',
       created_at: Date.now(),
+      images,
     }
 
     if (options?.streamingBehavior === 'followUp') {
       this.setTurnState(turn, 'queued')
-      this.agentBridge.prompt(turn.text, options).catch((err: Error) => {
+      this.agentBridge.prompt(turn.text, options, images).catch((err: Error) => {
         console.error('[orchestrator] queued prompt error:', err)
         this.callbacks.onError({ source: 'agent', message: err.message })
       })
@@ -151,6 +155,10 @@ export class Orchestrator extends EventEmitter {
   private setTurnState(turn: Turn, state: TurnState): void {
     turn.state = state
     this.callbacks.onTurnState({ turn_id: turn.turn_id, state })
+  }
+
+  private emitTurnError(turn: Turn, message: string): void {
+    this.emit('turn-error', { turn_id: turn.turn_id, message })
   }
 
   private acquireLock(): Promise<void> {
@@ -233,6 +241,7 @@ export class Orchestrator extends EventEmitter {
             const chunk = amEvent.delta
             fullText += chunk
             this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
+            this.emit('chunk', { turn_id: turn.turn_id, text: chunk })
           }
           // text_delta via content_block_delta (legacy format fallback)
           if (
@@ -243,6 +252,7 @@ export class Orchestrator extends EventEmitter {
             const chunk = amEvent.delta.text
             fullText += chunk
             this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
+            this.emit('chunk', { turn_id: turn.turn_id, text: chunk })
           }
 
           // text_end
@@ -290,6 +300,10 @@ export class Orchestrator extends EventEmitter {
           source: 'agent',
           message: `Agent stopped unexpectedly (${event.reason ?? 'unknown'}) — check your provider credentials in Settings (⌘,)`,
         })
+        this.emitTurnError(
+          turn,
+          `Agent stopped unexpectedly (${event.reason ?? 'unknown'}) — check your provider credentials in Settings (⌘,)`,
+        )
         if (turn.state !== 'aborted') {
           this.setTurnState(turn, 'idle')
         }
@@ -314,6 +328,7 @@ export class Orchestrator extends EventEmitter {
         }
 
         this.callbacks.onDone({ turn_id: turn.turn_id, full_text: fullText })
+        this.emit('done', { turn_id: turn.turn_id, full_text: fullText })
         this.setTurnState(turn, 'idle')
         this.releaseLock()
       }
@@ -330,6 +345,7 @@ export class Orchestrator extends EventEmitter {
           source: 'orchestrator',
           message: 'No response from AI provider — verify your credentials in Settings (⌘,).',
         })
+        this.emitTurnError(turn, 'No response from AI provider — verify your credentials in Settings (⌘,).')
         if (turn.state !== 'aborted') {
           this.setTurnState(turn, 'idle')
         }
@@ -344,6 +360,7 @@ export class Orchestrator extends EventEmitter {
         clearTimeout(firstActivityTimer)
         unsubscribe()
         this.callbacks.onError({ source: 'orchestrator', message: 'Generation timed out (5 min)' })
+        this.emitTurnError(turn, 'Generation timed out (5 min)')
         if (turn.state !== 'aborted') {
           this.setTurnState(turn, 'idle')
         }
@@ -352,12 +369,13 @@ export class Orchestrator extends EventEmitter {
     }, 5 * 60 * 1000)
 
     try {
-      await this.agentBridge.prompt(turn.text)
+      await this.agentBridge.prompt(turn.text, undefined, turn.images)
     } catch (err: any) {
       clearTimeout(safetyTimer)
       unsubscribe()
       console.error('[orchestrator] prompt error:', err.message)
       this.callbacks.onError({ source: 'agent', message: err.message })
+      this.emitTurnError(turn, err.message)
       this.setTurnState(turn, 'idle')
       this.releaseLock()
       return

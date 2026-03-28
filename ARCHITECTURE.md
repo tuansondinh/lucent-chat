@@ -234,6 +234,43 @@ npm run dist:mac:arm64 -w @gsd/studio
 
 ## Key Data Flows
 
+### Image / Vision Input (Electron)
+
+When a user pastes or drags an image into a chat pane, it travels through 6 layers before reaching the LLM:
+
+```
+Renderer: ChatPane.tsx
+      │  bridge.prompt(paneId, text, imageDataUrl?)
+      │  imageDataUrl = "data:<mimeType>;base64,<data>"
+      ▼
+Preload: contextBridge
+      │  ipcRenderer.invoke('cmd:prompt', paneId, text, imageDataUrl, options)
+      ▼
+Main: ipc-handlers.ts
+      │  parse data URL → ImageContent { type, data, mimeType }
+      │  orchestrator.submitTurn(text, 'text', options, images)
+      ▼
+Main: orchestrator.ts
+      │  store images on Turn object
+      │  agentBridge.prompt(turn.text, undefined, turn.images)
+      ▼
+Main: agent-bridge.ts
+      │  send({ type: 'prompt', message, images }) over stdin RPC
+      ▼
+Runtime subprocess: src/headless-ui.ts
+      │  client.prompt(message, images)   ← RpcClient
+      ▼
+@gsd/pi-coding-agent: AgentSession.prompt(text, { images })
+      │  build content: [TextContent, ...ImageContent[]]
+      │  resize image via @gsd/native if > 2000×2000
+      ▼
+@gsd/pi-ai → Anthropic API (vision content blocks)
+```
+
+Images are optional at every layer — text-only prompts are unaffected. The runtime auto-resizes large images via a Rust binding before sending to the API. A `blockImages` setting in `settings-manager.ts` can scrub all images at the `convertToLlm` boundary as a privacy control.
+
+---
+
 ### CLI Startup
 
 ```

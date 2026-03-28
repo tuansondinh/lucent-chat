@@ -162,6 +162,10 @@ npm run dev          # Start with hot reload
 npm run build        # Build for production
 npm run build:dev    # Build with dev tools
 
+# Distribution
+npm run pack:arm64   # Build unsigned arm64 .app (fast, no signing)
+npm run dist:mac:arm64   # Build signed arm64 DMG + zip
+
 # Linting
 npm run lint         # ESLint
 npm run lint:fix     # Auto-fix issues

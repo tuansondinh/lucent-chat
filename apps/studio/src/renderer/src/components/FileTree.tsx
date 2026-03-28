@@ -130,6 +130,7 @@ const FileTreeNode = memo(function FileTreeNode({
   const paneStore = getPaneStore(paneId)
 
   // Selective subscriptions — only re-render when data for this subtree changes
+  const dirContents = treeStore((s) => s.dirContents)
   const entries = treeStore((s) => s.dirContents.get(parentPath))
   const expandedDirs = treeStore((s) => s.expandedDirs)
   const changedFilesMap = treeStore((s) => s.changedFilesMap)

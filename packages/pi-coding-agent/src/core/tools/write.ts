@@ -3,6 +3,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { mkdir as fsMkdir, writeFile as fsWriteFile } from "fs/promises";
 import { dirname } from "path";
 import { notifyFileChanged } from "../lsp/client.js";
+import { requestFileChangeApproval } from "../tool-approval.js";
 import { resolveToCwd } from "./path-utils.js";
 
 const writeSchema = Type.Object({
@@ -80,6 +81,12 @@ export function createWriteTool(cwd: string, options?: WriteToolOptions): AgentT
 							if (aborted) {
 								return;
 							}
+
+							await requestFileChangeApproval({
+								action: "write",
+								path,
+								message: `Allow writing ${content.length} bytes to ${path}?`,
+							});
 
 							// Write the file
 							await ops.writeFile(absolutePath, content);

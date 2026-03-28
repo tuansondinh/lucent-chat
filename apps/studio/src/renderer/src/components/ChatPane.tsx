@@ -19,6 +19,7 @@ import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
 import { Kbd, KbdGroup } from './ui/kbd'
 import { getBridge } from '../lib/bridge'
 import { getCapabilities } from '../lib/capabilities'
+import { chrome } from '../lib/theme'
 
 // ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
@@ -123,7 +124,7 @@ function PaneFooter({
   }, [paneId, bridge])
 
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-1 border-t border-border bg-[#363636] text-[10px] text-text-primary flex-shrink-0 select-none">
+    <div className={`flex items-center justify-between gap-3 px-3 py-1 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none`}>
       <div className="flex min-w-0 items-center gap-3">
         {/* Git branch selector */}
         <div className="flex min-w-0 items-center gap-1">
@@ -612,9 +613,6 @@ export function ChatPane({
   // Submit handler
   const handleSubmit = useCallback(async (text: string, imageDataUrl?: string) => {
     const displayText = text || '[image]'
-    const fullText = imageDataUrl
-      ? (text ? `${text}\n[image: ${imageDataUrl}]` : `[image: ${imageDataUrl}]`)
-      : text
 
     if (isAssistantBusy) {
       if (queuedPrompt) return
@@ -644,7 +642,7 @@ export function ChatPane({
     }
 
     try {
-      const turn_id = await bridge.prompt(paneId, fullText)
+      const turn_id = await bridge.prompt(paneId, text, imageDataUrl)
       store.getState().addUserMessage(displayText, turn_id)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to send message'
@@ -706,6 +704,45 @@ export function ChatPane({
 
   const isOnlyPane = !onClose
 
+  // Pane-wide drag-and-drop: accept image/file drops anywhere in the pane
+  const [isPaneDragging, setIsPaneDragging] = useState(false)
+
+  const handlePaneDragOver = useCallback((e: React.DragEvent) => {
+    const hasFiles = Array.from(e.dataTransfer.items).some((item) => item.kind === 'file')
+    if (!hasFiles) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsPaneDragging(true)
+  }, [])
+
+  const handlePaneDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when leaving the pane root itself (not a child)
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setIsPaneDragging(false)
+  }, [])
+
+  const handlePaneDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsPaneDragging(false)
+
+    const files = e.dataTransfer?.files
+    if (!files || files.length === 0) return
+
+    const imageFile = Array.from(files).find((f) => f.type.startsWith('image/'))
+    if (!imageFile) return
+
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const dataUrl = evt.target?.result
+      if (typeof dataUrl === 'string') {
+        inputRef.current?.setImage(dataUrl)
+        if (!isActive) onFocus()
+      }
+    }
+    reader.readAsDataURL(imageFile)
+  }, [inputRef, isActive, onFocus])
+
   return (
     <>
       <div
@@ -714,8 +751,12 @@ export function ChatPane({
           'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden',
           isMobile ? 'w-full' : '',
           isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
+          isPaneDragging ? 'outline outline-2 outline-accent/60' : '',
         ].join(' ')}
         onClick={!isActive ? onFocus : undefined}
+        onDragOver={handlePaneDragOver}
+        onDragLeave={handlePaneDragLeave}
+        onDrop={handlePaneDrop}
       >
         {/* Messages area */}
         <main

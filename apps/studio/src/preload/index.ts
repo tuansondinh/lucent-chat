@@ -63,8 +63,8 @@ const bridge = {
   // -------------------------------------------------------------------------
 
   /** Submit a text prompt to a specific pane. Returns turn_id. */
-  prompt: (paneId: string, text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<string> =>
-    ipcRenderer.invoke('cmd:prompt', paneId, text, options),
+  prompt: (paneId: string, text: string, imageDataUrl?: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<string> =>
+    ipcRenderer.invoke('cmd:prompt', paneId, text, imageDataUrl, options),
 
   /** Abort the current generation in a specific pane. */
   abort: (paneId: string): Promise<void> =>

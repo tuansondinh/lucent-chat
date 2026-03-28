@@ -35,6 +35,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
+import { chrome } from './lib/theme'
 import { useSwipeGesture } from './lib/useSwipeGesture'
 import { useIOSKeyboard } from './lib/useIOSKeyboard'
 import type { ConnectionStatus } from './lib/web-bridge'
@@ -1039,20 +1040,20 @@ export default function App() {
     <div className="flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
       {/* Fixed top bar — spans full width */}
       <header
-        className="flex h-9 flex-shrink-0 items-center border-b border-border bg-bg-secondary"
+        className={`flex h-9 flex-shrink-0 items-center border-b border-border ${chrome.bar} ${chrome.text}`}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Spacer for traffic lights (always) + collapsed sidebar (when collapsed) */}
         <div className={sidebarCollapsed ? 'pl-32 flex-shrink-0' : 'pl-20 flex-shrink-0'} />
 
         {/* App name */}
-        <div className="flex-1 text-sm font-semibold text-text-secondary">
+        <div className="flex-1 font-semibold">
           Lucent Chat
         </div>
 
         {/* Agent health / status */}
         <div
-          className="pr-4 text-xs text-text-tertiary capitalize flex-shrink-0"
+          className="pr-4 capitalize flex-shrink-0"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           {activePaneHealth === 'unknown' ? 'connecting' : activePaneHealth}

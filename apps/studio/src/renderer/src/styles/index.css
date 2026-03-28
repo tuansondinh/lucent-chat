@@ -41,27 +41,27 @@
 }
 
 @theme {
-  /* Background colors - more grey, less blue */
-  --color-bg-primary: #0f1419;
-  --color-bg-secondary: #16191f;
-  --color-bg-tertiary: #1d2128;
-  --color-bg-hover: #252930;
-  
-  /* Border colors - neutral grey */
-  --color-border: #2a2e35;
-  --color-border-active: #363b42;
-  
-  /* Text colors */
-  --color-text-primary: #e3e6eb;
-  --color-text-secondary: #9da3ad;
-  --color-text-tertiary: #5a5f69;
-  
-  /* Accent colors */
-  --color-accent: #ff8c42;
-  --color-accent-hover: #ffaa6f;
-  --color-accent-muted: rgba(255, 140, 66, 0.15);
-  --color-accent-gray: #6b7179;
-  --color-accent-gray-muted: rgba(107, 113, 121, 0.15);
+  /* Background colors - Ghostty grey with subtle blue tint */
+  --color-bg-primary: #252930;
+  --color-bg-secondary: #2b2f38;
+  --color-bg-tertiary: #323640;
+  --color-bg-hover: #3a3e48;
+
+  /* Border colors */
+  --color-border: #383c45;
+  --color-border-active: #474c56;
+
+  /* Text colors - cool off-white */
+  --color-text-primary: #d8dce4;
+  --color-text-secondary: #7c8490;
+  --color-text-tertiary: #484e58;
+
+  /* Accent - red-orange */
+  --color-accent: #f06020;
+  --color-accent-hover: #f07840;
+  --color-accent-muted: rgba(240, 96, 32, 0.15);
+  --color-accent-gray: #5a7a9a;
+  --color-accent-gray-muted: rgba(90, 122, 154, 0.15);
 
   /* Fonts */
   --font-sans: 'Inter', system-ui, sans-serif;
@@ -117,7 +117,7 @@ pre,
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #363b42 #16191f;
+  scrollbar-color: #3d4e66 #222a3a;
 }
 
 *::-webkit-scrollbar {
@@ -126,17 +126,17 @@ pre,
 }
 
 *::-webkit-scrollbar-track {
-  background: #16191f;
+  background: #222a3a;
 }
 
 *::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: linear-gradient(180deg, #444950 0%, #2a2e35 100%);
-  border: 2px solid #16191f;
+  background: linear-gradient(180deg, #4a5e78 0%, #2e3a4e 100%);
+  border: 2px solid #222a3a;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #525761 0%, #363b42 100%);
+  background: linear-gradient(180deg, #5a7090 0%, #3d4e66 100%);
 }
 
 /* ==========================================================================

@@ -32,3 +32,12 @@ const danger =
   'hover:bg-red-600/30 active:bg-red-600/40 transition-colors'
 
 export const btn = { icon, ghost, outline, primary, danger }
+
+/**
+ * Chrome — shared styles for all structural bars (topbar, sidebar, bottom bars).
+ * Change values here to retheme all chrome surfaces at once.
+ */
+export const chrome = {
+  bar: 'bg-bg-primary',
+  text: 'text-[11px] font-sans text-text-secondary tracking-wide',
+}

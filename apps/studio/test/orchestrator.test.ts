@@ -12,7 +12,7 @@ class MockAgentBridge extends EventEmitter {
   public promptDelay = 0
   public eventSequence: any[] = []
 
-  async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<void> {
+  async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }, images?: Array<{ type: 'image'; data: string; mimeType: string }>): Promise<void> {
     this.prompts.push(text)
     this.eventSequence.push({ type: 'prompt-called', text, options })
 
@@ -465,6 +465,48 @@ test('Orchestrator: text block events are forwarded', async (t) => {
 
   const textBlockEnd = events.find((e) => e.type === 'text-block-end')
   assert.ok(textBlockEnd, 'should have text-block-end')
+})
+
+test('Orchestrator: emits chunk, done, and turn-error events for consumers', async () => {
+  const agentBridge = new MockAgentBridge()
+  const { callbacks } = createCallbackCollector()
+  const orchestrator = new Orchestrator(agentBridge, callbacks)
+
+  const emittedChunks: Array<{ turn_id: string; text: string }> = []
+  const emittedDone: Array<{ turn_id: string; full_text: string }> = []
+  const emittedErrors: Array<{ turn_id: string; message: string }> = []
+
+  orchestrator.on('chunk', (data) => emittedChunks.push(data))
+  orchestrator.on('done', (data) => emittedDone.push(data))
+  orchestrator.on('turn-error', (data) => emittedErrors.push(data))
+
+  orchestrator.submitTurn('test')
+
+  await new Promise((resolve) => setTimeout(resolve, 10))
+
+  agentBridge.simulateEvent({
+    type: 'message_update',
+    assistantMessageEvent: { type: 'text_delta', delta: 'Hello' },
+  })
+  agentBridge.simulateEvent({
+    type: 'agent_end',
+    messages: [{ role: 'assistant', content: [{ type: 'text', text: 'Hello' }] }],
+  })
+
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.equal(emittedChunks.length, 1)
+  assert.equal(emittedChunks[0]?.text, 'Hello')
+  assert.equal(emittedDone.length, 1)
+  assert.equal(emittedDone[0]?.full_text, 'Hello')
+
+  agentBridge.promptError = new Error('Prompt failed')
+  orchestrator.submitTurn('second')
+
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.equal(emittedErrors.length, 1)
+  assert.equal(emittedErrors[0]?.message, 'Prompt failed')
 })
 
 test('Orchestrator: agent_process_exit is handled', async (t) => {

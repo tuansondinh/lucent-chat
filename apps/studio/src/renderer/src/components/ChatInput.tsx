@@ -45,6 +45,7 @@ interface Props {
 export interface ChatInputHandle {
   focus: () => void
   setDraft: (text: string, imageDataUrl?: string | null) => void
+  setImage: (dataUrl: string) => void
 }
 
 const DRAFT_KEY = 'lc_input_draft'
@@ -86,6 +87,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
+    setImage: (dataUrl: string) => {
+      setPastedImage(dataUrl)
+      textareaRef.current?.focus()
+    },
     setDraft: (text: string, imageDataUrl?: string | null) => {
       setValue(text)
       setPastedImage(imageDataUrl ?? null)

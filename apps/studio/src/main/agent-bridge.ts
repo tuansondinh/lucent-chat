@@ -138,8 +138,8 @@ export class AgentBridge extends EventEmitter {
   // =========================================================================
 
   /** Send a user prompt. Returns immediately; events stream asynchronously. */
-  async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }): Promise<void> {
-    await this.send({ type: 'prompt', message: text, streamingBehavior: options?.streamingBehavior })
+  async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }, images?: Array<{ type: 'image'; data: string; mimeType: string }>): Promise<void> {
+    await this.send({ type: 'prompt', message: text, streamingBehavior: options?.streamingBehavior, images })
   }
 
   /** Abort the current generation. */

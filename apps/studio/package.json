@@ -19,6 +19,7 @@
     "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
     "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
     "pack": "npm run bundle-runtime && electron-builder --dir",
+    "pack:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder --dir --arm64",
     "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
     "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
     "dist:mac:arm64": "npm run build && npm run bundle-runtime && electron-builder -m --arm64",

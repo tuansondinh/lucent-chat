@@ -16,14 +16,14 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getBridge } from '../lib/bridge'
 
-// Colour theme matching the dark UI (background #1a1a1a)
+// Colour theme matching the dark UI (background #22272e)
 const XTERM_THEME = {
-  background: '#1a1a1a',
+  background: '#22272e',
   foreground: '#e0e0e0',
   cursor: '#e0e0e0',
-  cursorAccent: '#1a1a1a',
+  cursorAccent: '#22272e',
   selectionBackground: '#3a3a4a',
-  black: '#1a1a1a',
+  black: '#22272e',
   red: '#f2777a',
   green: '#99cc99',
   yellow: '#ffcc66',
@@ -130,7 +130,7 @@ export function Terminal() {
         width: '100%',
         height: '100%',
         overflow: 'hidden',
-        background: '#1a1a1a',
+        background: '#22272e',
         padding: 0,
       }}
     />

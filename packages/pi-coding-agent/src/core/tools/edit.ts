@@ -12,6 +12,7 @@ import {
 	stripBom,
 } from "./edit-diff.js";
 import { notifyFileChanged } from "../lsp/client.js";
+import { requestFileChangeApproval } from "../tool-approval.js";
 import { resolveToCwd } from "./path-utils.js";
 
 const editSchema = Type.Object({
@@ -186,6 +187,14 @@ export function createEditTool(cwd: string, options?: EditToolOptions): AgentToo
 						}
 
 						const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+						const diffResult = generateDiffString(baseContent, newContent);
+
+						await requestFileChangeApproval({
+							action: "edit",
+							path,
+							message: `Allow editing ${path}?\n\n${diffResult.diff.slice(0, 4000)}`,
+						});
+
 						await ops.writeFile(absolutePath, finalContent);
 
 						try { notifyFileChanged(absolutePath); } catch { /* best-effort */ }
@@ -200,7 +209,6 @@ export function createEditTool(cwd: string, options?: EditToolOptions): AgentToo
 							signal.removeEventListener("abort", onAbort);
 						}
 
-						const diffResult = generateDiffString(baseContent, newContent);
 						resolve({
 							content: [
 								{

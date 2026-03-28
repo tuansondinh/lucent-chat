@@ -18,6 +18,8 @@ import { SkillRegistry } from './skill-registry.js'
 import { SkillExecutor } from './skill-executor.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
+import { resolveRemotePaneRoot } from './pane-root-policy.js'
+import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -326,8 +328,12 @@ app.whenReady().then(async () => {
       const root = () => pane()?.projectRoot
       switch (name) {
         // Settings
-        case 'get-settings': return settingsService.get()
-        case 'set-settings': return settingsService.save(args[0] as Record<string, unknown>)
+        case 'get-settings': return sanitizeSettingsForRenderer(settingsService.get())
+        case 'set-settings': {
+          const validated = validateSettingsPatch(args[0] as Record<string, unknown>)
+          settingsService.save(validated)
+          return sanitizeSettingsForRenderer(settingsService.get())
+        }
         // Pane lifecycle
         case 'pane-list': return paneManager?.getPaneIds() ?? []
         case 'pane-create': { const p = await paneManager!.createPane(settingsService, broadcast); return { paneId: p.id } }
@@ -353,7 +359,15 @@ app.whenReady().then(async () => {
         case 'remove-provider-key': return authService.removeApiKey(args[0] as string)
         // Pane info
         case 'get-pane-info': return { paneId: args[0], projectRoot: pane()?.projectRoot ?? process.cwd() }
-        case 'set-pane-root': { const p2 = pane(); if (!p2) throw new Error('Unknown pane'); await paneManager!.restartPaneAgent(args[0] as string, args[1] as string); return { projectRoot: args[1] } }
+        case 'set-pane-root': {
+          const p2 = pane()
+          if (!p2) throw new Error('Unknown pane')
+          const resolvedPath = await resolveRemotePaneRoot(p2.accessRoot, args[1] as string)
+          await paneManager!.restartPaneAgent(args[0] as string, resolvedPath)
+          fileWatchService?.watchPane(args[0] as string, resolvedPath)
+          fileWatchService?.notifyRootChanged(args[0] as string)
+          return { projectRoot: resolvedPath }
+        }
         // File system
         case 'fs-list-dir': return root() ? fileService.listDirectory(root()!, args[1] as string) : { entries: [], truncated: false }
         case 'fs-read-file': return root() ? fileService.readFile(root()!, args[1] as string) : null

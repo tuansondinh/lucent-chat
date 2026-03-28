@@ -6,7 +6,7 @@
 
 import { Mic, FileText } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
-import { btn } from '../lib/theme'
+import { btn, chrome } from '../lib/theme'
 
 interface HealthDotProps {
   health: string
@@ -55,7 +55,7 @@ export function StatusBar({
   const healthLabel = health === 'ready' ? `v${APP_VERSION}` : health === 'unknown' ? 'connecting' : health
 
   return (
-    <div className="flex items-center justify-between px-3 py-0.5 border-t border-border bg-bg-secondary text-[10px] text-text-tertiary flex-shrink-0">
+    <div className={`flex items-center justify-between px-3 py-0.5 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0`}>
       {/* Left: model — clickable to open model picker */}
       <button
         onClick={onOpenModelPicker}

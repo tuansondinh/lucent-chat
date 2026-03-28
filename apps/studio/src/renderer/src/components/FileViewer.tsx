@@ -47,8 +47,9 @@ function isBinaryContent(content: string): boolean {
   let nonPrintable = 0
   for (let i = 0; i < sample.length; i++) {
     const code = sample.charCodeAt(i)
-    // Allow tab (9), newline (10), carriage return (13), and printable range (32–126)
-    if (code !== 9 && code !== 10 && code !== 13 && (code < 32 || code > 126)) {
+    // Allow tab (9), newline (10), carriage return (13), printable ASCII (32–126),
+    // and all Unicode codepoints > 127 (valid UTF-8 text — em dashes, accents, CJK, etc.)
+    if (code !== 9 && code !== 10 && code !== 13 && code < 32) {
       nonPrintable++
     }
   }
@@ -265,7 +266,7 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
         const hl = await getHighlighter()
         const result = hl.codeToTokens(code, {
           lang: language || 'text',
-          theme: 'github-dark-default',
+          theme: 'dark-plus',
         })
         if (!cancelled) setTokens(result.tokens)
       } catch {
@@ -297,7 +298,7 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
   }
 
   return (
-    <div className="overflow-x-auto bg-[#0d1117]">
+    <div className="overflow-x-auto bg-[#1c1f26]">
       {/* Large file banner */}
       {isLarge && (
         <div className="px-4 py-1.5 text-[11px] text-amber-400/80 bg-amber-400/5 border-b border-amber-400/10 font-mono">
@@ -314,12 +315,12 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
               className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
             >
               <div
-                className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
                 style={{ lineHeight: '1.6' }}
               >
                 {i + 1}
               </div>
-              <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#e6edf3]">
+              <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#d4d4d4]">
                 {lineText || '\u00a0'}
               </div>
             </div>
@@ -334,7 +335,7 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
               >
                 {/* Gutter */}
                 <div
-                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
                   style={{ lineHeight: '1.6' }}
                 >
                   {i + 1}
@@ -368,12 +369,12 @@ function HighlightedCode({ code, language, matchLineIndices, activeMatchLineInde
                 className={cn('flex items-stretch group/line', lineRowClass(i), !lineRowClass(i) && 'hover:bg-white/5')}
               >
                 <div
-                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#636e7b] border-r border-white/5 select-none cursor-default"
+                  className="w-[3.5rem] flex-shrink-0 pr-3 text-right text-[12px] font-mono text-[#858585] border-r border-white/5 select-none cursor-default"
                   style={{ lineHeight: '1.6' }}
                 >
                   {i + 1}
                 </div>
-                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#e6edf3]">
+                <div className="flex-1 pl-4 whitespace-pre font-mono text-[13px] leading-[1.6] select-text min-w-0 text-[#d4d4d4]">
                   {lineText || '\u00a0'}
                 </div>
               </div>
@@ -488,6 +489,34 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
 
   const activeFile = openFiles.find((f) => f.tabKey === activeFilePath) ?? null
 
+  // Compute display content before early returns — hooks must not be conditional
+  const isRegularTextFile = Boolean(
+    activeFile &&
+    activeFile.kind !== 'diff' &&
+    !activeFile.isBinary &&
+    !isBinaryContent(activeFile.content),
+  )
+  const rawContent = isRegularTextFile && activeFile ? activeFile.content : ''
+  const contentLines = rawContent.split('\n')
+  const isTruncated = !showAll && contentLines.length > TRUNCATE_LINES
+  const displayContent = isTruncated ? contentLines.slice(0, TRUNCATE_LINES).join('\n') : rawContent
+  const language = activeFile && activeFile.kind !== 'diff' ? extensionToLanguage(activeFile.relativePath) : 'text'
+
+  // ---- Search match computation (must be before early returns — Rules of Hooks) ----
+  const matchLines = useMemo(() => {
+    if (!searchQuery || !isRegularTextFile) return []
+    const q = searchCaseSensitive ? searchQuery : searchQuery.toLowerCase()
+    return displayContent.split('\n')
+      .map((line, i) => {
+        const l = searchCaseSensitive ? line : line.toLowerCase()
+        return l.includes(q) ? i : -1
+      })
+      .filter((i) => i !== -1)
+  }, [searchQuery, searchCaseSensitive, displayContent, isRegularTextFile])
+
+  const matchLineIndices = useMemo(() => new Set(matchLines), [matchLines])
+  const activeMatchLineIndex = matchLines.length > 0 ? (matchLines[searchMatchIndex] ?? null) : null
+
   // ---- Empty state ----
   if (!activeFile) {
     return (
@@ -537,7 +566,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
           setActiveFile={setActiveFile}
         />
 
-        <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
+        <div className="flex-1 overflow-auto min-h-0 bg-[#1c1f26]">
           {activeFile.isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
               <GitBranch className="size-8 text-text-tertiary opacity-40" />
@@ -559,7 +588,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   const { relativePath, content, isBinary } = activeFile
 
   // ---- Binary detection ----
-  if (isBinary || isBinaryContent(content)) {
+  if (!isRegularTextFile) {
     return (
       <div className="flex h-full w-full flex-1 flex-col bg-bg-secondary border-l border-border min-w-0">
         <FileViewerHeader
@@ -584,29 +613,6 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
       </div>
     )
   }
-
-  // ---- Line truncation ----
-  const lines = content.split('\n')
-  const isTruncated = !showAll && lines.length > TRUNCATE_LINES
-  const displayContent = isTruncated ? lines.slice(0, TRUNCATE_LINES).join('\n') : content
-  const language = extensionToLanguage(relativePath)
-
-  // ---- Search match computation ----
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const matchLines = useMemo(() => {
-    if (!searchQuery || !activeFile) return []
-    const contentLines = displayContent.split('\n')
-    const q = searchCaseSensitive ? searchQuery : searchQuery.toLowerCase()
-    return contentLines
-      .map((line, i) => {
-        const l = searchCaseSensitive ? line : line.toLowerCase()
-        return l.includes(q) ? i : -1
-      })
-      .filter((i) => i !== -1)
-  }, [searchQuery, searchCaseSensitive, displayContent, activeFile])
-
-  const matchLineIndices = useMemo(() => new Set(matchLines), [matchLines])
-  const activeMatchLineIndex = matchLines.length > 0 ? (matchLines[searchMatchIndex] ?? null) : null
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && matchLines.length > 0) {
@@ -684,7 +690,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
       )}
 
       {/* Scrollable code area */}
-      <div className="flex-1 overflow-auto min-h-0 bg-[#0d1117]">
+      <div className="flex-1 overflow-auto min-h-0 bg-[#1c1f26]">
         <HighlightedCode
           code={displayContent}
           language={language}
@@ -696,13 +702,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         {isTruncated && (
           <div className="flex items-center justify-center py-3 px-4 border-t border-border/30 bg-bg-secondary/80">
             <span className="text-xs text-text-tertiary mr-3">
-              Showing first {TRUNCATE_LINES} of {lines.length} lines
+              Showing first {TRUNCATE_LINES} of {contentLines.length} lines
             </span>
             <button
               onClick={() => setShowAll(true)}
               className="text-xs text-accent hover:text-accent-hover underline underline-offset-2 transition-colors"
             >
-              Show all {lines.length} lines
+              Show all {contentLines.length} lines
             </button>
           </div>
         )}
@@ -727,7 +733,7 @@ function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setAc
   if (openFiles.length === 0) return null
 
   return (
-    <div className="flex overflow-x-auto border-b border-border/60 bg-[#0d1117] flex-shrink-0 scrollbar-none">
+    <div className="flex overflow-x-auto border-b border-border/60 bg-[#1c1f26] flex-shrink-0 scrollbar-none">
       {openFiles.map((file) => {
         const fileName = file.relativePath.split('/').pop() ?? file.relativePath
         const isActive = file.tabKey === activeFilePath
@@ -857,7 +863,7 @@ function FileViewerHeader({
 
 function UnifiedDiffView({ lines }: { lines: ParsedDiffLine[] }) {
   return (
-    <div className="overflow-x-auto bg-[#0d1117]">
+    <div className="overflow-x-auto bg-[#1c1f26]">
       {lines.map((line, index) => (
         <div
           key={`${index}-${line.text}`}
@@ -867,13 +873,13 @@ function UnifiedDiffView({ lines }: { lines: ParsedDiffLine[] }) {
             line.kind === 'remove' && 'bg-red-500/10 text-red-100',
             line.kind === 'hunk' && 'bg-sky-500/10 text-sky-200',
             line.kind === 'meta' && 'bg-white/5 text-text-tertiary',
-            (line.kind === 'context' || line.kind === 'add' || line.kind === 'remove') && 'text-[#e6edf3]',
+            (line.kind === 'context' || line.kind === 'add' || line.kind === 'remove') && 'text-[#d4d4d4]',
           )}
         >
-          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#636e7b] select-none">
+          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#858585] select-none">
             {line.oldLineNumber ?? ''}
           </div>
-          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#636e7b] select-none">
+          <div className="w-14 flex-shrink-0 border-r border-white/5 pr-2 text-right text-[#858585] select-none">
             {line.newLineNumber ?? ''}
           </div>
           <div className="min-w-0 flex-1 whitespace-pre px-4">
