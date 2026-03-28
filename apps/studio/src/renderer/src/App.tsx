@@ -35,6 +35,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
 import { ApprovalModalContainer } from './components/ApprovalModal'
+import { StatusBar } from './components/StatusBar'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 import { chrome } from './lib/theme'
 import { useSwipeGesture } from './lib/useSwipeGesture'
@@ -103,20 +104,35 @@ function renderLayoutNode(
       />
     )
   }
+
   const isHorizontal = node.orientation === 'horizontal'
-  const minSize = isHorizontal ? 15 : 25
+  const minSize = isHorizontal ? 10 : 15
   const handleClass = isHorizontal
-    ? 'w-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-col-resize'
-    : 'h-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-row-resize'
+    ? 'w-0.5 bg-border hover:bg-accent/60 transition-colors cursor-col-resize flex-shrink-0'
+    : 'h-0.5 bg-border hover:bg-accent/60 transition-colors cursor-row-resize flex-shrink-0'
+
+  const panels: ReactNode[] = []
+  node.children.forEach((child, idx) => {
+    if (idx > 0) {
+      panels.push(
+        <PanelResizeHandle
+          key={`handle-${node.id}-${idx}`}
+          className={handleClass}
+          hitAreaMargins={{ coarse: 20, fine: 5 }}
+        />,
+      )
+    }
+    const childKey = child.type === 'leaf' ? child.paneId : child.id
+    panels.push(
+      <Panel key={childKey} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
+        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
+      </Panel>,
+    )
+  })
+
   return (
     <PanelGroup key={node.id} orientation={node.orientation} className="flex-1 min-h-0 min-w-0">
-      <Panel key={`${node.id}-0`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[0], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
-      </Panel>
-      <PanelResizeHandle className={handleClass} />
-      <Panel key={`${node.id}-1`} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(node.children[1], activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
-      </Panel>
+      {panels}
     </PanelGroup>
   )
 }
@@ -173,6 +189,7 @@ export default function App() {
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
+  const [permissionMode, setPermissionMode] = useState<'danger-full-access' | 'accept-on-edit'>('danger-full-access')
   // Reconnect banner state (PWA only)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
 
@@ -214,6 +231,9 @@ export default function App() {
         }
         if (!s.onboardingComplete) {
           setShowOnboarding(true)
+        }
+        if (s.permissionMode === 'danger-full-access' || s.permissionMode === 'accept-on-edit') {
+          setPermissionMode(s.permissionMode)
         }
       })
       .catch(() => {})
@@ -401,6 +421,14 @@ export default function App() {
   const handleToggleSidebar = useCallback(() => {
     setSidebarCollapsed((c) => !c)
   }, [])
+
+  const handleTogglePermissionMode = useCallback(() => {
+    setPermissionMode((current) => {
+      const next = current === 'danger-full-access' ? 'accept-on-edit' : 'danger-full-access'
+      bridge.setSettings({ permissionMode: next }).catch(() => {})
+      return next
+    })
+  }, [bridge])
 
   const handleVoiceAudioEnabledChange = useCallback((enabled: boolean) => {
     setVoiceAudioEnabled(enabled)
@@ -607,10 +635,14 @@ export default function App() {
       }
       if (action === 'toggle-file-viewer') {
         toggleFileViewer()
+        return
+      }
+      if (action === 'toggle-permission-mode') {
+        handleTogglePermissionMode()
       }
     })
     return () => unsubscribe()
-  }, [bridge, handleNewSession, toggleFileViewer])
+  }, [bridge, handleNewSession, toggleFileViewer, handleTogglePermissionMode])
 
   const handleFileViewerResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -1124,6 +1156,18 @@ export default function App() {
           </>
         )}
       </PanelGroup>
+
+      {/* Global status bar — shows model, session, permission mode, health */}
+      <StatusBar
+        model={activePaneModel}
+        sessionName={activePaneSessionName ?? ''}
+        health={activePaneHealth}
+        fileViewerOpen={fileViewerOpen}
+        onToggleFileViewer={toggleFileViewer}
+        onOpenModelPicker={() => setModelPickerOpen(true)}
+        permissionMode={permissionMode}
+        onTogglePermissionMode={handleTogglePermissionMode}
+      />
 
       {sharedOverlays}
 

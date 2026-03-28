@@ -47,6 +47,13 @@ export interface AppSettings {
   remoteAccessToken?: string
   /** Whether to run `tailscale serve` to expose the server via HTTPS. */
   tailscaleServeEnabled?: boolean
+
+  // ---------------------------------------------------------------------------
+  // Permission mode
+  // ---------------------------------------------------------------------------
+
+  /** Agent file-mutation permission mode. danger-full-access = no approval prompts; accept-on-edit = prompt before each file change. */
+  permissionMode?: 'danger-full-access' | 'accept-on-edit'
 }
 
 // ============================================================================
@@ -62,6 +69,7 @@ const DEFAULTS: AppSettings = {
   remoteAccessEnabled: false,
   remoteAccessPort: 8788,
   tailscaleServeEnabled: false,
+  permissionMode: 'danger-full-access',
 }
 
 // ============================================================================

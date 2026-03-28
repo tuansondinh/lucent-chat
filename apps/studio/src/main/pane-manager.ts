@@ -163,6 +163,24 @@ export class PaneManager {
   }
 
   /**
+   * Restart a pane's agent process with an updated extraEnv overlay.
+   * The new env values are merged over whatever the ProcessManager already has.
+   * Callers are responsible for aborting any in-progress turn before calling this.
+   */
+  async restartPaneAgentWithEnv(
+    id: string,
+    extraEnvOverlay: Record<string, string>,
+  ): Promise<void> {
+    const pane = this.panes.get(id)
+    if (!pane) return
+
+    pane.agentBridge.detach()
+    await pane.processManager.killProcess('agent')
+    pane.processManager.spawnAgent(pane.projectRoot, extraEnvOverlay)
+    pane.attachBridge()
+  }
+
+  /**
    * Destroy a pane and shut down its agent process.
    * Pane-0 is not destroyable — it is owned by the main app lifecycle.
    */

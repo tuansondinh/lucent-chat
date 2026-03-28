@@ -39,6 +39,12 @@ export interface RendererSettings {
   voiceAudioEnabled?: boolean
   voiceModelsDownloaded?: boolean
   hasTavilyKey: boolean
+  /** Agent file-mutation permission mode. */
+  permissionMode?: 'danger-full-access' | 'accept-on-edit'
+  remoteAccessEnabled?: boolean
+  remoteAccessPort?: number
+  remoteAccessToken?: string
+  tailscaleServeEnabled?: boolean
 }
 
 export interface VoiceStatus {
@@ -354,8 +360,8 @@ const bridge = {
   },
 
   /** App-level keyboard shortcuts forwarded by the main process. */
-  onAppShortcut: (cb: (data: { action: 'new-session' | 'toggle-file-viewer' }) => void): (() => void) => {
-    const handler = (_e: any, data: { action: 'new-session' | 'toggle-file-viewer' }) => cb(data)
+  onAppShortcut: (cb: (data: { action: 'new-session' | 'toggle-file-viewer' | 'toggle-permission-mode' }) => void): (() => void) => {
+    const handler = (_e: any, data: { action: 'new-session' | 'toggle-file-viewer' | 'toggle-permission-mode' }) => cb(data)
     ipcRenderer.on('event:app-shortcut', handler)
     return () => ipcRenderer.removeListener('event:app-shortcut', handler)
   },

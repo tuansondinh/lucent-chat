@@ -46,6 +46,47 @@ test('settings contract: rejects invalid remoteAccessPort', () => {
   )
 })
 
+// ============================================================================
+// permissionMode tests
+// ============================================================================
+
+test('settings contract: validates permissionMode danger-full-access', () => {
+  const result = validateSettingsPatch({ permissionMode: 'danger-full-access' })
+  assert.deepEqual(result, { permissionMode: 'danger-full-access' })
+})
+
+test('settings contract: validates permissionMode accept-on-edit', () => {
+  const result = validateSettingsPatch({ permissionMode: 'accept-on-edit' })
+  assert.deepEqual(result, { permissionMode: 'accept-on-edit' })
+})
+
+test('settings contract: rejects invalid permissionMode value', () => {
+  assert.throws(
+    () => validateSettingsPatch({ permissionMode: 'invalid-mode' }),
+    /Invalid permissionMode setting/,
+  )
+})
+
+test('settings contract: sanitizeSettingsForRenderer passes permissionMode through', () => {
+  const result = sanitizeSettingsForRenderer({
+    theme: 'dark',
+    fontSize: 14,
+    sidebarCollapsed: true,
+    permissionMode: 'accept-on-edit',
+  })
+  assert.equal((result as any).permissionMode, 'accept-on-edit')
+})
+
+test('settings contract: sanitizeSettingsForRenderer includes permissionMode when default', () => {
+  const result = sanitizeSettingsForRenderer({
+    theme: 'dark',
+    fontSize: 14,
+    sidebarCollapsed: true,
+    permissionMode: 'danger-full-access',
+  })
+  assert.equal((result as any).permissionMode, 'danger-full-access')
+})
+
 test('remote pane root policy: allows descendants within scope root', async () => {
   const base = await mkdtemp(join(tmpdir(), 'studio-pane-root-'))
   try {

@@ -133,6 +133,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.tailscaleServeEnabled = partial.tailscaleServeEnabled
   }
 
+  if ('permissionMode' in partial) {
+    if (partial.permissionMode !== 'danger-full-access' && partial.permissionMode !== 'accept-on-edit') {
+      throw new Error('Invalid permissionMode setting')
+    }
+    validated.permissionMode = partial.permissionMode
+  }
+
   const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))
   if (unknownKeys.length > 0) {
     throw new Error(`Unknown settings key: ${unknownKeys[0]}`)

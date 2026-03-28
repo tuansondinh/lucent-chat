@@ -186,9 +186,34 @@ export function registerIpcHandlers(
     return sanitizeSettingsForRenderer(settingsService.get())
   })
 
-  ipcMain.handle('cmd:set-settings', (_event, partial: Record<string, unknown>) => {
+  ipcMain.handle('cmd:set-settings', async (_event, partial: Record<string, unknown>) => {
     const validated = validateSettingsPatch(partial)
     settingsService.save(validated)
+
+    // When permissionMode changes, propagate the new env to all panes and restart agents.
+    if ('permissionMode' in validated) {
+      const newMode = validated.permissionMode ?? 'danger-full-access'
+      console.log(`[studio] permissionMode changed to "${newMode}" — restarting all pane agents`)
+      for (const paneId of paneManager.getPaneIds()) {
+        const pane = paneManager.getPane(paneId)
+        if (!pane) continue
+        try {
+          await pane.orchestrator.abortCurrentTurn()
+        } catch {
+          console.warn(`[studio] abortCurrentTurn for pane ${paneId} failed (may be idle)`)
+        }
+        // Restart with the updated permission mode env
+        await paneManager.restartPaneAgentWithEnv(paneId, { GSD_STUDIO_PERMISSION_MODE: newMode })
+        // Re-read session state so continuity is preserved
+        try {
+          const state = await pane.agentBridge.getState()
+          if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile as string)
+        } catch {
+          // non-fatal: agent may not be ready yet
+        }
+      }
+    }
+
     return sanitizeSettingsForRenderer(settingsService.get())
   })
 

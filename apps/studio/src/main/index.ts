@@ -115,6 +115,12 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     if (input.shift && input.code === 'KeyF') {
       event.preventDefault()
       window.webContents.send('event:app-shortcut', { action: 'toggle-file-viewer' })
+      return
+    }
+
+    if (input.shift && input.code === 'KeyE') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
     }
   })
 
@@ -246,6 +252,7 @@ app.whenReady().then(async () => {
     onDone: (d) => broadcast('event:agent-done', { paneId: 'pane-0', ...d }),
     onToolStart: (d) => broadcast('event:tool-start', { paneId: 'pane-0', ...d }),
     onToolEnd: (d) => broadcast('event:tool-end', { paneId: 'pane-0', ...d }),
+    onToolUpdate: (d) => broadcast('event:tool-update', { paneId: 'pane-0', ...d }),
     onTurnState: (d) => broadcast('event:turn-state', { paneId: 'pane-0', ...d }),
     onError: (d) => broadcast('event:error', { paneId: 'pane-0', ...d }),
     onThinkingStart: (d) => broadcast('event:thinking-start', { paneId: 'pane-0', ...d }),
