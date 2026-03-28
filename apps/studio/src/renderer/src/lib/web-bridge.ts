@@ -445,26 +445,26 @@ export class WebBridge implements Bridge {
   }
 
   // -------------------------------------------------------------------------
-  // Voice — not available in PWA
+  // Voice — forwarded through bridge server
   // -------------------------------------------------------------------------
 
   voiceProbe(): Promise<{ available: boolean; reason?: string }> {
-    return Promise.resolve({ available: false, reason: 'not available in PWA mode' })
+    return this.cmd('voice-probe')
   }
 
-  voiceStart(): Promise<{ port: number }> {
-    return Promise.reject(new Error('Voice not available in PWA mode'))
+  voiceStart(): Promise<{ port: number; token: string }> {
+    return this.cmd('voice-start')
   }
 
   voiceStop(): Promise<void> {
-    return Promise.resolve()
+    return this.cmd('voice-stop')
   }
 
-  voiceStatus(): Promise<{ available: boolean; state: string; port: number | null }> {
-    return Promise.resolve({ available: false, state: 'unavailable', port: null })
+  voiceStatus(): Promise<{ available: boolean; state: string; port: number | null; token: string | null }> {
+    return this.cmd('voice-status')
   }
 
-  onVoiceStatus(_cb: (data: unknown) => void): () => void {
-    return () => {}
+  onVoiceStatus(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:voice-status', cb)
   }
 }

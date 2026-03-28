@@ -1,7 +1,7 @@
 /**
  * ModelPicker — dialog for browsing and switching the active LLM model.
  *
- * Opens via Cmd+M or clicking the model name in the status bar / sidebar.
+ * Opens via Cmd+P or clicking the model name in the status bar / sidebar.
  * Fetches models via window.bridge.getModels() on open, groups them by
  * provider, and calls window.bridge.switchModel(provider, id) on selection.
  */
@@ -35,6 +35,8 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   paneId?: string
+  /** When true, renders with a close button suitable for full-screen mobile overlay. */
+  isMobile?: boolean
 }
 
 function sleep(ms: number): Promise<void> {
@@ -45,7 +47,7 @@ function sleep(ms: number): Promise<void> {
 // Helpers
 // ============================================================================
 
-export function ModelPicker({ open, onOpenChange, paneId }: Props) {
+export function ModelPicker({ open, onOpenChange, paneId, isMobile = false }: Props) {
   const { activePaneId } = usePanesStore()
   const targetPaneId = paneId ?? activePaneId
   const { currentModel } = getPaneStore(targetPaneId)()
@@ -168,6 +170,17 @@ export function ModelPicker({ open, onOpenChange, paneId }: Props) {
           <DialogTitle className="flex items-center gap-2 text-base">
             <Cpu className="w-4 h-4 text-accent flex-shrink-0" />
             Switch Model
+            {isMobile && (
+              <button
+                onClick={() => onOpenChange(false)}
+                aria-label="Close model picker"
+                className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M3 3l10 10M13 3L3 13" />
+                </svg>
+              </button>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -243,7 +256,7 @@ export function ModelPicker({ open, onOpenChange, paneId }: Props) {
             {models.length > 0 ? `${models.length} model${models.length !== 1 ? 's' : ''} available` : ''}
           </span>
           <span className="text-[10px] text-text-tertiary">
-            <kbd className="font-mono bg-bg-tertiary border border-border rounded px-1 py-0.5 text-[9px]">⌘M</kbd>
+            <kbd className="font-mono bg-bg-tertiary border border-border rounded px-1 py-0.5 text-[9px]">⌘P</kbd>
             {' '}to toggle
           </span>
         </div>

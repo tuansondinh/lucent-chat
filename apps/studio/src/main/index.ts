@@ -37,6 +37,12 @@ let fileWatchService: FileWatchService | null = null
 let webBridgeServer: WebBridgeServer | null = null
 let tailscaleService: TailscaleService | null = null
 
+/** Send an event to both the Electron renderer and all PWA WebSocket clients. */
+function broadcast(channel: string, data: unknown): void {
+  pushEvent(mainWindow, channel, data)
+  webBridgeServer?.pushEvent(channel, data)
+}
+
 // Extend Electron App type with isQuitting flag
 declare module 'electron' {
   interface App {
@@ -232,24 +238,24 @@ app.whenReady().then(async () => {
   paneManager = new PaneManager()
 
   const orchestrator = new Orchestrator(agentBridge, {
-    onChunk: (d) => pushEvent(mainWindow, 'event:agent-chunk', { paneId: 'pane-0', ...d }),
-    onDone: (d) => pushEvent(mainWindow, 'event:agent-done', { paneId: 'pane-0', ...d }),
-    onToolStart: (d) => pushEvent(mainWindow, 'event:tool-start', { paneId: 'pane-0', ...d }),
-    onToolEnd: (d) => pushEvent(mainWindow, 'event:tool-end', { paneId: 'pane-0', ...d }),
-    onTurnState: (d) => pushEvent(mainWindow, 'event:turn-state', { paneId: 'pane-0', ...d }),
-    onError: (d) => pushEvent(mainWindow, 'event:error', { paneId: 'pane-0', ...d }),
-    onThinkingStart: (d) => pushEvent(mainWindow, 'event:thinking-start', { paneId: 'pane-0', ...d }),
-    onThinkingChunk: (d) => pushEvent(mainWindow, 'event:thinking-chunk', { paneId: 'pane-0', ...d }),
-    onThinkingEnd: (d) => pushEvent(mainWindow, 'event:thinking-end', { paneId: 'pane-0', ...d }),
-    onTextBlockStart: (d) => pushEvent(mainWindow, 'event:text-block-start', { paneId: 'pane-0', ...d }),
-    onTextBlockEnd: (d) => pushEvent(mainWindow, 'event:text-block-end', { paneId: 'pane-0', ...d }),
+    onChunk: (d) => broadcast('event:agent-chunk', { paneId: 'pane-0', ...d }),
+    onDone: (d) => broadcast('event:agent-done', { paneId: 'pane-0', ...d }),
+    onToolStart: (d) => broadcast('event:tool-start', { paneId: 'pane-0', ...d }),
+    onToolEnd: (d) => broadcast('event:tool-end', { paneId: 'pane-0', ...d }),
+    onTurnState: (d) => broadcast('event:turn-state', { paneId: 'pane-0', ...d }),
+    onError: (d) => broadcast('event:error', { paneId: 'pane-0', ...d }),
+    onThinkingStart: (d) => broadcast('event:thinking-start', { paneId: 'pane-0', ...d }),
+    onThinkingChunk: (d) => broadcast('event:thinking-chunk', { paneId: 'pane-0', ...d }),
+    onThinkingEnd: (d) => broadcast('event:thinking-end', { paneId: 'pane-0', ...d }),
+    onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
+    onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
   })
 
   paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
 
-  // Forward health events for pane-0 to renderer (with paneId)
+  // Forward health events for pane-0 to renderer and PWA clients (with paneId)
   processManager.on('health', (states: Record<string, string>) => {
-    pushEvent(mainWindow, 'event:health', { paneId: 'pane-0', states })
+    broadcast('event:health', { paneId: 'pane-0', states })
   })
 
   // 9. Terminal Manager — forwards pty output to renderer
@@ -292,6 +298,7 @@ app.whenReady().then(async () => {
     () => mainWindow,
     skillRegistry,
     skillExecutor,
+    broadcast,
   )
 
   // 11. WebBridgeServer — auto-start if enabled in settings
@@ -323,11 +330,11 @@ app.whenReady().then(async () => {
         case 'set-settings': return settingsService.save(args[0] as Record<string, unknown>)
         // Pane lifecycle
         case 'pane-list': return paneManager?.getPaneIds() ?? []
-        case 'pane-create': { const p = await paneManager!.createPane(settingsService, () => {}); return { paneId: p.id } }
+        case 'pane-create': { const p = await paneManager!.createPane(settingsService, broadcast); return { paneId: p.id } }
         case 'pane-close': return paneManager?.destroyPane(args[0] as string)
         // Agent
         case 'prompt': return pane()?.orchestrator.submitTurn(args[1] as string, 'text')
-        case 'abort': return pane()?.orchestrator.abort()
+        case 'abort': return pane()?.orchestrator.abortCurrentTurn()
         case 'get-state': return pane()?.agentBridge.getState()
         case 'get-models': return pane()?.agentBridge.getAvailableModels()
         case 'switch-model': return pane()?.agentBridge.setModel(args[1] as string, args[2] as string)
@@ -380,6 +387,13 @@ app.whenReady().then(async () => {
       dispatchCmd,
       tailscaleOrigin,
       staticDir: pwaDir,
+      getVoiceEndpoint: () => {
+        const status = voiceService?.getStatus()
+        if (status?.state === 'ready' && status.port && status.token) {
+          return { port: status.port, token: status.token }
+        }
+        return null
+      },
     })
 
     try {

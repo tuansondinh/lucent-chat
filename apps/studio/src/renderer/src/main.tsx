@@ -41,8 +41,10 @@ function Root() {
   // For non-Electron (PWA/browser), use the page's own origin as the server URL.
   // tailscale serve proxies to localhost so no token is needed.
   if (!isElectron) {
-    const stored = localStorage.getItem('lc_bridge_server')
-    if (!stored || stored !== window.location.origin) {
+    // Only set the bridge server from origin if nothing is stored yet.
+    // Avoid overwriting a good stored URL (e.g. localhost:8788) just because
+    // the page happens to be served from a different port (e.g. Vite preview :4173).
+    if (!localStorage.getItem('lc_bridge_server')) {
       localStorage.setItem('lc_bridge_server', window.location.origin)
     }
     localStorage.removeItem('lc_bridge_token')

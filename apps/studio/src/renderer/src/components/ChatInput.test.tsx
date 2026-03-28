@@ -179,7 +179,7 @@ describe('ChatInput', () => {
 
       const micButtons = screen.getAllByRole('button')
       const micButton = micButtons.find(btn =>
-        btn.className.includes('bg-accent')
+        btn.className.includes('bg-orange-500')
       )
       expect(micButton).toBeInTheDocument()
     })

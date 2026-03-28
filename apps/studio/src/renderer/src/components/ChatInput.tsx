@@ -47,6 +47,8 @@ export interface ChatInputHandle {
   setDraft: (text: string, imageDataUrl?: string | null) => void
 }
 
+const DRAFT_KEY = 'lc_input_draft'
+
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onAbort,
@@ -69,11 +71,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onClearQueuedMessage,
   isMobile = false,
 }: Props, ref) {
-  const [value, setValue] = useState('')
+  // On mobile, restore persisted draft from localStorage (Task 10: State persistence)
+  const [value, setValue] = useState<string>(() => {
+    if (isMobile) {
+      try { return localStorage.getItem(DRAFT_KEY) ?? '' } catch { return '' }
+    }
+    return ''
+  })
   const [pastedImage, setPastedImage] = useState<string | null>(null)
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false)
   const [selectedSkillIndex, setSelectedSkillIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
@@ -89,6 +98,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       })
     },
   }))
+
+  // Persist input draft to localStorage on mobile (debounced 300ms)
+  useEffect(() => {
+    if (!isMobile) return
+    const timer = setTimeout(() => {
+      try {
+        if (value) {
+          localStorage.setItem(DRAFT_KEY, value)
+        } else {
+          localStorage.removeItem(DRAFT_KEY)
+        }
+      } catch { /* localStorage may be unavailable in private browsing */ }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [value, isMobile])
 
   // Auto-resize textarea up to ~5 lines to keep the composer compact.
   useEffect(() => {
@@ -217,6 +241,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const imageToSend = pastedImage ?? undefined
     setValue('')
     setPastedImage(null)
+    // Clear persisted draft on submit (Task 10: State persistence)
+    if (isMobile) {
+      try { localStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    }
     onSubmit(text, imageToSend)
   }
 
@@ -224,28 +252,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const canSubmit = Boolean(value.trim() || pastedImage) && !disabled && (!isGenerating || canQueueMessage)
   const isVoiceStarting = voiceSidecarState === 'starting'
 
-  // Mic button appearance depends on voice state
+  // Mic button appearance depends on voice state.
+  // On mobile: 48px prominent circle (tap-to-toggle). On desktop: 32px compact button.
   const micButtonClass = (() => {
+    const sizeClass = isMobile
+      ? 'mobile-voice-btn'
+      : 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl'
     if (!voiceAvailable) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary opacity-40 cursor-not-allowed'
+      return `${sizeClass} bg-bg-tertiary border border-border text-text-tertiary opacity-40 cursor-not-allowed`
     }
     if (isVoiceStarting) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/10 border border-accent/40 text-accent cursor-wait'
+      return `${sizeClass} bg-accent/10 border border-accent/40 text-accent cursor-wait`
     }
     if (isTtsPlaying) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors'
+      return `${sizeClass} bg-accent/20 border border-accent/60 text-accent hover:bg-accent/30 transition-colors`
     }
     if (voiceActive && isSpeaking) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-green-500/20 border border-green-500/60 text-green-400 hover:bg-green-500/30 transition-colors animate-pulse'
+      return `${sizeClass} bg-green-500/20 border border-green-500/60 text-green-400 hover:bg-green-500/30 transition-colors animate-pulse`
     }
     if (voiceActive) {
-      return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-orange-500/20 border border-orange-500/60 text-orange-400 hover:bg-orange-500/30 transition-colors'
+      return isMobile
+        ? `${sizeClass} bg-accent text-bg-primary border border-accent transition-colors`
+        : `${sizeClass} bg-orange-500/20 border border-orange-500/60 text-orange-400 hover:bg-orange-500/30 transition-colors`
     }
-    return 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors'
+    return isMobile
+      ? `${sizeClass} bg-bg-tertiary border border-border text-text-secondary hover:bg-bg-hover transition-colors`
+      : `${sizeClass} bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:border-border-active transition-colors`
   })()
 
   return (
-    <div className="border-t border-border bg-bg-primary px-2 py-1.5">
+    <div className="border-t border-border bg-bg-secondary px-2 py-1.5">
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
         <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
@@ -364,11 +400,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             isMobile ? 'mobile-chat-input' : '',
           ].join(' ')}
         />
-        {/* Mic / TTS button */}
+        {/* Mic / TTS button — tap-to-toggle on mobile, hold-space PTT gated on desktop */}
         <button
           onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
           disabled={!voiceAvailable || isVoiceStarting}
-          title={
+          aria-label={
             !voiceAvailable
               ? (unavailableReason ?? 'Voice unavailable')
               : isVoiceStarting
@@ -379,19 +415,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   ? 'Stop voice mode'
                   : 'Start voice mode'
           }
+          title={
+            !voiceAvailable
+              ? (unavailableReason ?? 'Voice unavailable')
+              : isVoiceStarting
+                ? 'Starting voice service...'
+              : isTtsPlaying
+                ? 'Stop speaking'
+                : voiceActive
+                  ? isMobile ? 'Tap to stop mic' : 'Stop voice mode'
+                  : isMobile ? 'Tap to start mic' : 'Start voice mode'
+          }
           className={micButtonClass}
         >
           {isVoiceStarting ? (
-            <svg className="h-4 w-4 animate-spin" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
               <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           ) : isTtsPlaying ? (
-            <Volume2 className="w-4 h-4" />
+            <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
           ) : voiceActive ? (
-            <Mic className="w-4 h-4" />
+            <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
           ) : (
-            <MicOff className="w-4 h-4" />
+            <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
           )}
         </button>
 

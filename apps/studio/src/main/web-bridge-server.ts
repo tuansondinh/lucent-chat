@@ -41,6 +41,8 @@ export interface WebBridgeServerOptions {
   tailscaleOrigin?: string
   /** Optional directory of static files (PWA build) to serve at /. */
   staticDir?: string
+  /** Callback to get the voice sidecar's localhost port and auth token (if running). */
+  getVoiceEndpoint?: () => { port: number; token: string } | null
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -121,7 +123,12 @@ export class WebBridgeServer extends EventEmitter {
 
     this.wss = new WebSocketServer({ server: this.server })
     this.wss.on('connection', (ws, req) => {
-      this.handleWebSocket(ws as WsClient, req)
+      const url = req.url ?? ''
+      if (url.startsWith('/voice-ws')) {
+        this.handleVoiceProxy(ws as WsClient, req)
+      } else {
+        this.handleWebSocket(ws as WsClient, req)
+      }
     })
 
     return new Promise((resolve, reject) => {
@@ -337,8 +344,9 @@ export class WebBridgeServer extends EventEmitter {
 
       if (!authenticated) {
         // Expect { type: "auth", token: "..." }
+        // Localhost connections bypass token validation (same as HTTP handler).
         const m = msg as Record<string, unknown>
-        if (m.type === 'auth' && m.token === this.options.token) {
+        if (m.type === 'auth' && (isLocalhostRequest(req) || m.token === this.options.token)) {
           authenticated = true
           clearTimeout(authTimeout)
           this.clients.add(ws)
@@ -359,6 +367,112 @@ export class WebBridgeServer extends EventEmitter {
 
     ws.on('error', () => {
       this.clients.delete(ws)
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Voice WebSocket proxy — pipes binary audio between PWA client and sidecar
+  // ---------------------------------------------------------------------------
+
+  private async handleVoiceProxy(clientWs: WsClient, req: http.IncomingMessage): Promise<void> {
+    const origin = req.headers.origin as string | undefined
+
+    if (!isOriginAllowed(origin, this.options.tailscaleOrigin)) {
+      clientWs.close(1008, 'Origin not allowed')
+      return
+    }
+
+    // Auth: first message must be { type: "auth", token: "..." } (same as event WS)
+    const { WebSocket: NodeWebSocket } = await import('ws')
+    let authenticated = false
+    const authTimeout = setTimeout(() => {
+      if (!authenticated) clientWs.close(1008, 'Authentication timeout')
+    }, 5_000)
+
+    let sidecarWs: InstanceType<typeof NodeWebSocket> | null = null
+
+    const cleanup = () => {
+      if (sidecarWs) {
+        sidecarWs.removeAllListeners()
+        sidecarWs.close()
+        sidecarWs = null
+      }
+    }
+
+    clientWs.on('message', (raw: Buffer | ArrayBuffer, isBinary: boolean) => {
+      if (!authenticated) {
+        // Expect JSON auth message
+        let msg: Record<string, unknown>
+        try {
+          msg = JSON.parse(raw.toString()) as Record<string, unknown>
+        } catch {
+          clientWs.close(1008, 'Invalid auth message')
+          return
+        }
+
+        if (msg.type === 'auth' && (isLocalhostRequest(req) || msg.token === this.options.token)) {
+          authenticated = true
+          clearTimeout(authTimeout)
+
+          // Connect to the voice sidecar
+          const endpoint = this.options.getVoiceEndpoint?.()
+          if (!endpoint) {
+            clientWs.send(JSON.stringify({ type: 'error', message: 'Voice sidecar not running' }))
+            clientWs.close(1011, 'Voice sidecar not running')
+            return
+          }
+
+          const sidecarUrl = `ws://127.0.0.1:${endpoint.port}/ws?token=${encodeURIComponent(endpoint.token)}`
+          sidecarWs = new NodeWebSocket(sidecarUrl)
+          sidecarWs.binaryType = 'arraybuffer'
+
+          sidecarWs.on('open', () => {
+            clientWs.send(JSON.stringify({ type: 'auth_ok' }))
+          })
+
+          sidecarWs.on('message', (data: Buffer | ArrayBuffer, isBin: boolean) => {
+            try {
+              // Forward sidecar → client (binary audio or JSON)
+              if (isBin) {
+                clientWs.send(data, { binary: true })
+              } else {
+                clientWs.send(data.toString())
+              }
+            } catch {
+              // client disconnected
+            }
+          })
+
+          sidecarWs.on('close', () => {
+            clientWs.close(1011, 'Voice sidecar disconnected')
+          })
+
+          sidecarWs.on('error', () => {
+            clientWs.close(1011, 'Voice sidecar connection error')
+          })
+        } else {
+          clientWs.close(1008, 'Invalid token')
+        }
+        return
+      }
+
+      // Authenticated: forward client → sidecar (binary audio or JSON)
+      if (sidecarWs?.readyState === NodeWebSocket.OPEN) {
+        if (isBinary) {
+          sidecarWs.send(raw, { binary: true })
+        } else {
+          sidecarWs.send(raw.toString())
+        }
+      }
+    })
+
+    clientWs.on('close', () => {
+      clearTimeout(authTimeout)
+      cleanup()
+    })
+
+    clientWs.on('error', () => {
+      cleanup()
     })
   }
 }

@@ -15,6 +15,7 @@
     "test:smoke": "node --import tsx/esm --test test/**/*.smoke.test.ts",
     "build:pwa": "vite build --config vite.pwa.config.ts",
     "serve:pwa": "vite preview --config vite.pwa.config.ts",
+    "serve": "tsx src/main/server.ts",
     "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
     "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
     "pack": "npm run bundle-runtime && electron-builder --dir",

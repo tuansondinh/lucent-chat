@@ -1,8 +1,0 @@
-// Barrel — TUI-dependent exports.
-// Import from here when your code needs makeUI, showInterviewRound,
-// showNextAction, or showConfirm.  These all have a transitive dependency
-// on @lc/tui and must not be imported from shared/mod.
-export { makeUI } from "./ui.js";
-export { showInterviewRound } from "./interview-ui.js";
-export { showNextAction } from "./next-action-ui.js";
-export { showConfirm } from "./confirm-ui.js";

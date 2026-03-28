@@ -1,0 +1,3484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Voice Bridge</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface-hover: #1a2744;
+  --text: #e8e8e8;
+  --text-dim: #8b8fa3;
+  --accent: #e94560;
+  --accent-glow: rgba(233, 69, 96, 0.3);
+  --user-bubble: #0f3460;
+  --assistant-bubble: #1e2d4a;
+  --success: #4ade80;
+  --border: #2a2f4a;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-btn {
+  min-width: 42px;
+  height: 36px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 13px;
+  padding: 0 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+
+.topbar-btn.active {
+  border-color: var(--accent);
+  color: white;
+  background: rgba(233, 69, 96, 0.18);
+}
+
+.topbar-btn:hover {
+  background: #223255;
+}
+
+
+/* Chat area */
+.chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.message.grouped {
+  margin-top: -8px;
+}
+
+.message.grouped .label,
+.message.grouped .timestamp {
+  display: none;
+}
+
+.message {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  word-break: break-word;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message.user {
+  background: var(--user-bubble);
+  align-self: flex-end;
+  border-bottom-right-radius: 4px;
+}
+
+.message.assistant {
+  background: var(--assistant-bubble);
+  align-self: flex-start;
+  border-bottom-left-radius: 4px;
+  position: relative;
+}
+
+.message .label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.timestamp {
+  font-size: 10px;
+  color: var(--text-dim);
+  opacity: 0.6;
+  display: block;
+  margin-top: 4px;
+}
+
+.message.user .timestamp {
+  text-align: right;
+}
+
+.system-notice {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.7;
+  padding: 4px 12px;
+  background: var(--surface);
+  border-radius: 10px;
+  margin: 4px 0;
+}
+
+.message.assistant .timestamp {
+  text-align: left;
+}
+
+.message pre {
+  background: rgba(0,0,0,0.3);
+  padding: 8px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.message code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+}
+
+.assistant-text {
+  white-space: normal;
+}
+
+.assistant-text ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.assistant-text a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.message pre.code-block {
+  position: relative;
+  padding-top: 26px;
+}
+
+.code-block {
+  position: relative;
+}
+
+.code-lang {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.code-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.code-copy-btn:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+
+.code-copy-btn.copied {
+  color: var(--success);
+}
+
+.message-copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+}
+
+.message:hover .message-copy-btn,
+.message-copy-btn:focus {
+  opacity: 1;
+}
+
+.message-copy-btn.copied {
+  color: var(--success);
+}
+
+.tool-card {
+  background: var(--surface);
+  border-left: 3px solid var(--border);
+  padding: 8px 12px;
+  margin: 12px 0;
+  border-radius: 12px;
+}
+
+.tool-card.loading {
+  border-left-color: #f59e0b;
+  animation: tool-card-pulse 1s infinite;
+}
+
+.tool-card.success {
+  border-left-color: var(--success);
+}
+
+.tool-card.error {
+  border-left-color: var(--accent);
+}
+
+.tool-card-header {
+  display: flex;
+  cursor: pointer;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.tool-card-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s;
+}
+
+.tool-card.expanded .tool-card-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.tool-card-body pre {
+  font-size: 13px;
+  margin: 4px 0;
+  word-break: break-all;
+}
+
+.tool-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.tool-status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tool-chevron {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.tool-card.expanded .tool-chevron,
+.thinking-block.expanded .tool-chevron {
+  transform: rotate(90deg);
+}
+
+.thinking-block {
+  background: var(--surface);
+  border-left: 3px dashed var(--text-dim);
+  padding: 8px 12px;
+  margin: 12px 0;
+  border-radius: 12px;
+  opacity: 0.8;
+}
+
+.thinking-block-header {
+  display: flex;
+  cursor: pointer;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.thinking-block-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s;
+}
+
+.thinking-block.expanded .thinking-block-body {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.typing-indicator .dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.typing-indicator .dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+  animation: typing-bounce 0.6s infinite;
+}
+
+.typing-indicator .dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-indicator .dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.scroll-down-btn {
+  position: fixed;
+  left: 50%;
+  bottom: calc(124px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 4px 16px;
+  font-size: 12px;
+  cursor: pointer;
+  z-index: 10;
+  display: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+.scroll-down-btn.visible {
+  display: block;
+}
+
+.error-card {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 8px 0;
+  animation: fadeIn 0.2s ease;
+}
+
+.error-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.error-card .retry-btn,
+.reconnect-banner .banner-btn {
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.reconnect-banner {
+  background: rgba(22, 33, 62, 0.92);
+  color: var(--text);
+  padding: 8px 16px 10px;
+  font-size: 12px;
+  display: none;
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(233, 69, 96, 0.18);
+}
+
+.reconnect-banner.visible {
+  display: block;
+}
+
+.reconnect-banner-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reconnect-banner-label {
+  color: var(--text-dim);
+  letter-spacing: 0.01em;
+}
+
+.reconnect-progress {
+  margin-top: 8px;
+  height: 3px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reconnect-progress-bar {
+  display: block;
+  height: 100%;
+  width: 36%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(233, 69, 96, 0.2), var(--accent), rgba(233, 69, 96, 0.2));
+  animation: reconnect-slide 1.1s ease-in-out infinite;
+}
+
+.reconnect-banner.manual .reconnect-progress {
+  display: none;
+}
+
+@keyframes reconnect-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+.reconnect-toast {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--success);
+  color: #1a1a2e;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  z-index: 200;
+  display: none;
+  animation: fadeIn 0.2s ease;
+}
+
+.reconnect-toast.visible {
+  display: block;
+}
+
+@keyframes tool-card-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+@keyframes typing-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+
+/* Controls */
+.controls {
+  padding: 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+#voiceView {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.mic-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  border: 3px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-size: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  margin: 0 auto;
+}
+
+.mic-btn:active, .mic-btn.active {
+  background: var(--accent);
+  color: white;
+  box-shadow: 0 0 20px var(--accent-glow);
+  transform: scale(1.05);
+}
+
+.mic-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.mic-btn.active {
+  animation: mic-pulse 1.5s infinite;
+}
+
+.mic-btn.muted {
+  background: #ff4444;
+  opacity: 0.6;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 20px var(--accent-glow); }
+  50% { box-shadow: 0 0 40px var(--accent-glow), 0 0 60px rgba(233, 69, 96, 0.15); }
+}
+
+.control-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.stop-btn {
+  padding: 8px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  display: none;
+}
+
+.stop-btn.visible { display: block; }
+
+.mode-btn {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.vad-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.vad-indicator.active { background: var(--success); }
+
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* Text input */
+.text-input-row {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.composer-vad {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: center;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.composer-vad.active {
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.18);
+}
+
+.text-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  padding: 10px 16px;
+  resize: none;
+  outline: none;
+  min-height: 48px;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.4;
+  transition: border-color 0.2s;
+}
+
+.text-input:focus {
+  border-color: var(--accent);
+}
+
+.text-input:disabled {
+  opacity: 0.4;
+}
+
+.text-input::placeholder {
+  color: var(--text-dim);
+}
+
+.send-btn {
+  min-width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.2s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  padding: 0 18px;
+  gap: 6px;
+}
+
+.voice-action-btn {
+  min-width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  padding: 0 16px;
+  gap: 6px;
+}
+
+.voice-action-btn:hover {
+  background: #223255;
+}
+
+.voice-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.voice-action-btn.recording {
+  border-color: var(--accent);
+  background: rgba(233, 69, 96, 0.18);
+  color: white;
+}
+
+.composer-recording-chip {
+  display: none;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(233, 69, 96, 0.12);
+  border: 1px solid rgba(233, 69, 96, 0.28);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.composer-recording-chip.visible {
+  display: flex;
+}
+
+.composer-recording-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(233, 69, 96, 0.14);
+  animation: pulse 1s infinite;
+  flex-shrink: 0;
+}
+
+.composer-recording-text {
+  min-width: 0;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .text-input-row {
+    gap: 6px;
+    align-items: center;
+  }
+
+  .composer-vad {
+    width: 10px;
+    height: 10px;
+  }
+
+  .text-input {
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .voice-action-btn,
+  .send-btn {
+    min-width: 48px;
+    width: 48px;
+    padding: 0;
+    border-radius: 24px;
+    gap: 0;
+  }
+
+  .voice-action-label,
+  .send-btn-label {
+    display: none;
+  }
+
+  .voice-action-icon,
+  .send-btn-icon {
+    font-size: 15px;
+  }
+}
+
+.send-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.send-btn:not(:disabled):active {
+  transform: scale(0.92);
+}
+
+.send-btn.stop {
+  background: #f59e0b;
+}
+
+.send-btn-label {
+  font-weight: 600;
+}
+
+/* Queue bar */
+.queued-bar {
+  display: none;
+  width: 100%;
+}
+
+.queued-bar.visible {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  background: rgba(15, 52, 96, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
+  gap: 8px;
+  animation: fadeIn 0.2s ease;
+}
+
+.queued-bar-icon {
+  flex-shrink: 0;
+}
+
+.queued-bar-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.queued-bar-btn {
+  min-width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.queued-bar-btn:hover {
+  background: #223255;
+}
+
+.send-btn.queue {
+  background: #3b82f6;
+}
+
+/* Loading overlay */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 100;
+  transition: opacity 0.3s;
+}
+
+#loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------------ */
+/* Drawer — slide-out session list panel                               */
+/* ------------------------------------------------------------------ */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.drawer-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  left: -280px;
+  width: 280px;
+  height: 100dvh;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  z-index: 51;
+  display: flex;
+  flex-direction: column;
+  transition: left 0.3s ease;
+  overflow: hidden;
+}
+
+.drawer.open {
+  left: 0;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.drawer-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.drawer-session-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-item {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.session-item:hover,
+.session-item:active {
+  background: var(--surface-hover);
+}
+
+.session-item.active {
+  border-left: 3px solid var(--accent);
+  background: rgba(233, 69, 96, 0.06);
+  padding-left: 13px;
+}
+
+.session-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.session-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.session-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+
+.session-item:hover .session-actions,
+.session-item:active .session-actions {
+  opacity: 1;
+}
+
+.session-action-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.session-action-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.session-action-btn.delete:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.drawer-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.hamburger-btn {
+  font-size: 18px;
+  padding: 0 10px;
+  flex-shrink: 0;
+}
+
+.model-select {
+  height: 36px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 13px;
+  padding: 0 8px 0 10px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238b8fa3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+.model-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Drop overlay for image drag-drop */
+.drop-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(233, 69, 96, 0.15);
+  border: 3px dashed var(--accent);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: var(--accent);
+  pointer-events: none;
+}
+.drop-overlay.active { display: flex; }
+
+/* Image preview row above text input */
+.image-preview-row {
+  display: none;
+  gap: 8px;
+  padding: 4px 12px 0;
+  flex-wrap: wrap;
+}
+
+.image-preview-item {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.image-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+
+.image-preview-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: none;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+/* Attach / image-picker button */
+.attach-btn {
+  width: 40px;
+  height: 48px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.2s, opacity 0.2s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  padding: 0;
+  border-radius: 8px;
+}
+
+.attach-btn:hover { color: var(--accent); }
+
+.attach-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.attach-btn.has-images { color: var(--accent); }
+
+/* Images embedded in chat messages */
+.message-image {
+  max-width: 240px;
+  max-height: 180px;
+  border-radius: 8px;
+  margin-top: 6px;
+  display: block;
+}
+</style>
+</head>
+<body>
+
+<div class="drop-overlay" id="dropOverlay">Drop images here</div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  <div>Connecting to Voice Bridge...</div>
+</div>
+
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-header">
+    <h2>Sessions</h2>
+    <button class="topbar-btn" id="newSessionBtn" type="button">+ New</button>
+  </div>
+  <div class="drawer-session-list" id="sessionList"></div>
+</div>
+
+<div class="header">
+  <button class="hamburger-btn topbar-btn" id="drawerToggle" type="button" title="Chat history">☰</button>
+  <h1>Voice Bridge</h1>
+  <div class="header-right">
+    <div class="header-actions">
+      <select class="model-select" id="modelSelect" title="Switch Claude model">
+        <option value="sonnet">Sonnet</option>
+        <option value="opus">Opus</option>
+        <option value="haiku">Haiku</option>
+      </select>
+      <button class="topbar-btn" id="audioToggleBtn" type="button" title="Toggle audio playback">🔊</button>
+      <button class="topbar-btn" id="keyboardBtn" type="button" title="Switch to text input">⌨</button>
+    </div>
+  </div>
+</div>
+
+<div class="reconnect-banner" id="reconnectBanner"></div>
+<div class="chat" id="chat"></div>
+<button class="scroll-down-btn" id="scrollDownBtn" type="button" onclick="scrollToBottom()">↓ New messages</button>
+<div class="reconnect-toast" id="reconnectToast">Reconnected</div>
+
+<input type="file" id="imageFileInput" accept="image/*" multiple style="display:none">
+<div class="controls">
+  <div id="voiceView" style="gap:12px; display:none">
+    <button class="mic-btn" id="micBtn" disabled>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+    </button>
+    <div class="control-row">
+      <div class="vad-indicator" id="vadIndicator"></div>
+      <span class="hint" id="hint">Tap to speak</span>
+      <button class="mode-btn" id="modeBtn" title="Toggle always-on / push-to-talk">🎙 Auto</button>
+      <button class="stop-btn" id="stopBtn" onclick="stopTTS()">Stop</button>
+    </div>
+  </div>
+  <div class="composer-recording-chip" id="composerRecordingChip" aria-live="polite">
+    <span class="composer-recording-dot" aria-hidden="true"></span>
+    <span class="composer-recording-text">Recording... release to send</span>
+  </div>
+  <div class="queued-bar" id="queuedBar"></div>
+  <div class="image-preview-row" id="imagePreviewRow"></div>
+  <div class="text-input-row" id="textInputRow">
+    <div class="composer-vad" id="textVadIndicator" aria-hidden="true"></div>
+    <button class="attach-btn" id="attachBtn" type="button" title="Attach image" disabled>
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    </button>
+    <textarea
+      class="text-input"
+      id="textInput"
+      placeholder="Type a message..."
+      rows="1"
+      disabled
+    ></textarea>
+    <button class="voice-action-btn" id="pushVoiceBtn" disabled type="button" title="Hold to talk">
+      <span class="voice-action-icon" aria-hidden="true">🎙</span>
+      <span class="voice-action-label">Push (hold to talk)</span>
+    </button>
+    <button class="send-btn" id="sendBtn" disabled title="Send message">
+      <span class="send-btn-icon" aria-hidden="true">➤</span>
+      <span class="send-btn-label">Send</span>
+    </button>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// iOS Audio Unlock — plays a silent buffer via <audio> + AudioContext to
+// bypass the mute switch restriction on Web Audio API.
+// ---------------------------------------------------------------------------
+function unlockiOSAudio() {
+  // Create a tiny silent WAV (1 sample, 8kHz, mono, 8-bit)
+  const silentWav = new Uint8Array([
+    0x52,0x49,0x46,0x46, 0x25,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
+    0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
+    0x40,0x1F,0x00,0x00, 0x40,0x1F,0x00,0x00, 0x01,0x00,0x08,0x00,
+    0x64,0x61,0x74,0x61, 0x01,0x00,0x00,0x00, 0x80
+  ]);
+  const blob = new Blob([silentWav], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.controls = false;
+  audio.preload = 'auto';
+  audio.loop = false;
+  audio.play().then(() => {
+    console.log('[bridge] iOS audio unlocked');
+    URL.revokeObjectURL(url);
+  }).catch(() => {});
+}
+
+// Push notification state
+let notificationPermissionRequested = false;
+let activeNotification = null;
+
+function requestNotificationPermission() {
+  if (notificationPermissionRequested || !('Notification' in window)) return;
+  notificationPermissionRequested = true;
+  if (Notification.permission === 'default') Notification.requestPermission();
+}
+
+function notifyIfHidden(body) {
+  if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (activeNotification) activeNotification.close();
+  activeNotification = new Notification('Voice Bridge', {
+    body: body || 'Claude has responded',
+    tag: 'voice-bridge-response',
+  });
+  activeNotification.onclick = () => {
+    window.focus();
+    activeNotification.close();
+    activeNotification = null;
+  };
+}
+
+// Unlock on first user interaction
+let audioUnlocked = false;
+document.addEventListener('touchstart', function onTouch() {
+  if (!audioUnlocked) {
+    audioUnlocked = true;
+    unlockiOSAudio();
+  }
+  requestNotificationPermission();
+}, { once: true });
+document.addEventListener('click', function onClick() {
+  if (!audioUnlocked) {
+    audioUnlocked = true;
+    unlockiOSAudio();
+  }
+  requestNotificationPermission();
+}, { once: true });
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let ws = null;
+let audioCtxCapture = null;
+let audioCtxPlayback = null;
+let workletNode = null;
+let micStream = null;
+let isRecording = false;
+let recordingGeneration = 0; // incremented to cancel an in-flight startRecording()
+let isTTSPlaying = false;
+let audioOffMode = localStorage.getItem('voiceBridgeAudioMode') === 'off';
+
+// Always-on mode: mic resumes automatically after TTS playback.
+// Push-to-talk mode: user taps mic manually.
+// Persisted in localStorage so it survives page reloads (new token URLs).
+let alwaysOnMode = localStorage.getItem('voiceBridgeMode') === 'auto';
+
+// Audio playback queue (24kHz Int16LE chunks)
+let playbackQueue = [];
+let isPlayingAudio = false;
+let activeSource = null;  // track playing BufferSource so Stop can kill it
+let userScrolledUp = false;
+let newContentArrived = false;
+let lastUserMessage = '';
+let queuedMessage = null;
+let queueTurnId = 0;    // monotonic counter, incremented on each queue/session switch
+let queuedTurnId = 0;   // turn ID when the current queued message was set
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let reconnectToastTimer = null;
+let wsGeneration = 0;
+let wsLeaseHeartbeat = null;
+const PLAYBACK_RATE = 24000;
+const JITTER_BUFFER_MS = 0;
+const WS_OWNER_KEY = 'voiceBridgeWsOwner';
+const WS_OWNER_TTL_MS = 5000;
+const WS_OWNER_HEARTBEAT_MS = 2000;
+const clientId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+// Image input state
+let pendingImages = []; // [{data: base64, media_type: string, name: string}]
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+// DOM
+const chat = document.getElementById('chat');
+const micBtn = document.getElementById('micBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+const vadIndicator = document.getElementById('vadIndicator');
+const textVadIndicator = document.getElementById('textVadIndicator');
+const stopBtn = document.getElementById('stopBtn');
+const modeBtn = document.getElementById('modeBtn');
+const audioToggleBtn = document.getElementById('audioToggleBtn');
+const hint = document.getElementById('hint');
+const loading = document.getElementById('loading');
+const textInput = document.getElementById('textInput');
+const pushVoiceBtn = document.getElementById('pushVoiceBtn');
+const sendBtn = document.getElementById('sendBtn');
+const composerRecordingChip = document.getElementById('composerRecordingChip');
+const reconnectBanner = document.getElementById('reconnectBanner');
+const reconnectToast = document.getElementById('reconnectToast');
+const scrollDownBtn = document.getElementById('scrollDownBtn');
+const queuedBar = document.getElementById('queuedBar');
+const keyboardBtn = document.getElementById('keyboardBtn');
+const modelSelect = document.getElementById('modelSelect');
+const dropOverlay = document.getElementById('dropOverlay');
+const imagePreviewRow = document.getElementById('imagePreviewRow');
+// Drawer elements (defined early so handleMessage can reference them)
+const drawer = document.getElementById('drawer');
+
+function updateAudioToggleButton() {
+  audioToggleBtn.textContent = audioOffMode ? '🔇' : '🔊';
+  audioToggleBtn.title = audioOffMode ? 'Turn audio on' : 'Turn audio off';
+  audioToggleBtn.classList.toggle('active', !audioOffMode);
+}
+
+function updateSendButtonState() {
+  const isBusy = sendBtn.dataset.busy === 'true';
+  const label = sendBtn.querySelector('.send-btn-label');
+  const icon = sendBtn.querySelector('.send-btn-icon');
+
+  if (isBusy) {
+    sendBtn.disabled = false;
+    if (textInput.value.trim().length > 0) {
+      sendBtn.classList.remove('stop');
+      sendBtn.classList.add('queue');
+      sendBtn.title = 'Queue message';
+      label.textContent = 'Queue';
+      icon.textContent = '📨';
+    } else {
+      sendBtn.classList.remove('queue');
+      sendBtn.classList.add('stop');
+      sendBtn.title = 'Stop response';
+      label.textContent = 'Stop';
+      icon.textContent = '■';
+    }
+    return;
+  }
+
+  sendBtn.classList.remove('stop');
+  sendBtn.classList.remove('queue');
+  sendBtn.title = 'Send message';
+  label.textContent = 'Send';
+  icon.textContent = '➤';
+  const connected = Boolean(ws && ws.readyState === WebSocket.OPEN);
+  sendBtn.disabled = !connected || (!textInput.value.trim() && !pendingImages.length);
+  document.getElementById('attachBtn').disabled = !connected;
+}
+
+function updatePushVoiceButtonState() {
+  const canUseVoice = Boolean(ws && ws.readyState === WebSocket.OPEN) && !isTTSPlaying;
+  pushVoiceBtn.disabled = !canUseVoice;
+  pushVoiceBtn.classList.toggle('recording', isRecording);
+  pushVoiceBtn.querySelector('.voice-action-label').textContent = isRecording ? 'Release to stop' : 'Push (hold to talk)';
+  pushVoiceBtn.querySelector('.voice-action-icon').textContent = isRecording ? '■' : '🎙';
+  composerRecordingChip.classList.toggle('visible', textMode && isRecording);
+}
+
+function setSendButtonBusy(isBusy) {
+  sendBtn.dataset.busy = isBusy ? 'true' : 'false';
+  textInput.placeholder = isBusy ? 'Type a message to queue...' : 'Type a message...';
+  updateSendButtonState();
+  updatePushVoiceButtonState();
+}
+
+function focusTextInputIfVisible() {
+  if (!textMode || textInput.disabled) return;
+  requestAnimationFrame(() => {
+    textInput.focus();
+    const end = textInput.value.length;
+    textInput.setSelectionRange(end, end);
+  });
+}
+
+function renderQueueBar() {
+  if (!queuedMessage) {
+    queuedBar.classList.remove('visible');
+    queuedBar.innerHTML = '';
+    return;
+  }
+  const truncated = queuedMessage.length > 60 ? queuedMessage.slice(0, 60) + '…' : queuedMessage;
+  queuedBar.innerHTML = `
+    <span class="queued-bar-icon">📨</span>
+    <span class="queued-bar-text" title="${queuedMessage.replace(/"/g, '&quot;')}">Queued: ${truncated.replace(/</g, '&lt;')}</span>
+    <button class="queued-bar-btn" onclick="editQueue()" title="Edit queued message">✏️</button>
+    <button class="queued-bar-btn" onclick="clearQueue()" title="Cancel queued message">✕</button>
+  `;
+  queuedBar.classList.add('visible');
+}
+
+function queueMessage(text) {
+  queuedMessage = text;
+  queueTurnId++;
+  queuedTurnId = queueTurnId;
+  textInput.value = '';
+  textInput.style.height = 'auto';
+  renderQueueBar();
+  updateSendButtonState();
+}
+
+function clearQueue() {
+  queuedMessage = null;
+  renderQueueBar();
+  updateSendButtonState();
+  focusTextInputIfVisible();
+}
+
+function editQueue() {
+  const text = queuedMessage;
+  queuedMessage = null;
+  renderQueueBar();
+  textInput.value = text;
+  textInput.style.height = 'auto';
+  textInput.style.height = Math.min(textInput.scrollHeight, 120) + 'px';
+  updateSendButtonState();
+  focusTextInputIfVisible();
+}
+
+function drainQueueIfIdle() {
+  if (
+    queuedMessage === null ||
+    sendBtn.dataset.busy === 'true' ||
+    isTTSPlaying ||
+    isPlayingAudio ||
+    !ws || ws.readyState !== WebSocket.OPEN ||
+    queuedTurnId !== queueTurnId
+  ) return false;
+  const msg = queuedMessage;
+  clearQueue();
+  sendMessageText(msg);
+  return true;
+}
+
+function syncModeLabel() {
+  modeBtn.textContent = alwaysOnMode ? '🎙 Auto' : '🎙 Push';
+}
+
+function readWsOwnerLease() {
+  try {
+    const raw = localStorage.getItem(WS_OWNER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function isLeaseStale(lease) {
+  return !lease || typeof lease.ts !== 'number' || (Date.now() - lease.ts) > WS_OWNER_TTL_MS;
+}
+
+function writeWsOwnerLease() {
+  localStorage.setItem(WS_OWNER_KEY, JSON.stringify({ id: clientId, ts: Date.now() }));
+}
+
+function clearWsOwnerLease() {
+  const lease = readWsOwnerLease();
+  if (lease && lease.id === clientId) {
+    localStorage.removeItem(WS_OWNER_KEY);
+  }
+}
+
+function ensureWsOwnership({ force = false } = {}) {
+  const lease = readWsOwnerLease();
+  if (force || isLeaseStale(lease) || lease.id === clientId) {
+    writeWsOwnerLease();
+    return true;
+  }
+  return false;
+}
+
+function startWsLeaseHeartbeat() {
+  stopWsLeaseHeartbeat();
+  writeWsOwnerLease();
+  wsLeaseHeartbeat = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    writeWsOwnerLease();
+  }, WS_OWNER_HEARTBEAT_MS);
+}
+
+function stopWsLeaseHeartbeat() {
+  if (wsLeaseHeartbeat) {
+    clearInterval(wsLeaseHeartbeat);
+    wsLeaseHeartbeat = null;
+  }
+}
+
+function setPassiveClientState() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  hideReconnectBanner();
+  reconnectAttempts = 0;
+  setStatus('', 'Inactive');
+  hint.textContent = 'Another tab or PWA instance is active';
+  micBtn.disabled = true;
+  textInput.disabled = true;
+  sendBtn.disabled = true;
+  pushVoiceBtn.disabled = true;
+  document.getElementById('attachBtn').disabled = true;
+}
+
+chat.addEventListener('scroll', () => {
+  const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 50;
+  userScrolledUp = !atBottom;
+  if (atBottom) {
+    newContentArrived = false;
+  }
+  updateScrollDownButton();
+});
+
+// ---------------------------------------------------------------------------
+// WebSocket
+// ---------------------------------------------------------------------------
+
+function connect() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  if (!ensureWsOwnership()) {
+    setPassiveClientState();
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token') || '';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const resumeParam = currentSessionId ? `&resume=${encodeURIComponent(currentSessionId)}` : '';
+  const url = `${proto}//${location.host}/ws?token=${token}${resumeParam}`;
+
+  const socket = new WebSocket(url);
+  const generation = ++wsGeneration;
+  ws = socket;
+  socket.binaryType = 'arraybuffer';
+
+  socket.onopen = () => {
+    if (socket !== ws || generation !== wsGeneration) return;
+    startWsLeaseHeartbeat();
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (reconnectAttempts > 0) {
+      showReconnectToast();
+    }
+    reconnectAttempts = 0;
+    hideReconnectBanner();
+    setStatus('connected', 'Connected');
+    updateSendButtonState();
+    updatePushVoiceButtonState();
+  };
+
+  socket.onmessage = (evt) => {
+    if (socket !== ws || generation !== wsGeneration) return;
+    if (evt.data instanceof ArrayBuffer) {
+      console.log('[bridge] Audio data received:', evt.data.byteLength, 'bytes');
+      handleAudioData(evt.data);
+    } else if (evt.data instanceof Blob) {
+      // Some WebSocket implementations deliver binary as Blob, not ArrayBuffer
+      console.log('[bridge] Blob received:', evt.data.size, 'bytes — converting');
+      evt.data.arrayBuffer().then(buf => handleAudioData(buf));
+    } else {
+      try {
+        const msg = JSON.parse(evt.data);
+        handleMessage(msg);
+      } catch(e) {}
+    }
+  };
+
+  socket.onclose = (evt) => {
+    if (socket !== ws || generation !== wsGeneration) return;
+    stopWsLeaseHeartbeat();
+    ws = null;
+    resetAssistantStreamingState({ finalize: true });
+    queuedMessage = null;
+    renderQueueBar();
+    clearPendingImages();
+    setStatus('', 'Disconnected');
+    micBtn.disabled = true;
+    textInput.disabled = true;
+    document.getElementById('attachBtn').disabled = true;
+    setSendButtonBusy(false);
+    updatePushVoiceButtonState();
+    sendBtn.disabled = true;
+    stopRecording();
+    loading.classList.add('hidden');
+    removeTypingIndicator();
+
+    // Replaced by a newer connection — go passive, don't fight back.
+    if (evt.code === 4002) {
+      setPassiveClientState();
+      return;
+    }
+    // Server cooldown — retry once after cooldown expires.
+    if (evt.code === 4003) {
+      setPassiveClientState();
+      reconnectTimer = setTimeout(() => {
+        if (!ws || ws.readyState === WebSocket.CLOSED) connect();
+      }, 3500);
+      return;
+    }
+
+    if (!ensureWsOwnership()) {
+      setPassiveClientState();
+      return;
+    }
+
+    reconnectAttempts += 1;
+    hint.textContent = 'Connection lost';
+    if (reconnectAttempts >= 5) {
+      showReconnectBanner(
+        `
+          <span class="reconnect-banner-label">Unable to connect. Retry manually.</span>
+          <button class="banner-btn" type="button" onclick="manualReconnect()">Retry</button>
+        `,
+        'manual'
+      );
+      return;
+    }
+
+    showReconnectBanner(
+      `<span class="reconnect-banner-label">Reconnecting... (${reconnectAttempts}/5)</span>`,
+      'loading'
+    );
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  socket.onerror = () => {
+    if (socket !== ws || generation !== wsGeneration) return;
+    resetAssistantStreamingState({ finalize: true });
+  };
+}
+
+window.addEventListener('storage', (evt) => {
+  if (evt.key !== WS_OWNER_KEY) return;
+  const lease = readWsOwnerLease();
+  if (lease && lease.id !== clientId) {
+    // Another tab claimed ownership — stop heartbeat so our lease expires,
+    // but keep the WS alive. The server will send 4002 when that tab connects.
+    stopWsLeaseHeartbeat();
+    return;
+  }
+
+  if ((!lease || lease.id === clientId) && document.visibilityState === 'visible') {
+    connect();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    // Don't force-claim ownership on visibility change — if another instance
+    // has a fresh lease, yield to it rather than starting a reconnect fight.
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      if (ensureWsOwnership()) {
+        connect();
+      }
+    }
+    // Close any pending notification when the user returns to the tab
+    if (activeNotification) { activeNotification.close(); activeNotification = null; }
+    return;
+  }
+
+  stopWsLeaseHeartbeat();
+  clearWsOwnerLease();
+});
+
+window.addEventListener('pagehide', () => {
+  stopWsLeaseHeartbeat();
+  clearWsOwnerLease();
+});
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'ready':
+      loading.classList.add('hidden');
+      micBtn.disabled = false;
+      textInput.disabled = false;
+      setSendButtonBusy(false);
+      // Sync model dropdown to server's current model
+      if (msg.model) modelSelect.value = msg.model;
+      // Fetch session list and restore history for the active session
+      fetchSessions();
+      if (currentSessionId) {
+        (async () => {
+          try {
+            const res = await fetch(
+              `/api/sessions/${encodeURIComponent(currentSessionId)}/messages?token=${encodeURIComponent(getToken())}`
+            );
+            if (res.ok) {
+              const messages = await res.json();
+              restoreMessages(messages);
+            }
+          } catch (e) {}
+        })();
+      }
+      // In always-on mode, start mic automatically on connect.
+      if (alwaysOnMode && !textMode) {
+        startRecording();
+      }
+      updatePushVoiceButtonState();
+      break;
+
+    case 'model_switched':
+      modelSelect.value = msg.model;
+      setStatus('connected', 'Model: ' + msg.model);
+      break;
+
+    case 'session_started':
+      // Session file created — update ID and refresh sidebar immediately
+      // so the session appears before the response finishes.
+      if (msg.session_id && !currentSessionId) {
+        currentSessionId = msg.session_id;
+        localStorage.setItem('voiceBridgeSessionId', currentSessionId);
+      }
+      fetchSessions();
+      break;
+
+    case 'session_switched':
+      currentSessionId = msg.session_id || null;
+      if (currentSessionId) {
+        localStorage.setItem('voiceBridgeSessionId', currentSessionId);
+      } else {
+        localStorage.removeItem('voiceBridgeSessionId');
+      }
+      fetchSessions();
+      setStatus('connected', 'Connected');
+      break;
+
+    case 'vad_state':
+      vadIndicator.classList.toggle('active', msg.speaking);
+      textVadIndicator.classList.toggle('active', msg.speaking);
+      break;
+
+    case 'transcript':
+      lastUserMessage = msg.text;
+      addMessage('user', msg.text);
+      setStatus('processing', 'Processing...');
+      hint.textContent = 'Claude is thinking...';
+      setSendButtonBusy(true);
+      showTypingIndicator();
+      // In push mode, stop recording and flush server-side buffers.
+      // In auto mode, keep mic active for barge-in (server gates VAD during TTS).
+      if (!alwaysOnMode && isRecording) {
+        stopRecording();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'vad_reset' }));
+        }
+      }
+      break;
+
+    case 'assistant_chunk':
+      removeTypingIndicator();
+      appendAssistantChunk(msg.text);
+      break;
+
+    case 'tool_use_start':
+      removeTypingIndicator();
+      appendToolCard(msg);
+      break;
+
+    case 'tool_result':
+      updateToolCard(msg);
+      break;
+
+    case 'thinking':
+      removeTypingIndicator();
+      appendThinkingBlock(msg);
+      break;
+
+    case 'assistant_done':
+      finalizeAssistantMessage();
+      // Capture new session ID from first response in a new session
+      if (msg.session_id && !currentSessionId) {
+        currentSessionId = msg.session_id;
+        localStorage.setItem('voiceBridgeSessionId', currentSessionId);
+        fetchSessions();
+      } else if (msg.session_id && drawer.classList.contains('open')) {
+        // Refresh drawer if open (session title may have updated)
+        fetchSessions();
+      }
+      // Update send button state now that the response is complete
+      setSendButtonBusy(isTTSPlaying || isPlayingAudio);
+      updatePushVoiceButtonState();
+      if (!isTTSPlaying && !isPlayingAudio) {
+        focusTextInputIfVisible();
+      }
+      // Reset status if TTS isn't playing (if TTS is playing,
+      // onPlaybackComplete will reset it when audio finishes)
+      if (!isTTSPlaying && !isPlayingAudio) {
+        setStatus('connected', 'Connected');
+        hint.textContent = alwaysOnMode ? 'Speak now' : 'Tap mic to speak';
+        if (!queuedMessage) notifyIfHidden('Claude has finished responding');
+      }
+      drainQueueIfIdle();
+      break;
+
+    case 'tts_stop':
+      // Server cancelled previous TTS — clear all playback immediately
+      abortCurrentResponseUI();
+      playbackQueue = [];
+      isPlayingAudio = false;
+      isTTSPlaying = false;
+      stopBtn.classList.remove('visible');
+      textInput.disabled = false;
+      setSendButtonBusy(false);
+      updatePushVoiceButtonState();
+      focusTextInputIfVisible();
+      break;
+
+    case 'tts_start':
+      isTTSPlaying = true;
+      stopBtn.classList.add('visible');
+      playbackQueue = [];
+      isPlayingAudio = false;
+      setSendButtonBusy(true);
+      // Keep mic active during TTS — server handles barge-in detection.
+      // The server gates normal VAD with _tts_active so mic audio during TTS
+      // is only used for "stop" keyword detection, not re-submitted as speech.
+      break;
+
+    case 'tts_end':
+      isTTSPlaying = false;
+      if (audioOffMode) {
+        playbackQueue = [];
+      }
+      // Play any remaining buffered audio — onPlaybackComplete fires when done.
+      if (playbackQueue.length > 0 && !isPlayingAudio) {
+        playBufferedAudio();
+      } else if (!isPlayingAudio) {
+        // Edge case: tts_end arrived with nothing buffered at all.
+        onPlaybackComplete();
+      }
+      // If isPlayingAudio is true, playBufferedAudio's onended chain will call
+      // onPlaybackComplete when the last chunk finishes.
+      break;
+
+    case 'error':
+      removeTypingIndicator();
+      addErrorMessage(msg.text);
+      queuedMessage = null;
+      renderQueueBar();
+      setSendButtonBusy(false);
+      updatePushVoiceButtonState();
+      focusTextInputIfVisible();
+      setStatus('connected', 'Connected');
+      hint.textContent = alwaysOnMode ? 'Speak now' : 'Tap to speak';
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Audio capture (16kHz mono PCM via AudioWorklet)
+// ---------------------------------------------------------------------------
+
+async function startRecording() {
+  if (isRecording) return;
+
+  // Stamp this invocation so we can detect if stopRecording() was called
+  // while we were awaiting getUserMedia / addModule below.
+  const generation = ++recordingGeneration;
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+    });
+
+    // stopRecording() was called while getUserMedia was pending — release the
+    // mic track immediately and bail out so the iPhone indicator goes away.
+    if (generation !== recordingGeneration) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+      return;
+    }
+
+    audioCtxCapture = new AudioContext({ sampleRate: 16000 });
+
+    // Register AudioWorklet processor inline via Blob
+    const workletCode = `
+      class PCMProcessor extends AudioWorkletProcessor {
+        process(inputs) {
+          const input = inputs[0];
+          if (input && input[0] && input[0].length > 0) {
+            // Convert Float32 to Int16
+            const float32 = input[0];
+            const int16 = new Int16Array(float32.length);
+            for (let i = 0; i < float32.length; i++) {
+              const s = Math.max(-1, Math.min(1, float32[i]));
+              int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            this.port.postMessage(int16.buffer, [int16.buffer]);
+          }
+          return true;
+        }
+      }
+      registerProcessor('pcm-processor', PCMProcessor);
+    `;
+    const blob = new Blob([workletCode], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    await audioCtxCapture.audioWorklet.addModule(url);
+    URL.revokeObjectURL(url);
+
+    // stopRecording() was called while addModule was pending — clean up everything.
+    if (generation !== recordingGeneration) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+      audioCtxCapture.close();
+      audioCtxCapture = null;
+      return;
+    }
+
+    const source = audioCtxCapture.createMediaStreamSource(micStream);
+    workletNode = new AudioWorkletNode(audioCtxCapture, 'pcm-processor');
+
+    workletNode.port.onmessage = (evt) => {
+      if (isRecording && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(evt.data);
+      }
+    };
+
+    source.connect(workletNode);
+    workletNode.connect(audioCtxCapture.destination); // needed to keep processing
+
+    isRecording = true;
+    micBtn.classList.add('active');
+    updatePushVoiceButtonState();
+    setStatus('recording', 'Listening...');
+    hint.textContent = alwaysOnMode
+      ? 'Speak now — say Stop to interrupt'
+      : 'Speak now — silence ends recording';
+
+  } catch (err) {
+    console.error('Mic error:', err);
+    addErrorMessage('Microphone access denied. Please allow mic access.', false);
+  }
+}
+
+function stopRecording() {
+  // Always bump the generation so any in-flight startRecording() will abort
+  // itself and release the mic — this is what fixes the "mic stuck on" bug
+  // where the user releases PTT before the async getUserMedia/addModule finish.
+  recordingGeneration++;
+  if (!isRecording) return;
+
+  isRecording = false;
+  micBtn.classList.remove('active');
+  updatePushVoiceButtonState();
+
+  if (workletNode) {
+    workletNode.disconnect();
+    workletNode = null;
+  }
+  if (audioCtxCapture) {
+    audioCtxCapture.close();
+    audioCtxCapture = null;
+  }
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+}
+
+// Toggle recording on mic button click
+micBtn.addEventListener('click', () => {
+  // Create playback AudioContext on first user gesture (iOS requirement)
+  if (!audioCtxPlayback || audioCtxPlayback.state === 'closed') {
+    audioCtxPlayback = new AudioContext({ sampleRate: PLAYBACK_RATE });
+  }
+  // Also unlock iOS audio on this user gesture
+  if (!audioUnlocked) {
+    audioUnlocked = true;
+    unlockiOSAudio();
+  }
+
+  if (alwaysOnMode) {
+    // In auto mode, mic button acts as mute/unmute
+    if (isRecording) {
+      stopRecording();
+      setStatus('connected', 'Muted');
+      hint.textContent = 'Mic muted — tap to unmute';
+      micBtn.classList.add('muted');
+    } else {
+      startRecording();
+      micBtn.classList.remove('muted');
+    }
+  } else {
+    // Push-to-talk: toggle recording
+    if (isRecording) {
+      stopRecording();
+      // Flush server-side audio buffers to prevent stale audio
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'vad_reset' }));
+      }
+      setStatus('connected', 'Connected');
+      hint.textContent = 'Tap mic to speak';
+    } else {
+      startRecording();
+    }
+  }
+});
+
+function beginPushVoiceCapture() {
+  if (!ws || ws.readyState !== WebSocket.OPEN || isTTSPlaying) return;
+
+  if (alwaysOnMode) {
+    alwaysOnMode = false;
+    localStorage.setItem('voiceBridgeMode', 'push');
+    syncModeLabel();
+  }
+
+  if (isRecording) {
+    return;
+  }
+
+  ws.send(JSON.stringify({ type: 'push_to_talk_start' }));
+  startRecording();
+}
+
+function endPushVoiceCapture() {
+  if (!isRecording) return;
+  stopRecording();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'push_to_talk_end' }));
+  }
+  setStatus('connected', 'Connected');
+  hint.textContent = 'Tap mic to speak';
+}
+
+pushVoiceBtn.addEventListener('pointerdown', (evt) => {
+  evt.preventDefault();
+  beginPushVoiceCapture();
+});
+
+pushVoiceBtn.addEventListener('pointerup', (evt) => {
+  evt.preventDefault();
+  endPushVoiceCapture();
+});
+
+pushVoiceBtn.addEventListener('pointercancel', () => {
+  endPushVoiceCapture();
+});
+
+pushVoiceBtn.addEventListener('lostpointercapture', () => {
+  endPushVoiceCapture();
+});
+
+pushVoiceBtn.addEventListener('pointerleave', (evt) => {
+  if (evt.buttons === 1) {
+    endPushVoiceCapture();
+  }
+});
+
+// Sync button label to persisted state on load
+syncModeLabel();
+updateAudioToggleButton();
+
+// Toggle always-on / push-to-talk mode
+modeBtn.addEventListener('click', () => {
+  alwaysOnMode = !alwaysOnMode;
+  localStorage.setItem('voiceBridgeMode', alwaysOnMode ? 'auto' : 'push');
+  syncModeLabel();
+  if (alwaysOnMode) {
+    hint.textContent = 'Speak now — say Stop to interrupt';
+    // If not currently recording, start automatically
+    if (!isRecording && !isTTSPlaying && !textMode) {
+      startRecording();
+    }
+  } else {
+    hint.textContent = 'Tap mic to speak';
+    // In push-to-talk mode, stop auto-recording if active
+    if (isRecording) {
+      stopRecording();
+    }
+    // Tell server to flush any buffered VAD state
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'vad_reset' }));
+    }
+  }
+});
+
+modelSelect.addEventListener('change', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'switch_model', model: modelSelect.value }));
+    setStatus('processing', 'Switching model...');
+  }
+});
+
+audioToggleBtn.addEventListener('click', () => {
+  audioOffMode = !audioOffMode;
+  localStorage.setItem('voiceBridgeAudioMode', audioOffMode ? 'off' : 'on');
+  updateAudioToggleButton();
+
+  if (audioOffMode) {
+    playbackQueue = [];
+    isPlayingAudio = false;
+    if (activeSource) {
+      try { activeSource.stop(); } catch (e) {}
+      activeSource = null;
+    }
+  }
+});
+
+// Toggle text input visibility
+const textInputRow = document.getElementById('textInputRow');
+const voiceView = document.getElementById('voiceView');
+
+let textMode = true;
+
+function applyInputMode() {
+  voiceView.style.display = textMode ? 'none' : '';
+  textInputRow.style.display = textMode ? 'flex' : 'none';
+  queuedBar.style.display = textMode ? '' : 'none';
+  keyboardBtn.textContent = textMode ? '🎙' : '⌨';
+  keyboardBtn.title = textMode ? 'Switch to voice' : 'Switch to text input';
+  keyboardBtn.classList.toggle('active', textMode);
+
+  if (textMode) {
+    stopRecording();
+    focusTextInputIfVisible();
+  } else if (alwaysOnMode && !isTTSPlaying) {
+    startRecording();
+  }
+
+  updatePushVoiceButtonState();
+}
+
+keyboardBtn.addEventListener('click', () => {
+  textMode = !textMode;
+  applyInputMode();
+});
+
+// ---------------------------------------------------------------------------
+// Audio playback (24kHz Int16LE from server)
+// ---------------------------------------------------------------------------
+
+function handleAudioData(buffer) {
+  if (audioOffMode) {
+    return;
+  }
+
+  playbackQueue.push(buffer);
+
+  // Start playing after jitter buffer fills or TTS ended
+  if (!isPlayingAudio) {
+    const totalBytes = playbackQueue.reduce((s, b) => s + b.byteLength, 0);
+    const totalMs = (totalBytes / 2) / PLAYBACK_RATE * 1000;
+
+    if (totalMs >= JITTER_BUFFER_MS || !isTTSPlaying) {
+      playBufferedAudio();
+    }
+  }
+}
+
+function playBufferedAudio() {
+  if (playbackQueue.length === 0) {
+    isPlayingAudio = false;
+    return;
+  }
+
+  isPlayingAudio = true;
+
+  if (!audioCtxPlayback || audioCtxPlayback.state === 'closed') {
+    audioCtxPlayback = new AudioContext({ sampleRate: PLAYBACK_RATE });
+  }
+  // iOS Safari suspends AudioContext created without user gesture — resume it
+  if (audioCtxPlayback.state === 'suspended') {
+    audioCtxPlayback.resume();
+  }
+
+  // Merge all queued buffers
+  const totalLen = playbackQueue.reduce((s, b) => s + b.byteLength, 0) / 2;
+  const merged = new Float32Array(totalLen);
+  let offset = 0;
+  for (const buf of playbackQueue) {
+    const int16 = new Int16Array(buf);
+    for (let i = 0; i < int16.length; i++) {
+      merged[offset++] = int16[i] / 32768;
+    }
+  }
+  playbackQueue = [];
+
+  const audioBuffer = audioCtxPlayback.createBuffer(1, merged.length, PLAYBACK_RATE);
+  audioBuffer.getChannelData(0).set(merged);
+
+  const source = audioCtxPlayback.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(audioCtxPlayback.destination);
+  source.onended = () => {
+    activeSource = null;
+    // Play next batch if available
+    if (playbackQueue.length > 0) {
+      playBufferedAudio();
+    } else {
+      isPlayingAudio = false;
+      // If TTS has fully ended (server sent tts_end) and the queue is now
+      // empty, all audio has been played — notify server and resume mic.
+      if (!isTTSPlaying) {
+        onPlaybackComplete();
+      }
+    }
+  };
+  activeSource = source;
+  source.start();
+}
+
+function stopTTS() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'stop_tts' }));
+  }
+  abortCurrentResponseUI();
+  // Stop the currently playing audio source
+  if (activeSource) {
+    try { activeSource.stop(); } catch(e) {}
+    activeSource = null;
+  }
+  playbackQueue = [];
+  isPlayingAudio = false;
+  isTTSPlaying = false;
+  stopBtn.classList.remove('visible');
+  onPlaybackComplete();
+}
+
+/**
+ * Called when all TTS audio has finished playing back on the client.
+ * Notifies the server that playback is complete, updates UI, and resumes
+ * the mic in always-on mode so the user can speak again.
+ */
+function onPlaybackComplete() {
+  // Notify server — it uses this to know the client is ready for next input.
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'playback_done' }));
+  }
+
+  stopBtn.classList.remove('visible');
+  setSendButtonBusy(false);
+  updatePushVoiceButtonState();
+
+  // Notify if tab is hidden and no queued message waiting
+  if (!queuedMessage) notifyIfHidden('Claude has finished responding');
+
+  // Drain any queued message first — if drained, skip normal post-response UI
+  if (drainQueueIfIdle()) return;
+
+  focusTextInputIfVisible();
+  setStatus('connected', 'Connected');
+
+  if (alwaysOnMode && !textMode) {
+    hint.textContent = 'Speak now — say Stop to interrupt';
+    startRecording();
+  } else {
+    hint.textContent = 'Tap mic to speak';
+  }
+}
+
+function updateScrollDownButton() {
+  scrollDownBtn.classList.toggle('visible', userScrolledUp && newContentArrived);
+}
+
+function scrollToBottom() {
+  chat.scrollTop = chat.scrollHeight;
+  userScrolledUp = false;
+  newContentArrived = false;
+  updateScrollDownButton();
+}
+
+function scrollIfAtBottom() {
+  if (userScrolledUp) {
+    newContentArrived = true;
+    updateScrollDownButton();
+    return;
+  }
+  scrollToBottom();
+}
+
+function showReconnectBanner(html, mode = 'loading') {
+  reconnectBanner.classList.toggle('manual', mode === 'manual');
+  reconnectBanner.innerHTML = `
+    <div class="reconnect-banner-row">${html}</div>
+    <div class="reconnect-progress"><span class="reconnect-progress-bar"></span></div>
+  `;
+  reconnectBanner.classList.add('visible');
+}
+
+function hideReconnectBanner() {
+  reconnectBanner.classList.remove('manual');
+  reconnectBanner.classList.remove('visible');
+  reconnectBanner.innerHTML = '';
+}
+
+function showReconnectToast() {
+  reconnectToast.classList.add('visible');
+  clearTimeout(reconnectToastTimer);
+  reconnectToastTimer = setTimeout(() => {
+    reconnectToast.classList.remove('visible');
+  }, 2000);
+}
+
+function manualReconnect() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  reconnectAttempts = 0;
+  hideReconnectBanner();
+  connect();
+}
+
+function formatTimestamp(date = new Date()) {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function getLastChatMessage() {
+  return Array.from(chat.querySelectorAll('.message'))
+    .filter((el) => el.id !== 'typingIndicator')
+    .pop() || null;
+}
+
+function applyMessageGrouping(el, role, timeMs) {
+  const previous = getLastChatMessage();
+  if (!previous) return;
+  if (previous.dataset.role !== role) return;
+  const previousTime = Number(previous.dataset.time || 0);
+  if (timeMs - previousTime <= 30000) {
+    el.classList.add('grouped');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Chat UI
+// ---------------------------------------------------------------------------
+
+let currentAssistantEl = null;
+let currentTextSpan = null;
+
+function resetAssistantStreamingState({ finalize = false, removeCurrent = false } = {}) {
+  if (finalize) {
+    finalizeAssistantMessage();
+    return;
+  }
+
+  if (removeCurrent && currentAssistantEl) {
+    currentAssistantEl.remove();
+  }
+
+  if (currentTextSpan && currentTextSpan._renderTimer) {
+    clearTimeout(currentTextSpan._renderTimer);
+    currentTextSpan._renderTimer = null;
+  }
+
+  currentAssistantEl = null;
+  currentTextSpan = null;
+}
+
+function abortCurrentResponseUI() {
+  removeTypingIndicator();
+  resetAssistantStreamingState({ removeCurrent: true });
+}
+
+function createAssistantMessage() {
+  const timeMs = Date.now();
+  const el = document.createElement('div');
+  el.className = 'message assistant';
+  el._rawText = '';
+  el.dataset.role = 'assistant';
+  el.dataset.time = String(timeMs);
+  applyMessageGrouping(el, 'assistant', timeMs);
+
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = 'Claude';
+  el.appendChild(label);
+
+  const content = document.createElement('div');
+  content.className = 'content';
+  el.appendChild(content);
+
+  const timestamp = document.createElement('span');
+  timestamp.className = 'timestamp';
+  timestamp.textContent = formatTimestamp(new Date(timeMs));
+  el.appendChild(timestamp);
+
+  chat.appendChild(el);
+  scrollIfAtBottom();
+  return el;
+}
+
+function ensureAssistantMessage() {
+  if (!currentAssistantEl) {
+    currentAssistantEl = createAssistantMessage();
+  }
+  return currentAssistantEl;
+}
+
+function ensureCurrentTextSpan() {
+  const assistantEl = ensureAssistantMessage();
+  if (!currentTextSpan) {
+    currentTextSpan = document.createElement('div');
+    currentTextSpan.className = 'assistant-text';
+    currentTextSpan._rawText = '';
+    assistantEl.querySelector('.content').appendChild(currentTextSpan);
+  }
+  return currentTextSpan;
+}
+
+function addMessage(role, text) {
+  const timeMs = Date.now();
+  const el = document.createElement('div');
+  el.className = `message ${role}`;
+  el.dataset.role = role;
+  el.dataset.time = String(timeMs);
+  applyMessageGrouping(el, role, timeMs);
+
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = role === 'user' ? 'You' : 'Claude';
+  el.appendChild(label);
+
+  const content = document.createElement('div');
+  content.textContent = text;
+  el.appendChild(content);
+
+  const timestamp = document.createElement('span');
+  timestamp.className = 'timestamp';
+  timestamp.textContent = formatTimestamp(new Date(timeMs));
+  el.appendChild(timestamp);
+
+  chat.appendChild(el);
+  scrollIfAtBottom();
+  return el;
+}
+
+function appendAssistantChunk(text) {
+  const assistantEl = ensureAssistantMessage();
+  const textSpan = ensureCurrentTextSpan();
+  assistantEl._rawText = (assistantEl._rawText || '') + text;
+  textSpan._rawText = (textSpan._rawText || '') + text;
+  scheduleRenderMarkdown(textSpan);
+  scrollIfAtBottom();
+}
+
+function finalizeAssistantMessage() {
+  if (currentAssistantEl) {
+    currentAssistantEl.querySelectorAll('.assistant-text').forEach((textSpan) => {
+      flushRenderMarkdown(textSpan);
+    });
+    appendMessageCopyButton(currentAssistantEl);
+  }
+  currentAssistantEl = null;
+  currentTextSpan = null;
+}
+
+function addErrorMessage(text, showRetry = true) {
+  const el = document.createElement('div');
+  el.className = 'error-card';
+  const retryButton = showRetry
+    ? '<button class="retry-btn" type="button" onclick="retryLastMessage()">Retry</button>'
+    : '';
+  el.innerHTML = `
+    <div class="error-card-title">⚠ Error</div>
+    <div>${escapeHtml(text || 'Something went wrong.')}</div>
+    ${retryButton}
+  `;
+  chat.appendChild(el);
+  scrollIfAtBottom();
+}
+
+function scheduleRenderMarkdown(textSpan) {
+  if (!textSpan) return;
+  if (textSpan._renderTimer) {
+    clearTimeout(textSpan._renderTimer);
+  }
+  textSpan._renderTimer = setTimeout(() => {
+    textSpan._renderTimer = null;
+    renderMarkdown(textSpan);
+  }, 80);
+}
+
+function flushRenderMarkdown(textSpan) {
+  if (!textSpan) return;
+  if (textSpan._renderTimer) {
+    clearTimeout(textSpan._renderTimer);
+    textSpan._renderTimer = null;
+  }
+  renderMarkdown(textSpan);
+}
+
+function renderMarkdown(textSpan) {
+  if (!textSpan) return;
+  textSpan.innerHTML = simpleMarkdown(textSpan._rawText || '');
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function plainTextToHtml(text) {
+  return escapeHtml(text).replace(/\n/g, '<br>');
+}
+
+function formatInlineMarkdown(text) {
+  const codeTokens = [];
+  let html = text.replace(/`([^`]+)`/g, (_, code) => {
+    const token = `__INLINE_CODE_${codeTokens.length}__`;
+    codeTokens.push(`<code>${code}</code>`);
+    return token;
+  });
+
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, label, rawUrl) => {
+    const safeUrl = sanitizeLinkUrl(rawUrl);
+    if (!safeUrl) {
+      return label;
+    }
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  });
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  codeTokens.forEach((tokenHtml, idx) => {
+    html = html.replace(`__INLINE_CODE_${idx}__`, tokenHtml);
+  });
+
+  return html;
+}
+
+function sanitizeLinkUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl, window.location.href);
+    const allowedProtocols = new Set(['http:', 'https:', 'mailto:']);
+    if (!allowedProtocols.has(parsed.protocol)) {
+      return null;
+    }
+    return parsed.href;
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderMarkdownLines(text) {
+  const lines = text.split('\n');
+  const parts = [];
+  let inList = false;
+
+  const closeList = () => {
+    if (inList) {
+      parts.push('</ul>');
+      inList = false;
+    }
+  };
+
+  lines.forEach((line) => {
+    if (!line) {
+      closeList();
+      parts.push('<br>');
+      return;
+    }
+
+    if (/^__CODE_BLOCK_\d+__$/.test(line)) {
+      closeList();
+      parts.push(line);
+      return;
+    }
+
+    const headingMatch = line.match(/^###\s+(.+)$/);
+    if (headingMatch) {
+      closeList();
+      parts.push(`<strong>${formatInlineMarkdown(headingMatch[1])}</strong><br>`);
+      return;
+    }
+
+    const listMatch = line.match(/^\s*-\s+(.+)$/);
+    if (listMatch) {
+      if (!inList) {
+        parts.push('<ul>');
+        inList = true;
+      }
+      parts.push(`<li>${formatInlineMarkdown(listMatch[1])}</li>`);
+      return;
+    }
+
+    closeList();
+    parts.push(`${formatInlineMarkdown(line)}<br>`);
+  });
+
+  closeList();
+  return parts.join('');
+}
+
+function simpleMarkdown(text) {
+  let completeText = text;
+  let trailingPlainText = '';
+  const fenceMatches = text.match(/```/g);
+
+  if (fenceMatches && fenceMatches.length % 2 === 1) {
+    const lastFenceIndex = text.lastIndexOf('```');
+    completeText = text.slice(0, lastFenceIndex);
+    trailingPlainText = text.slice(lastFenceIndex);
+  }
+
+  let html = escapeHtml(completeText);
+  const codeBlocks = [];
+
+  html = html.replace(/```([A-Za-z0-9_+-]*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const language = lang || '';
+    const token = `__CODE_BLOCK_${codeBlocks.length}__`;
+    const languageLabel = language ? `<span class="code-lang">${language}</span>` : '';
+    codeBlocks.push(
+      `<pre class="code-block" data-lang="${language}">${languageLabel}<button class="code-copy-btn" onclick="copyCodeBlock(this)">Copy</button><code>${code}</code></pre>`
+    );
+    return token;
+  });
+
+  html = renderMarkdownLines(html);
+  codeBlocks.forEach((blockHtml, idx) => {
+    html = html.replace(`__CODE_BLOCK_${idx}__`, blockHtml);
+  });
+
+  if (trailingPlainText) {
+    html += plainTextToHtml(trailingPlainText);
+  }
+
+  return html;
+}
+
+function truncateText(value, limit) {
+  if (value.length <= limit) return value;
+  return value.slice(0, limit) + '\n...';
+}
+
+function humanizeToolName(name) {
+  const toolNames = {
+    Read: 'Read File',
+    Edit: 'Edit File',
+    Write: 'Write File',
+    Bash: 'Run Command',
+    Grep: 'Search Code',
+    Glob: 'Find Files',
+    WebSearch: 'Web Search',
+    WebFetch: 'Fetch URL',
+  };
+  return toolNames[name] || name;
+}
+
+function toggleToolCard(el) {
+  el.classList.toggle('expanded');
+}
+
+function appendToolCard({ id, name, input }) {
+  const assistantEl = ensureAssistantMessage();
+  flushRenderMarkdown(currentTextSpan);
+  currentTextSpan = null;
+
+  const card = document.createElement('div');
+  card.className = 'tool-card loading';
+  card.dataset.toolId = id;
+  card.dataset.toolName = humanizeToolName(name);
+
+  card.innerHTML = `
+    <div class="tool-card-header" onclick="toggleToolCard(this.parentElement)">
+      <svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.7 6.3a4 4 0 0 0 5 5L22 13.6l-6.4 6.4-4-4L18 9.6l-2.3-2.3Z"></path>
+        <path d="m9.6 18-4.2 4.2a1.4 1.4 0 0 1-2-2L7.6 16"></path>
+        <path d="m4.5 11.5 8 8"></path>
+      </svg>
+      <span>${card.dataset.toolName}</span>
+      <span class="tool-status">Running...</span>
+      <span class="tool-chevron">›</span>
+    </div>
+    <div class="tool-card-body">
+      <pre class="tool-input"></pre>
+      <pre class="tool-output"></pre>
+    </div>
+  `;
+
+  const inputText = truncateText(JSON.stringify(input ?? {}, null, 2), 500);
+  card.querySelector('.tool-input').textContent = inputText;
+
+  assistantEl.querySelector('.content').appendChild(card);
+  scrollIfAtBottom();
+}
+
+function updateToolCard({ id, tool_use_id, content, is_error }) {
+  const toolId = id || tool_use_id;
+  if (!toolId) return;
+
+  const card = document.querySelector(`[data-tool-id="${CSS.escape(toolId)}"]`);
+  if (!card) return;
+
+  card.classList.remove('loading');
+  card.classList.add(is_error ? 'error' : 'success');
+  card.querySelector('.tool-status').textContent = is_error ? 'Error' : card.dataset.toolName;
+
+  const outputText = typeof content === 'string'
+    ? content
+    : JSON.stringify(content ?? '', null, 2);
+  card.querySelector('.tool-output').textContent = truncateText(outputText, 1000);
+}
+
+function appendThinkingBlock({ text }) {
+  const assistantEl = ensureAssistantMessage();
+  flushRenderMarkdown(currentTextSpan);
+  currentTextSpan = null;
+
+  const block = document.createElement('div');
+  block.className = 'thinking-block';
+  block.innerHTML = `
+    <div class="thinking-block-header" onclick="toggleToolCard(this.parentElement)">
+      <span class="tool-icon" aria-hidden="true">🧠</span>
+      <span>Thinking</span>
+      <span class="tool-chevron">›</span>
+    </div>
+    <div class="thinking-block-body">
+      <pre></pre>
+    </div>
+  `;
+  block.querySelector('pre').textContent = text || '';
+
+  assistantEl.querySelector('.content').appendChild(block);
+  scrollIfAtBottom();
+}
+
+function showTypingIndicator() {
+  removeTypingIndicator();
+
+  const el = document.createElement('div');
+  el.className = 'message assistant';
+  el.id = 'typingIndicator';
+
+  const label = document.createElement('div');
+  label.className = 'label';
+  label.textContent = 'Claude';
+  el.appendChild(label);
+
+  const content = document.createElement('div');
+  content.className = 'typing-indicator';
+  content.innerHTML = `
+    <span class="dots" aria-hidden="true">
+      <span></span>
+      <span></span>
+      <span></span>
+    </span>
+  `;
+  el.appendChild(content);
+
+  chat.appendChild(el);
+  scrollIfAtBottom();
+}
+
+function removeTypingIndicator() {
+  const indicator = document.getElementById('typingIndicator');
+  if (indicator) {
+    indicator.remove();
+  }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand('copy');
+  textarea.remove();
+}
+
+function showCopiedState(btn) {
+  const originalText = btn.dataset.originalText || btn.textContent;
+  btn.dataset.originalText = originalText;
+  btn.textContent = 'Copied!';
+  btn.classList.add('copied');
+  window.clearTimeout(btn._copiedTimer);
+  btn._copiedTimer = window.setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove('copied');
+  }, 1500);
+}
+
+async function copyCodeBlock(btn) {
+  const code = btn.parentElement.querySelector('code');
+  if (!code) return;
+  try {
+    await copyText(code.textContent);
+    showCopiedState(btn);
+  } catch (err) {
+    console.error('Copy failed:', err);
+  }
+}
+
+function appendMessageCopyButton(messageEl) {
+  if (!messageEl || messageEl.querySelector('.message-copy-btn') || !(messageEl._rawText || '')) {
+    return;
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'message-copy-btn';
+  btn.textContent = 'Copy';
+  btn.type = 'button';
+  btn.setAttribute('onclick', 'copyMessage(this)');
+  messageEl.appendChild(btn);
+}
+
+async function copyMessage(btn) {
+  const messageEl = btn.closest('.message.assistant');
+  if (!messageEl || !messageEl._rawText) return;
+  try {
+    await copyText(messageEl._rawText);
+    showCopiedState(btn);
+  } catch (err) {
+    console.error('Copy failed:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Status
+// ---------------------------------------------------------------------------
+
+function setStatus(state, text) {
+  if (statusDot) {
+    statusDot.className = 'status-dot ' + state;
+    statusDot.title = text;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Text input
+// ---------------------------------------------------------------------------
+
+function sendTextMessage() {
+  const text = textInput.value.trim();
+  sendMessageText(text);
+}
+
+function sendMessageText(text) {
+  if (!text && !pendingImages.length) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (sendBtn.dataset.busy === 'true') {
+    if (text) queueMessage(text);
+    return;
+  }
+  if (sendBtn.disabled) return;
+  lastUserMessage = text;
+
+  // Show in chat immediately
+  const msgEl = addMessage('user', text);
+
+  if (pendingImages.length > 0) {
+    // Append image thumbnails into the user message bubble
+    for (const img of pendingImages) {
+      const imgEl = document.createElement('img');
+      imgEl.className = 'message-image';
+      imgEl.src = `data:${img.media_type};base64,${img.data}`;
+      imgEl.alt = img.name;
+      msgEl.appendChild(imgEl);
+    }
+    // Send image message to server
+    ws.send(JSON.stringify({
+      type: 'image_message',
+      text: text || '',
+      images: pendingImages.map(i => ({ data: i.data, media_type: i.media_type })),
+    }));
+    clearPendingImages();
+  } else {
+    // Send normal text message to server
+    ws.send(JSON.stringify({ type: 'text_message', text }));
+  }
+
+  // Clear input and mark busy until response completes
+  textInput.value = '';
+  textInput.style.height = 'auto';
+  setSendButtonBusy(true);
+
+  setStatus('processing', 'Processing...');
+  hint.textContent = 'Claude is thinking...';
+  showTypingIndicator();
+}
+
+function retryLastMessage() {
+  if (!lastUserMessage) return;
+  sendMessageText(lastUserMessage);
+}
+
+sendBtn.addEventListener('click', () => {
+  if (sendBtn.dataset.busy === 'true') {
+    const text = textInput.value.trim();
+    if (text) {
+      queueMessage(text);
+    } else {
+      stopTTS();
+    }
+    return;
+  }
+  sendTextMessage();
+});
+
+textInput.addEventListener('keydown', (evt) => {
+  // Send on Enter (not Shift+Enter)
+  if (evt.key === 'Enter' && !evt.shiftKey) {
+    evt.preventDefault();
+    if (sendBtn.dataset.busy === 'true') {
+      const text = textInput.value.trim();
+      if (text) queueMessage(text);
+    } else {
+      sendTextMessage();
+    }
+  }
+});
+
+// Escape key stops TTS when a response is in progress
+document.addEventListener('keydown', (evt) => {
+  if (evt.key === 'Escape' && sendBtn.dataset.busy === 'true') {
+    evt.preventDefault();
+    stopTTS();
+  }
+});
+
+// Auto-resize textarea as user types
+textInput.addEventListener('input', () => {
+  textInput.style.height = 'auto';
+  textInput.style.height = Math.min(textInput.scrollHeight, 120) + 'px';
+  updateSendButtonState();
+});
+
+applyInputMode();
+
+// ---------------------------------------------------------------------------
+// Image input — helpers, drag-drop, paste
+// ---------------------------------------------------------------------------
+
+/**
+ * Read an image File and resolve to {data, media_type, name}.
+ * Rejects if type or size is invalid.
+ */
+function processImageFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      reject(new Error(`Unsupported image type: ${file.type}`));
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      reject(new Error(`Image too large (max 5 MB): ${file.name}`));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target.result;
+      // dataUrl format: "data:<media_type>;base64,<data>"
+      const commaIdx = dataUrl.indexOf(',');
+      const base64 = dataUrl.slice(commaIdx + 1);
+      resolve({ data: base64, media_type: file.type, name: file.name });
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Re-render the pending image thumbnails above the text input. */
+function renderImagePreviews() {
+  imagePreviewRow.innerHTML = '';
+  if (pendingImages.length === 0) {
+    imagePreviewRow.style.display = 'none';
+    document.getElementById('attachBtn')?.classList.remove('has-images');
+    updateSendButtonState();
+    return;
+  }
+  imagePreviewRow.style.display = 'flex';
+  document.getElementById('attachBtn')?.classList.add('has-images');
+  pendingImages.forEach((img, idx) => {
+    const item = document.createElement('div');
+    item.className = 'image-preview-item';
+
+    const imgEl = document.createElement('img');
+    imgEl.src = `data:${img.media_type};base64,${img.data}`;
+    imgEl.alt = img.name;
+    item.appendChild(imgEl);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'image-preview-remove';
+    removeBtn.type = 'button';
+    removeBtn.title = 'Remove image';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', () => removeImage(idx));
+    item.appendChild(removeBtn);
+
+    imagePreviewRow.appendChild(item);
+  });
+  updateSendButtonState();
+}
+
+function removeImage(idx) {
+  pendingImages.splice(idx, 1);
+  renderImagePreviews();
+}
+
+function clearPendingImages() {
+  pendingImages = [];
+  renderImagePreviews();
+}
+
+// Drag-drop: use a counter to handle nested elements
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (evt) => {
+  const hasImageFiles = Array.from(evt.dataTransfer.items || []).some(
+    item => item.kind === 'file' && ALLOWED_IMAGE_TYPES.includes(item.type)
+  );
+  if (!hasImageFiles) return;
+  dragCounter++;
+  dropOverlay.classList.add('active');
+  evt.preventDefault();
+});
+
+document.addEventListener('dragleave', (evt) => {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    dropOverlay.classList.remove('active');
+  }
+});
+
+document.addEventListener('dragover', (evt) => {
+  evt.preventDefault();
+});
+
+document.addEventListener('drop', async (evt) => {
+  evt.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('active');
+
+  const files = Array.from(evt.dataTransfer.files || []).filter(
+    f => ALLOWED_IMAGE_TYPES.includes(f.type)
+  );
+
+  for (const file of files) {
+    try {
+      const img = await processImageFile(file);
+      pendingImages.push(img);
+    } catch (err) {
+      console.warn('[bridge] Image drop error:', err.message);
+    }
+  }
+  if (files.length > 0) renderImagePreviews();
+});
+
+// Paste: only intercept image items, let text paste through normally
+document.addEventListener('paste', async (evt) => {
+  const items = Array.from(evt.clipboardData?.items || []).filter(
+    item => item.kind === 'file' && ALLOWED_IMAGE_TYPES.includes(item.type)
+  );
+  if (items.length === 0) return;
+  evt.preventDefault();
+
+  for (const item of items) {
+    const file = item.getAsFile();
+    if (!file) continue;
+    try {
+      const img = await processImageFile(file);
+      pendingImages.push(img);
+    } catch (err) {
+      console.warn('[bridge] Image paste error:', err.message);
+    }
+  }
+  renderImagePreviews();
+});
+
+// File picker button — works on desktop and mobile (opens camera roll / Files)
+const attachBtn = document.getElementById('attachBtn');
+const imageFileInput = document.getElementById('imageFileInput');
+
+attachBtn.addEventListener('click', () => {
+  imageFileInput.value = '';   // reset so same file can be re-selected
+  imageFileInput.click();
+});
+
+imageFileInput.addEventListener('change', async () => {
+  const files = Array.from(imageFileInput.files || []).filter(
+    f => ALLOWED_IMAGE_TYPES.includes(f.type)
+  );
+  for (const file of files) {
+    try {
+      const img = await processImageFile(file);
+      pendingImages.push(img);
+    } catch (err) {
+      console.warn('[bridge] Image pick error:', err.message);
+    }
+  }
+  if (files.length > 0) renderImagePreviews();
+});
+
+// ---------------------------------------------------------------------------
+// Session drawer — state and helpers
+// ---------------------------------------------------------------------------
+
+let currentSessionId = localStorage.getItem('voiceBridgeSessionId') || null;
+let sessions = [];
+
+const drawerOverlay = document.getElementById('drawerOverlay');
+const drawerToggle = document.getElementById('drawerToggle');
+const newSessionBtn = document.getElementById('newSessionBtn');
+const sessionList = document.getElementById('sessionList');
+
+function openDrawer() {
+  drawer.classList.add('open');
+  drawerOverlay.classList.add('open');
+  fetchSessions();
+}
+
+function closeDrawer() {
+  drawer.classList.remove('open');
+  drawerOverlay.classList.remove('open');
+}
+
+drawerToggle.addEventListener('click', openDrawer);
+drawerOverlay.addEventListener('click', closeDrawer);
+newSessionBtn.addEventListener('click', () => {
+  newSession();
+  closeDrawer();
+});
+
+// ---------------------------------------------------------------------------
+// Token helper (re-use token already in the page URL)
+// ---------------------------------------------------------------------------
+
+function getToken() {
+  return new URLSearchParams(window.location.search).get('token') || '';
+}
+
+// ---------------------------------------------------------------------------
+// Session API helpers
+// ---------------------------------------------------------------------------
+
+async function fetchSessions() {
+  try {
+    const res = await fetch(`/api/sessions?token=${encodeURIComponent(getToken())}`);
+    if (!res.ok) return;
+    sessions = await res.json();
+    renderSessionList();
+  } catch (e) {
+    // silently ignore — server may not be fully up yet
+  }
+}
+
+function renderSessionList() {
+  sessionList.innerHTML = '';
+
+  if (!sessions || sessions.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'drawer-empty';
+    empty.textContent = 'No sessions yet. Start a conversation!';
+    sessionList.appendChild(empty);
+    return;
+  }
+
+  for (const session of sessions) {
+    const rawTitle = session.title || session.summary || 'Untitled';
+    const title = rawTitle.length > 45 ? rawTitle.slice(0, 42) + '…' : rawTitle;
+    const timeStr = relativeTime(session.last_modified);
+    const isActive = session.id === currentSessionId;
+
+    const item = document.createElement('div');
+    item.className = 'session-item' + (isActive ? ' active' : '');
+    item.dataset.sessionId = session.id;
+
+    item.innerHTML = `
+      <div class="session-item-row">
+        <span class="session-title" title="${escapeHtml(rawTitle)}">${escapeHtml(title)}</span>
+        <div class="session-actions">
+          <button class="session-action-btn rename" type="button" title="Rename" data-id="${escapeHtml(session.id)}">✏</button>
+          <button class="session-action-btn delete" type="button" title="Delete" data-id="${escapeHtml(session.id)}">✕</button>
+        </div>
+      </div>
+      <span class="session-time">${escapeHtml(timeStr)}</span>
+    `;
+
+    // Click the item row (not the action buttons) to switch
+    item.addEventListener('click', (evt) => {
+      if (evt.target.closest('.session-action-btn')) return;
+      switchSession(session.id);
+      closeDrawer();
+    });
+
+    // Rename button
+    item.querySelector('.rename').addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      renameSession(session.id, rawTitle);
+    });
+
+    // Delete button
+    item.querySelector('.delete').addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      deleteSession(session.id);
+    });
+
+    sessionList.appendChild(item);
+  }
+}
+
+function relativeTime(timestampMs) {
+  if (!timestampMs) return '';
+  const diffMs = Date.now() - timestampMs;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay === 1) return 'Yesterday';
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Date(timestampMs).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+// ---------------------------------------------------------------------------
+// Session switching
+// ---------------------------------------------------------------------------
+
+async function switchSession(sessionId) {
+  // Clear current chat UI
+  chat.innerHTML = '';
+  currentAssistantEl = null;
+  currentTextSpan = null;
+  removeTypingIndicator();
+  // Clear any queued message and invalidate any in-flight drain
+  queuedMessage = null;
+  queueTurnId++;
+  renderQueueBar();
+  // Clear any pending images
+  clearPendingImages();
+
+  // Update tracked ID and persist
+  currentSessionId = sessionId;
+  if (sessionId) {
+    localStorage.setItem('voiceBridgeSessionId', sessionId);
+  } else {
+    localStorage.removeItem('voiceBridgeSessionId');
+  }
+
+  // Tell the server to switch its Claude session
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'switch_session', session_id: sessionId }));
+  }
+
+  // Restore historical messages if resuming an existing session
+  if (sessionId) {
+    try {
+      const res = await fetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/messages?token=${encodeURIComponent(getToken())}`
+      );
+      if (res.ok) {
+        const messages = await res.json();
+        restoreMessages(messages);
+      }
+    } catch (e) {
+      // ignore — history is nice-to-have, not critical
+    }
+  }
+
+  renderSessionList();
+}
+
+function newSession() {
+  switchSession(null);
+}
+
+async function renameSession(sessionId, currentTitle) {
+  const newTitle = prompt('Rename session:', currentTitle);
+  if (!newTitle || newTitle.trim() === '') return;
+
+  try {
+    const res = await fetch(
+      `/api/sessions/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(getToken())}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      }
+    );
+    if (res.ok) {
+      await fetchSessions();
+    }
+  } catch (e) {
+    console.error('Rename failed:', e);
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('Delete this session? This cannot be undone.')) return;
+
+  try {
+    const res = await fetch(
+      `/api/sessions/${encodeURIComponent(sessionId)}?token=${encodeURIComponent(getToken())}`,
+      { method: 'DELETE' }
+    );
+    if (res.ok) {
+      // If we deleted the active session, start fresh
+      if (sessionId === currentSessionId) {
+        newSession();
+      }
+      await fetchSessions();
+    }
+  } catch (e) {
+    console.error('Delete failed:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Restore historical messages (same UI model as live messages)
+// ---------------------------------------------------------------------------
+
+function restoreMessages(messages) {
+  if (!messages || messages.length === 0) return;
+
+  let didCompact = false;
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      if (msg.text && msg.text.trim()) {
+        if (msg.text.startsWith('This session is being continued from a previous conversation')) {
+          didCompact = true;
+          continue;
+        }
+        addMessage('user', msg.text);
+      }
+    } else if (msg.role === 'assistant') {
+      if (msg.text || (msg.tool_calls && msg.tool_calls.length > 0)) {
+        ensureAssistantMessage();
+        ensureCurrentTextSpan();
+        if (msg.text) {
+          currentTextSpan._rawText = msg.text;
+          currentTextSpan.innerHTML = simpleMarkdown(msg.text);
+        }
+        for (const tc of (msg.tool_calls || [])) {
+          if (tc.name && tc.name !== '(result)') {
+            appendToolCard({
+              id: 'hist-' + Math.random().toString(36).slice(2),
+              name: tc.name,
+              input: tc.input || {},
+            });
+          }
+        }
+        finalizeAssistantMessage();
+      }
+    }
+  }
+
+  if (didCompact) {
+    const notice = document.createElement('div');
+    notice.className = 'system-notice';
+    notice.textContent = 'Context was compacted — earlier messages were summarized.';
+    chatMessages.appendChild(notice);
+  }
+
+  scrollToBottom();
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+
+ensureWsOwnership({ force: true });
+connect();
+</script>
+</body>
+</html>

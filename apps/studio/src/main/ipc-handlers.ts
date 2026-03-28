@@ -41,6 +41,7 @@ export function registerIpcHandlers(
   getMainWindow: () => BrowserWindow | null,
   skillRegistry?: SkillRegistry,
   skillExecutor?: SkillExecutor,
+  broadcast?: (channel: string, data: unknown) => void,
 ): void {
   const approvedPaneRoots = new Set<string>()
 
@@ -151,6 +152,7 @@ export function registerIpcHandlers(
     const win = getMainWindow()
     const pane = await paneManager.createPane(settingsService, (channel, data) => {
       if (win && !win.isDestroyed()) win.webContents.send(channel, data)
+      broadcast?.(channel, data)
     })
     fileWatchService.watchPane(pane.id, pane.projectRoot)
     return { paneId: pane.id }

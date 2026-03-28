@@ -34,11 +34,12 @@ const KILL_GRACE_MS = 3_000
 /** Path to the agent entry point (built dist). */
 function resolveAgentPath(): string {
   // Packaged mode: use the bundled entrypoint.js from the @gsd/pi-coding-agent bundle.
-  // The bundle places entrypoint.js at runtime/dist/entrypoint.js (alongside all
-  // compiled JS) so relative imports resolve correctly.
-  const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')
-  if (existsSync(bundledEntry)) {
-    return bundledEntry
+  // process.resourcesPath is only set in Electron packaged builds.
+  if (process.resourcesPath) {
+    const bundledEntry = join(process.resourcesPath, 'runtime', 'dist', 'entrypoint.js')
+    if (existsSync(bundledEntry)) {
+      return bundledEntry
+    }
   }
 
   // Dev mode: __dirname is apps/studio/dist/main (after electron-vite build).
@@ -52,7 +53,7 @@ function resolveAgentCommand(entry: string): {
   args: string[]
   env: NodeJS.ProcessEnv
 } {
-  if (entry.startsWith(join(process.resourcesPath, 'runtime'))) {
+  if (process.resourcesPath && entry.startsWith(join(process.resourcesPath, 'runtime'))) {
     // Packaged mode: use the bundled standalone Node binary.
     // No ELECTRON_RUN_AS_NODE — the bundled node is a plain Node binary, not Electron.
     const bundledNode = join(process.resourcesPath, 'runtime', 'node')

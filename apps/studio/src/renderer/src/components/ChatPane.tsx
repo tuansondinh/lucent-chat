@@ -811,13 +811,15 @@ export function ChatPane({
           />
         </div>
 
-        {/* Per-pane footer — git branch + project root + model picker */}
-        <PaneFooter
-          paneId={paneId}
-          isActive={isActive}
-          onFocus={onFocus}
-          onOpenModelPicker={() => setModelPickerOpen(true)}
-        />
+        {/* Per-pane footer — git branch + project root + model picker (desktop only) */}
+        {!isMobile && (
+          <PaneFooter
+            paneId={paneId}
+            isActive={isActive}
+            onFocus={onFocus}
+            onOpenModelPicker={() => setModelPickerOpen(true)}
+          />
+        )}
       </div>
       <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} paneId={paneId} />
     </>

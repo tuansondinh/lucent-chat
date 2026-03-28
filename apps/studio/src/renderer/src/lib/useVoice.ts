@@ -417,12 +417,28 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
       return
     }
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`)
+    const isElectron = !!window.__ELECTRON__
+    let ws: WebSocket
+
+    if (isElectron) {
+      // Electron: connect directly to the local Python sidecar
+      ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`)
+    } else {
+      // PWA: connect through the bridge server's voice proxy
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      ws = new WebSocket(`${wsProtocol}//${window.location.host}/voice-ws`)
+    }
+
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
     ws.onopen = () => {
       console.log('[voice] WebSocket connected')
+      if (!isElectron) {
+        // PWA: send auth message to the bridge server proxy
+        const bridgeToken = localStorage.getItem('lc_bridge_token') ?? ''
+        ws.send(JSON.stringify({ type: 'auth', token: bridgeToken }))
+      }
     }
 
     ws.onmessage = (event) => {

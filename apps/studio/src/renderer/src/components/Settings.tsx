@@ -61,6 +61,8 @@ interface SettingsProps {
   onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
   voiceAudioEnabled: boolean
   onVoiceAudioEnabledChange: (enabled: boolean) => void
+  /** When true, renders with a close button suitable for full-screen mobile overlay. */
+  isMobile?: boolean
 }
 
 type Tab = 'general' | 'apikeys' | 'models' | 'shortcuts' | 'skills' | 'remote-access'
@@ -117,7 +119,7 @@ const VOICE_SHORTCUT_OPTIONS = [
 
 const SHORTCUTS = [
   { shortcut: '⌘B', action: 'Toggle sidebar' },
-  { shortcut: '⌘M', action: 'Model picker' },
+  { shortcut: '⌘P', action: 'Model picker' },
   { shortcut: '⌘K', action: 'Command palette' },
   { shortcut: '⌘,', action: 'Settings' },
   { shortcut: 'Esc', action: 'Stop generation / close modal' },
@@ -140,6 +142,7 @@ export function Settings({
   onVoicePttShortcutChange,
   voiceAudioEnabled,
   onVoiceAudioEnabledChange,
+  isMobile = false,
 }: SettingsProps) {
   const bridge = getBridge()
 
@@ -352,6 +355,15 @@ export function Settings({
           <DialogTitle className="flex items-center gap-2 text-base">
             <SettingsIcon className="w-4 h-4 text-accent flex-shrink-0" />
             Settings
+            {isMobile && (
+              <button
+                onClick={() => onOpenChange(false)}
+                aria-label="Close settings"
+                className="ml-auto flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </DialogTitle>
         </DialogHeader>
 

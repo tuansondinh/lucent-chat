@@ -911,9 +911,9 @@ export default function App() {
 
     return (
       <div
-        className="mobile-touch flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden"
-        // When keyboard is open, constrain to visible area
-        style={isKeyboardOpen ? { height: `${window.visualViewport?.height ?? window.innerHeight}px` } : undefined}
+        className="mobile-touch flex flex-col bg-bg-primary text-text-primary overflow-hidden"
+        // Use dvh so the container always tracks the visible viewport (shrinks with keyboard on Android/iOS)
+        style={{ height: '100dvh' }}
       >
         {/* Mobile header: no drag region, hamburger left, title center, health right */}
         <header className="mobile-header">

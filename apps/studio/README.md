@@ -171,6 +171,32 @@ npm run test         # Run tests
 npm run test:watch   # Watch mode
 ```
 
+### Running with PWA
+
+The app serves a built PWA on port **8788** via `WebBridgeServer`. Tailscale tunnels this to your MagicDNS HTTPS URL.
+
+#### Option A — standalone server (no Electron window needed)
+
+```bash
+# 1. Build the PWA (from apps/studio)
+npm run build:pwa
+
+# 2. Start the bridge server only
+npm run serve
+```
+
+#### Option B — full Electron app with PWA
+
+```bash
+# 1. Build the PWA (from apps/studio)
+npm run build:pwa
+
+# 2. Start the Electron app (also starts the bridge server)
+npm run dev
+```
+
+The PWA is then accessible at `http://localhost:8788` locally, or via your Tailscale MagicDNS hostname if Tailscale is running.
+
 ### Environment Variables
 
 Create a `.env` file in the studio directory:
