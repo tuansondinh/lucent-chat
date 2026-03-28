@@ -11,6 +11,10 @@ const { existsSync } = require('fs')
 module.exports = async function notarize({ appOutDir, packager }) {
   const platform = packager.platform.name
   if (platform !== 'mac') return
+  if (process.env.SKIP_NOTARIZE === 'true') {
+    console.log('[notarize] Skipping notarization (SKIP_NOTARIZE=true).')
+    return
+  }
 
   const appName = packager.appInfo.productFilename
   const appPath = join(appOutDir, `${appName}.app`)

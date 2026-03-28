@@ -178,7 +178,7 @@ export function ApprovalCard({ request, onRespond }: ApprovalModalProps) {
         >
           <Check className="w-3.5 h-3.5" />
           Allow
-          <kbd className="text-[10px] font-mono bg-black/25 text-white/90 px-1.5 py-0.5 rounded">⌘↵</kbd>
+          <kbd className="text-[11px] font-sans bg-black/40 text-white px-2 py-0.5 rounded border border-white/20 tracking-wide">⌘ Enter</kbd>
         </button>
         <button
           className={`${btn.outline} px-4 py-2 text-sm font-medium flex items-center gap-2`}

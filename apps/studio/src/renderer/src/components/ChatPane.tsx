@@ -350,6 +350,7 @@ export function ChatPane({
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
   const autoModeState = store((s) => s.autoModeState)
+  const permissionMode = store((s) => s.permissionMode)
 
   // Helper to map bridge response to store shape
   const applyAutoModeState = useCallback((bridgeState: { paused: boolean; consecutive: number; total: number }) => {
@@ -362,10 +363,10 @@ export function ChatPane({
 
   // Load auto mode state
   useEffect(() => {
-    if (bridge.getAutoModeState && store.getState().permissionMode === 'auto') {
+    if (bridge.getAutoModeState && permissionMode === 'auto') {
       bridge.getAutoModeState(paneId).then(applyAutoModeState).catch(() => {})
     }
-  }, [bridge, paneId, applyAutoModeState, store().permissionMode])
+  }, [bridge, paneId, applyAutoModeState, permissionMode])
 
   // Load skills for autocomplete
   useEffect(() => {
@@ -663,6 +664,15 @@ export function ChatPane({
         }
         store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
         store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
+
+        // Restore message history for the active session
+        if (typeof state.sessionFile === 'string' && state.sessionFile) {
+          bridge.getMessages(paneId)
+            .then((history) => {
+              if (history.length > 0) store.getState().loadHistory(history)
+            })
+            .catch(() => {})
+        }
       })
       .catch(() => {})
 
@@ -967,7 +977,7 @@ export function ChatPane({
         )}
 
         {/* Auto Mode Paused Banner */}
-        {autoModeState.paused && store().permissionMode === 'auto' && (
+        {autoModeState.paused && permissionMode === 'auto' && (
           <div className="mx-4 mb-2 flex items-center justify-between gap-3 px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg text-xs text-yellow-400">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4" />

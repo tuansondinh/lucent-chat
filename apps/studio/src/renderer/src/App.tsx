@@ -1179,8 +1179,8 @@ export default function App() {
       {/* Vertical panel group: chat area on top, optional terminal at bottom */}
       <PanelGroup orientation="vertical" className="flex-1 min-h-0">
         {/* Top panel: sidebar | pane group | file viewer */}
-        <Panel className="flex min-h-0">
-          <div className="flex flex-1 min-h-0">
+        <Panel className="flex min-h-0 min-w-0">
+          <div className="flex flex-1 min-h-0 min-w-0">
             {/* Fixed-width sidebar */}
             <div className={sidebarCollapsed ? 'w-10 flex-shrink-0' : 'w-72 min-w-[280px] max-w-[320px] flex-shrink-0'}>
               {sidebarEl}
@@ -1188,7 +1188,7 @@ export default function App() {
 
             {/* Unified horizontal PanelGroup */}
             <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-              <div className="flex min-h-0 min-w-0" style={{ flex: '1 1 0%', minWidth: `${MIN_CHAT_AREA_WIDTH}px` }}>
+              <div className="flex min-h-0 min-w-0" style={{ flex: '1 1 0%' }}>
                 {chatPaneGroup}
               </div>
 
@@ -1205,7 +1205,7 @@ export default function App() {
                   </div>
                   <div
                     className="flex min-h-0 border-l border-border bg-bg-secondary"
-                    style={{ width: `${fileViewerWidth}px`, minWidth: `${MIN_FILE_VIEWER_WIDTH}px`, maxWidth: `calc(100% - ${MIN_CHAT_AREA_WIDTH}px)`, flexShrink: 1 }}
+                    style={{ width: `${fileViewerWidth}px`, minWidth: `${MIN_FILE_VIEWER_WIDTH}px`, maxWidth: '60%', flexShrink: 1 }}
                   >
                     <Suspense fallback={null}>
                       <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />

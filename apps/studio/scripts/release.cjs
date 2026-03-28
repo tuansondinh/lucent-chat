@@ -42,7 +42,8 @@ function run(cmd, opts = {}) {
 console.log(`\n[release] Building Lucent Chat v${version} (arm64)...`)
 run('npm run build')
 run('npm run bundle-runtime')
-run(`CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder -m --arm64`)
+const skipNotarize = NOTARIZE ? '' : 'SKIP_NOTARIZE=true'
+run(`${skipNotarize} CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder -m --arm64 --config.mac.identity=null`)
 
 // ─── Step 2: Sign ─────────────────────────────────────────────────────────────
 console.log('\n[release] Signing app...')

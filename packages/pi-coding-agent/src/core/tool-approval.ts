@@ -93,15 +93,8 @@ export function registerStdioClassifierHandler(): void {
 				args: request.args,
 			});
 			process.stdout.write(msg + "\n");
-
-			// 15s timeout for classifier decisions (auto-deny)
-			setTimeout(() => {
-				const pending = pendingClassifications.get(id);
-				if (pending) {
-					pendingClassifications.delete(id);
-					pending.resolve(false);
-				}
-			}, 15000);
+			// No timeout — the studio handles all timing (LLM call + user approval card).
+			// Matches accept-on-edit mode which also waits indefinitely.
 		});
 	});
 }

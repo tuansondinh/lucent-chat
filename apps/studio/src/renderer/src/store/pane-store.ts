@@ -774,11 +774,9 @@ export function countLeaves(node: LayoutNode): number {
 }
 
 /**
- * Ghostty-style N-ary split insertion.
- *
- * When the active pane's parent already has the SAME orientation as the
- * requested split, the new pane is inserted flat into that parent (no extra
- * nesting). When orientations differ, a new nested 2-child split is created.
+ * Ghostty-style binary split: always replaces the target pane with a
+ * 2-child split node, halving its space. Because the parent's child count
+ * stays the same, sibling pane sizes are preserved by react-resizable-panels.
  */
 export function splitNode(
   root: LayoutNode,
@@ -805,26 +803,17 @@ export function splitNode(
   for (let i = 0; i < root.children.length; i++) {
     const child = root.children[i]
     if (child.type === 'leaf' && child.paneId === targetPaneId) {
-      if (root.orientation === orientation) {
-        // Same orientation → insert flat, right after the target
-        const newChildren = [
-          ...root.children.slice(0, i + 1),
-          { type: 'leaf' as const, paneId: newPaneId },
-          ...root.children.slice(i + 1),
-        ]
-        return { layout: { ...root, children: newChildren }, inserted: true }
-      } else {
-        // Different orientation → create a nested 2-child split
-        const nested: SplitNode = {
-          type: 'split',
-          id: splitId,
-          orientation,
-          children: [child, { type: 'leaf', paneId: newPaneId }],
-        }
-        const newChildren = [...root.children]
-        newChildren[i] = nested
-        return { layout: { ...root, children: newChildren }, inserted: true }
+      // Replace the target leaf with a nested 2-child split.
+      // The target pane's space is halved — new pane gets the other half.
+      const nested: SplitNode = {
+        type: 'split',
+        id: splitId,
+        orientation,
+        children: [child, { type: 'leaf', paneId: newPaneId }],
       }
+      const newChildren = [...root.children]
+      newChildren[i] = nested
+      return { layout: { ...root, children: newChildren }, inserted: true }
     }
   }
 
@@ -852,8 +841,8 @@ function findFirstLeaf(node: LayoutNode): string {
 }
 
 /**
- * N-ary remove: removing from a 3+ child split shrinks it; removing from a
- * 2-child split collapses it (promotes the remaining child up).
+ * Remove a leaf from the layout tree. A 2-child split collapses (promotes
+ * the remaining child up), restoring the parent's original size allocation.
  */
 export function removeLeaf(
   root: LayoutNode,

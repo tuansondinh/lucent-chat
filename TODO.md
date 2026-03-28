@@ -38,6 +38,16 @@
 
 - [ ] **`remoteAccessToken` validation accepts empty string** — `validateSettingsPatch` only checks `typeof === 'string'`. Add minimum length check (≥16 chars).
 
+## UI — Tool Integration
+
+- [ ] **`ask_user_questions` tool not rendered in Studio UI** — The GSD runtime's `ask_user_questions` extension sends questions with selectable options, but the Studio frontend renders it as a generic tool call ("ask_user_questions running") with no interactive UI. Need to intercept this tool in `ChatMessage.tsx`, render the questions and answer options as clickable buttons, and send the user's selections back to the runtime so the tool can resolve.
+
+## Session Persistence
+
+- [ ] **Sessions not persisted reliably** — After a turn completes (`agent_end`), the orchestrator never calls `setActiveSessionId()` to persist the session path. Persistence only happens on `newSession`, `switchSession`, or agent readiness probes (`getState`). Fix: call `setActiveSessionId` in the orchestrator's `agent_end` handler (or via a callback) so every completed turn persists the active session immediately.
+
+- [ ] **Main process doesn't restore persisted session on startup** — `loadActiveSessionId()` reads the path from `~/.lucent/active-session` but never calls `agentBridge.switchSession()` to tell the agent to resume it. The agent starts fresh every time. Fix: after agent reaches `ready` state in `attachAgentBridge()`, if a persisted session exists, call `switchSession()`.
+
 ## Classifier / Auto Mode
 
 - [ ] Replace `CLAUDE.md` with `LUCENT.md` as the project instructions file read by the classifier.
