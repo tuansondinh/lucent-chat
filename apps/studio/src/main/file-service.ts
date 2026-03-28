@@ -152,6 +152,13 @@ export class FileService {
     const dir = path.dirname(candidate)
     await fs.mkdir(dir, { recursive: true })
 
+    // TOCTOU guard: re-validate the resolved parent directory
+    const dirReal = await fs.realpath(dir)
+    const dirRel = path.relative(rootReal, dirReal)
+    if (dirRel.startsWith('..') || path.isAbsolute(dirRel)) {
+      throw new Error('Path traversal detected in parent directory')
+    }
+
     // Atomic write: write to a temp file in the same directory, then rename.
     // Using the same directory ensures the rename is on the same filesystem.
     const nonce = crypto.randomBytes(8).toString('hex')
@@ -200,6 +207,11 @@ export class FileService {
     // Step 5: read full file (no size cap)
     const stat = await fs.stat(candidateReal)
     const size = stat.size
+
+    const MAX_FULL_FILE_BYTES = 50 * 1024 * 1024 // 50MB
+    if (size > MAX_FULL_FILE_BYTES) {
+      throw new Error(`File too large to edit: ${(size / 1024 / 1024).toFixed(1)} MB (max 50 MB)`)
+    }
 
     let fd: fs.FileHandle | null = null
     try {

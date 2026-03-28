@@ -158,6 +158,13 @@ async function main(): Promise<void> {
         }
         return null
       }
+      case 'ui-select-respond': {
+        const respondPane = pane(args)
+        if (respondPane) {
+          respondPane.agentBridge.respondToUiSelect(args[1] as string, args[2] as string | string[])
+        }
+        return null
+      }
       default: throw new Error(`Command '${name}' not supported`)
     }
   }
@@ -173,6 +180,7 @@ async function main(): Promise<void> {
     dispatchCmd,
     tailscaleOrigin,
     staticDir: join(__dirname, '../../dist/pwa'),
+    bindAddress: settings.tailscaleServeEnabled ? '0.0.0.0' : '127.0.0.1',
     getVoiceEndpoint: () => {
       const status = voiceService.getStatus()
       if (status.state === 'ready' && status.port && status.token) {
@@ -203,6 +211,13 @@ async function main(): Promise<void> {
     onThinkingEnd: (d) => broadcast('event:thinking-end', { paneId: 'pane-0', ...d }),
     onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
     onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
+    onTurnComplete: () => {
+      agentBridge.getState()
+        .then((state) => {
+          if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
+        })
+        .catch(() => {})
+    },
   })
 
   paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
@@ -220,7 +235,7 @@ async function main(): Promise<void> {
   const agentEnv: Record<string, string> = {}
   if (settings.tavilyApiKey) agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   // Pass permission mode so the agent registers the stdio approval handler
-  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
+  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
   processManager.on('agent-restarting', () => setTimeout(attachAgentBridge, 200))
@@ -230,7 +245,7 @@ async function main(): Promise<void> {
   console.log(`[server] listening on port ${port}`)
   console.log(`[server] PWA → http://localhost:${port}`)
   if (tailscaleOrigin) console.log(`[server] Tailscale → ${tailscaleOrigin}`)
-  console.log(`[server] token → ${token}`)
+
 
   if (settings.tailscaleServeEnabled) {
     tailscaleService.enableServe(port).catch((err: Error) => {

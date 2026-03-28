@@ -1,9 +1,9 @@
 import type { AppSettings } from './settings-service.js'
 
-export type RendererSettings = Omit<AppSettings, 'tavilyApiKey'> & { hasTavilyKey: boolean }
+export type RendererSettings = Omit<AppSettings, 'tavilyApiKey' | 'remoteAccessToken'> & { hasTavilyKey: boolean }
 
 export function sanitizeSettingsForRenderer(settings: AppSettings): RendererSettings {
-  const { tavilyApiKey, ...rest } = settings
+  const { tavilyApiKey, remoteAccessToken, ...rest } = settings
   return {
     ...rest,
     hasTavilyKey: typeof tavilyApiKey === 'string' && tavilyApiKey.length > 0,
@@ -127,8 +127,8 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
   }
 
   if ('remoteAccessToken' in partial) {
-    if (typeof partial.remoteAccessToken !== 'string') {
-      throw new Error('Invalid remoteAccessToken setting')
+    if (typeof partial.remoteAccessToken !== 'string' || partial.remoteAccessToken.length < 16) {
+      throw new Error('Invalid remoteAccessToken setting: must be at least 16 characters')
     }
     validated.remoteAccessToken = partial.remoteAccessToken
   }

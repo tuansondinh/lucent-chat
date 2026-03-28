@@ -223,11 +223,22 @@ app.whenReady().then(async () => {
     // Probe readiness — mark 'ready' once agent responds to get_state
     agentBridge
       .getState()
-      .then((state) => {
+      .then(async (state) => {
         processManager!.setState('agent', 'ready')
+        const persistedId = sessionService.getActiveSessionId()
         // Sync active session ID from agent state so delete guard is accurate
         if (state.sessionFile) {
           sessionService.setActiveSessionId(state.sessionFile)
+        }
+        // Restore persisted session if it differs from the fresh agent session
+        if (persistedId && persistedId !== state.sessionFile) {
+          try {
+            await agentBridge.switchSession(persistedId)
+            const newState = await agentBridge.getState()
+            if (newState.sessionFile) sessionService.setActiveSessionId(newState.sessionFile)
+          } catch (err) {
+            console.warn('[studio] failed to restore persisted session:', (err as Error).message)
+          }
         }
       })
       .catch((err: Error) => {
@@ -245,7 +256,7 @@ app.whenReady().then(async () => {
     agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   }
   // Pass permission mode so the agent can register the stdio approval handler
-  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
+  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
 
@@ -271,6 +282,13 @@ app.whenReady().then(async () => {
     onThinkingEnd: (d) => broadcast('event:thinking-end', { paneId: 'pane-0', ...d }),
     onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
     onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
+    onTurnComplete: () => {
+      agentBridge.getState()
+        .then((state) => {
+          if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
+        })
+        .catch(() => {})
+    },
   })
 
   paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
@@ -399,6 +417,13 @@ app.whenReady().then(async () => {
           const approvalPane = pane()
           if (approvalPane) {
             approvalPane.agentBridge.respondToApproval(args[1] as string, args[2] as boolean)
+          }
+          return null
+        }
+        case 'ui-select-respond': {
+          const respondPane = pane()
+          if (respondPane) {
+            respondPane.agentBridge.respondToUiSelect(args[1] as string, args[2] as string | string[])
           }
           return null
         }

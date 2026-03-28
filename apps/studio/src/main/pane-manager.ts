@@ -108,6 +108,13 @@ export class PaneManager {
       onThinkingEnd: (d) => pushEvent('event:thinking-end', { paneId: id, ...d }),
       onTextBlockStart: (d) => pushEvent('event:text-block-start', { paneId: id, ...d }),
       onTextBlockEnd: (d) => pushEvent('event:text-block-end', { paneId: id, ...d }),
+      onTurnComplete: () => {
+        agentBridge.getState()
+          .then((state) => {
+            if (state.sessionFile) sessionService.setActiveSessionId(state.sessionFile)
+          })
+          .catch(() => {})
+      },
     }
     const orchestrator = new Orchestrator(agentBridge, callbacks)
 

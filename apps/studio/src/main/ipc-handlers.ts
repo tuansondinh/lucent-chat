@@ -454,6 +454,11 @@ export function registerIpcHandlers(
       pushEvent(win, 'event:approval-request', { paneId, ...req })
       broadcast?.('event:approval-request', { paneId, ...req })
     })
+    pane.agentBridge.on('ui-select-request', (req) => {
+      const win = getMainWindow()
+      pushEvent(win, 'event:ui-select-request', { paneId, ...req })
+      broadcast?.('event:ui-select-request', { paneId, ...req })
+    })
   }
 
   const registerClassifierForwardingForPane = (paneId: string): void => {
@@ -498,7 +503,7 @@ export function registerIpcHandlers(
       }
 
       // 3. LLM classifier
-      const projectInstructions = await fs.readFile(join(pane.projectRoot, 'CLAUDE.md'), 'utf8').catch(() => undefined)
+      const projectInstructions = await fs.readFile(join(pane.projectRoot, 'LUCENT.md'), 'utf8').catch(() => undefined)
       const context = {
         userMessages: pane.orchestrator.getUserMessages().slice(-10),
         projectInstructions,
@@ -554,6 +559,10 @@ export function registerIpcHandlers(
     } else {
       bridge.respondToApproval(id, approved)
     }
+  })
+
+  ipcMain.handle('cmd:ui-select-respond', (_event, paneId: string, id: string, selected: string | string[]) => {
+    paneManager.getPane(paneId)?.agentBridge.respondToUiSelect(id, selected)
   })
 
   // IPC for Auto mode state

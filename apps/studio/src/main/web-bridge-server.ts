@@ -18,6 +18,7 @@
  */
 
 import http from 'node:http'
+import crypto from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { join, extname } from 'node:path'
 import { readFile } from 'node:fs/promises'
@@ -43,6 +44,8 @@ export interface WebBridgeServerOptions {
   staticDir?: string
   /** Callback to get the voice sidecar's localhost port and auth token (if running). */
   getVoiceEndpoint?: () => { port: number; token: string } | null
+  /** Address to bind to. Defaults to '127.0.0.1'. Use '0.0.0.0' for Tailscale. */
+  bindAddress?: string
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -67,6 +70,7 @@ const BLOCKED_CMDS = new Set([
   'terminal-resize',
   'terminal-destroy',
   'pick-folder',
+  'fs-write-file',
   // fs write ops (these are read-only allowed)
 ])
 
@@ -132,7 +136,7 @@ export class WebBridgeServer extends EventEmitter {
     })
 
     return new Promise((resolve, reject) => {
-      this.server!.listen(port, '0.0.0.0', () => {
+      this.server!.listen(port, this.options.bindAddress ?? '127.0.0.1', () => {
         console.log(`[WebBridgeServer] listening on port ${port}`)
         resolve()
       })
@@ -200,7 +204,18 @@ export class WebBridgeServer extends EventEmitter {
     // Only API endpoints require a token; static assets are open (network auth via Tailscale).
     if (!isLocalhostRequest(req) && url.startsWith('/api/')) {
       const authHeader = req.headers.authorization ?? ''
-      if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== this.options.token) {
+      if (!authHeader.startsWith('Bearer ')) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        return
+      }
+      const incoming = authHeader.slice(7)
+      let tokenMatch = false
+      try {
+        tokenMatch = incoming.length === this.options.token.length &&
+          crypto.timingSafeEqual(Buffer.from(incoming), Buffer.from(this.options.token))
+      } catch { tokenMatch = false }
+      if (!tokenMatch) {
         res.writeHead(401, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Unauthorized' }))
         return
@@ -263,6 +278,16 @@ export class WebBridgeServer extends EventEmitter {
     }
   }
 
+  // Security-sensitive settings keys that remote clients cannot modify
+  private static readonly REMOTE_BLOCKED_SETTING_KEYS = new Set([
+    'permissionMode',
+    'remoteAccessToken',
+    'autoModeRules',
+    'remoteAccessEnabled',
+    'remoteAccessPort',
+    'tailscaleServeEnabled',
+  ])
+
   private handleCommand(
     name: string,
     req: http.IncomingMessage,
@@ -275,11 +300,25 @@ export class WebBridgeServer extends EventEmitter {
       return
     }
 
+    const MAX_BODY = 10 * 1024 * 1024 // 10MB
+    let bodySize = 0
     let body = ''
+    let bodySizeLimitExceeded = false
+
     req.on('data', (chunk: Buffer) => {
+      if (bodySizeLimitExceeded) return
+      bodySize += chunk.length
+      if (bodySize > MAX_BODY) {
+        bodySizeLimitExceeded = true
+        res.writeHead(413, { 'Content-Type': 'application/json', ...this.corsHeaders(origin) })
+        res.end(JSON.stringify({ error: 'Request body too large' }))
+        req.destroy()
+        return
+      }
       body += chunk.toString()
     })
     req.on('end', () => {
+      if (bodySizeLimitExceeded) return
       let parsed: { args?: unknown[] } = {}
       try {
         parsed = JSON.parse(body || '{}') as { args?: unknown[] }
@@ -290,6 +329,15 @@ export class WebBridgeServer extends EventEmitter {
       }
 
       const args = Array.isArray(parsed.args) ? parsed.args : []
+
+      // For remote set-settings, strip security-sensitive fields
+      if (name === 'set-settings' && args.length > 0 && typeof args[0] === 'object' && args[0] !== null) {
+        const patch = args[0] as Record<string, unknown>
+        for (const key of WebBridgeServer.REMOTE_BLOCKED_SETTING_KEYS) {
+          delete patch[key]
+        }
+      }
+
       this.options
         .dispatchCmd(name, args)
         .then((result) => {
@@ -346,11 +394,24 @@ export class WebBridgeServer extends EventEmitter {
         // Expect { type: "auth", token: "..." }
         // Localhost connections bypass token validation (same as HTTP handler).
         const m = msg as Record<string, unknown>
-        if (m.type === 'auth' && (isLocalhostRequest(req) || m.token === this.options.token)) {
-          authenticated = true
-          clearTimeout(authTimeout)
-          this.clients.add(ws)
-          ws.send(JSON.stringify({ type: 'auth_ok' }))
+        if (m.type === 'auth') {
+          let wsTokenMatch = false
+          if (isLocalhostRequest(req)) {
+            wsTokenMatch = true
+          } else if (typeof m.token === 'string') {
+            try {
+              wsTokenMatch = m.token.length === this.options.token.length &&
+                crypto.timingSafeEqual(Buffer.from(m.token), Buffer.from(this.options.token))
+            } catch { wsTokenMatch = false }
+          }
+          if (wsTokenMatch) {
+            authenticated = true
+            clearTimeout(authTimeout)
+            this.clients.add(ws)
+            ws.send(JSON.stringify({ type: 'auth_ok' }))
+          } else {
+            ws.close(1008, 'Invalid token')
+          }
         } else {
           ws.close(1008, 'Invalid token')
         }
@@ -410,7 +471,16 @@ export class WebBridgeServer extends EventEmitter {
           return
         }
 
-        if (msg.type === 'auth' && (isLocalhostRequest(req) || msg.token === this.options.token)) {
+        let voiceTokenMatch = false
+        if (isLocalhostRequest(req)) {
+          voiceTokenMatch = true
+        } else if (typeof msg.token === 'string') {
+          try {
+            voiceTokenMatch = msg.token.length === this.options.token.length &&
+              crypto.timingSafeEqual(Buffer.from(msg.token), Buffer.from(this.options.token))
+          } catch { voiceTokenMatch = false }
+        }
+        if (msg.type === 'auth' && voiceTokenMatch) {
           authenticated = true
           clearTimeout(authTimeout)
 
