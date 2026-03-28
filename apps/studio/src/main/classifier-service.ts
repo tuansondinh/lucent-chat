@@ -158,7 +158,7 @@ Decision (ALLOW/DENY)?`
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'Content-Length': data.length
+          'Content-Length': Buffer.byteLength(data)
         },
         timeout: 10000 // 10s timeout
       }, (res) => {
