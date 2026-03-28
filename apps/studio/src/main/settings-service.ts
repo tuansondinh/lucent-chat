@@ -54,8 +54,11 @@ export interface AppSettings {
   // Permission mode
   // ---------------------------------------------------------------------------
 
-  /** Agent file-mutation permission mode. danger-full-access = no approval prompts; accept-on-edit = prompt before each file change. */
-  permissionMode?: 'danger-full-access' | 'accept-on-edit'
+  /** Agent file-mutation permission mode. danger-full-access = no approval prompts; accept-on-edit = prompt before each file change; auto = classifier-based. */
+  permissionMode?: 'danger-full-access' | 'accept-on-edit' | 'auto'
+
+  /** Rules for Auto mode. */
+  autoModeRules?: Array<{ toolName: string; pattern: string; decision: 'allow' | 'deny' }>
 }
 
 // ============================================================================
@@ -72,6 +75,13 @@ const DEFAULTS: AppSettings = {
   remoteAccessPort: 8788,
   tailscaleServeEnabled: false,
   permissionMode: 'danger-full-access',
+  autoModeRules: [
+    { toolName: 'bash', pattern: 'git *', decision: 'allow' },
+    { toolName: 'bash', pattern: 'npm *', decision: 'allow' },
+    { toolName: 'bash', pattern: 'rm *', decision: 'deny' },
+    { toolName: 'bash', pattern: 'sudo *', decision: 'deny' },
+    { toolName: 'bash', pattern: 'chmod *', decision: 'deny' },
+  ],
 }
 
 // ============================================================================

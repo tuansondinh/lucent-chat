@@ -479,4 +479,32 @@ export class WebBridge implements Bridge {
   approvalRespond(paneId: string, id: string, approved: boolean): Promise<void> {
     return this.cmd('approval-respond', paneId, id, approved)
   }
+
+  // -------------------------------------------------------------------------
+  // Classifier / auto mode — forwarded through bridge server
+  // -------------------------------------------------------------------------
+
+  onClassifierDecision(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:classifier-decision', cb)
+  }
+
+  getAutoModeState(paneId: string): Promise<{ consecutive: number; total: number; paused: boolean }> {
+    return this.cmd('get-auto-mode-state', paneId)
+  }
+
+  resumeAutoMode(paneId: string): Promise<{ consecutive: number; total: number; paused: boolean }> {
+    return this.cmd('resume-auto-mode', paneId)
+  }
+
+  onAutoModeResumed(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:auto-mode-resumed', cb)
+  }
+
+  togglePanePermissionMode(paneId: string): Promise<'danger-full-access' | 'accept-on-edit' | 'auto'> {
+    return this.cmd('toggle-pane-permission-mode', paneId)
+  }
+
+  onPanePermissionModeChanged(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:pane-permission-mode-changed', cb)
+  }
 }

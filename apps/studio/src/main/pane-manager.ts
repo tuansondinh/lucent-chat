@@ -29,7 +29,7 @@ export interface PaneRuntime {
   accessRoot: string
   attachBridge: () => void
   /** Per-pane permission mode — independent of global settings. */
-  permissionMode: 'danger-full-access' | 'accept-on-edit'
+  permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
 }
 
 // ============================================================================
@@ -204,10 +204,19 @@ export class PaneManager {
    * Toggle the permission mode for a single pane and restart its agent with the new env.
    * Returns the new mode.
    */
-  async togglePanePermissionMode(id: string): Promise<'danger-full-access' | 'accept-on-edit'> {
+  async togglePanePermissionMode(id: string): Promise<'danger-full-access' | 'accept-on-edit' | 'auto'> {
     const pane = this.panes.get(id)
     if (!pane) return 'danger-full-access'
-    const next = pane.permissionMode === 'danger-full-access' ? 'accept-on-edit' : 'danger-full-access'
+
+    let next: 'danger-full-access' | 'accept-on-edit' | 'auto'
+    if (pane.permissionMode === 'danger-full-access') {
+      next = 'accept-on-edit'
+    } else if (pane.permissionMode === 'accept-on-edit') {
+      next = 'auto'
+    } else {
+      next = 'danger-full-access'
+    }
+
     pane.permissionMode = next
     try {
       await pane.agentBridge.setPermissionMode(next)

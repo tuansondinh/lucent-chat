@@ -894,4 +894,47 @@ describe('pane-store', () => {
       expect(usePanesStore.getState().splitPending).toBe(true)
     })
   })
+
+  describe('autoModeState', () => {
+    it('should have default autoModeState with paused=false and zero counts', () => {
+      const store = createPaneChatStore('test-pane')
+      const state = store.getState()
+
+      expect(state.autoModeState).toBeDefined()
+      expect(state.autoModeState.paused).toBe(false)
+      expect(state.autoModeState.consecutiveBlocks).toBe(0)
+      expect(state.autoModeState.totalBlocks).toBe(0)
+    })
+
+    it('should update autoModeState via setAutoModeState', () => {
+      const store = createPaneChatStore('test-pane')
+      store.getState().setAutoModeState({ paused: true, consecutiveBlocks: 3, totalBlocks: 7 })
+
+      const state = store.getState()
+      expect(state.autoModeState.paused).toBe(true)
+      expect(state.autoModeState.consecutiveBlocks).toBe(3)
+      expect(state.autoModeState.totalBlocks).toBe(7)
+    })
+
+    it('should reset autoModeState when paused is cleared', () => {
+      const store = createPaneChatStore('test-pane')
+      store.getState().setAutoModeState({ paused: true, consecutiveBlocks: 3, totalBlocks: 20 })
+      store.getState().setAutoModeState({ paused: false, consecutiveBlocks: 0, totalBlocks: 0 })
+
+      const state = store.getState()
+      expect(state.autoModeState.paused).toBe(false)
+      expect(state.autoModeState.consecutiveBlocks).toBe(0)
+      expect(state.autoModeState.totalBlocks).toBe(0)
+    })
+
+    it('should isolate autoModeState across panes', () => {
+      const store1 = createPaneChatStore('pane-auto-1')
+      const store2 = createPaneChatStore('pane-auto-2')
+
+      store1.getState().setAutoModeState({ paused: true, consecutiveBlocks: 3, totalBlocks: 10 })
+
+      expect(store1.getState().autoModeState.paused).toBe(true)
+      expect(store2.getState().autoModeState.paused).toBe(false)
+    })
+  })
 })

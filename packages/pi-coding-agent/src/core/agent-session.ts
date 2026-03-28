@@ -79,6 +79,12 @@ import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocatio
 import { buildSystemPrompt } from "./system-prompt.js";
 import type { BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
+import {
+	getPermissionMode,
+	MUTATING_TOOLS,
+	READ_ONLY_TOOLS,
+	requestClassifierDecision,
+} from "./tool-approval.js";
 
 // ============================================================================
 // Skill Block Parsing
@@ -499,6 +505,27 @@ export class AgentSession {
 		this.agent.setBeforeToolCall(async ({ toolCall, args }) => {
 			// Wait for all queued agent events to settle before emitting to extensions
 			await this._agentEventQueue;
+
+			// Handle Auto mode classifier check
+			const mode = getPermissionMode();
+			if (mode === "auto") {
+				if (READ_ONLY_TOOLS.has(toolCall.name)) {
+					return undefined;
+				}
+				if (MUTATING_TOOLS.has(toolCall.name)) {
+					const approved = await requestClassifierDecision({
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						args,
+					});
+					if (!approved) {
+						return {
+							block: true,
+							reason: `Auto mode blocked ${toolCall.name} (classifier denied)`,
+						};
+					}
+				}
+			}
 
 			if (!this._extensionRunner?.hasHandlers("tool_call")) return undefined;
 

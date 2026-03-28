@@ -41,7 +41,7 @@ export interface RendererSettings {
   voiceOptIn?: boolean
   hasTavilyKey: boolean
   /** Agent file-mutation permission mode. */
-  permissionMode?: 'danger-full-access' | 'accept-on-edit'
+  permissionMode?: 'danger-full-access' | 'accept-on-edit' | 'auto'
   remoteAccessEnabled?: boolean
   remoteAccessPort?: number
   remoteAccessToken?: string
@@ -434,13 +434,46 @@ const bridge = {
   approvalRespond: (paneId: string, id: string, approved: boolean): Promise<void> =>
     ipcRenderer.invoke('cmd:approval-respond', paneId, id, approved),
 
+  /** Subscribe to classifier decisions. Returns unsubscribe function. */
+  onClassifierDecision: (
+    cb: (data: {
+      paneId: string
+      toolName: string
+      approved: boolean
+      source: 'rule' | 'classifier' | 'cache' | 'fallback' | 'timeout'
+    }) => void
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:classifier-decision', handler)
+    return () => ipcRenderer.removeListener('event:classifier-decision', handler)
+  },
+
+  /** Get the current auto mode state for a pane. */
+  getAutoModeState: (
+    paneId: string
+  ): Promise<{ consecutive: number; total: number; paused: boolean }> =>
+    ipcRenderer.invoke('cmd:get-auto-mode-state', paneId),
+
+  /** Resume auto mode for a pane (unpauses if it was paused). */
+  resumeAutoMode: (
+    paneId: string
+  ): Promise<{ consecutive: number; total: number; paused: boolean }> =>
+    ipcRenderer.invoke('cmd:resume-auto-mode', paneId),
+
+  /** Subscribe to auto mode resumed events. Returns unsubscribe function. */
+  onAutoModeResumed: (cb: (data: { paneId: string }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:auto-mode-resumed', handler)
+    return () => ipcRenderer.removeListener('event:auto-mode-resumed', handler)
+  },
+
   /** Toggle the permission mode for a specific pane. Returns the new mode. */
-  togglePanePermissionMode: (paneId: string): Promise<'danger-full-access' | 'accept-on-edit'> =>
+  togglePanePermissionMode: (paneId: string): Promise<'danger-full-access' | 'accept-on-edit' | 'auto'> =>
     ipcRenderer.invoke('cmd:toggle-pane-permission-mode', paneId),
 
   /** Subscribe to per-pane permission mode changes. Returns unsubscribe function. */
   onPanePermissionModeChanged: (
-    cb: (data: { paneId: string; mode: 'danger-full-access' | 'accept-on-edit' }) => void,
+    cb: (data: { paneId: string; mode: 'danger-full-access' | 'accept-on-edit' | 'auto' }) => void,
   ): (() => void) => {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:pane-permission-mode-changed', handler)
