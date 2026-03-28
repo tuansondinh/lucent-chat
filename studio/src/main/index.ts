@@ -189,6 +189,7 @@ app.whenReady().then(async () => {
     onDone: (d) => pushEvent(mainWindow, 'event:agent-done', { paneId: 'pane-0', ...d }),
     onToolStart: (d) => pushEvent(mainWindow, 'event:tool-start', { paneId: 'pane-0', ...d }),
     onToolEnd: (d) => pushEvent(mainWindow, 'event:tool-end', { paneId: 'pane-0', ...d }),
+    onToolUpdate: (d) => pushEvent(mainWindow, 'event:tool-update', { paneId: 'pane-0', ...d }),
     onTurnState: (d) => pushEvent(mainWindow, 'event:turn-state', { paneId: 'pane-0', ...d }),
     onError: (d) => pushEvent(mainWindow, 'event:error', { paneId: 'pane-0', ...d }),
     onThinkingStart: (d) => pushEvent(mainWindow, 'event:thinking-start', { paneId: 'pane-0', ...d }),

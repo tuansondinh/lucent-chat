@@ -276,7 +276,7 @@ const bridge = {
   },
 
   /** Tool execution started. Returns unsubscribe function. */
-  onToolStart: (cb: (data: { paneId: string; turn_id: string; tool: string; input: unknown }) => void): (() => void) => {
+  onToolStart: (cb: (data: { paneId: string; turn_id: string; toolCallId: string; tool: string; input: unknown }) => void): (() => void) => {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:tool-start', handler)
     return () => ipcRenderer.removeListener('event:tool-start', handler)
@@ -284,11 +284,20 @@ const bridge = {
 
   /** Tool execution ended. Returns unsubscribe function. */
   onToolEnd: (
-    cb: (data: { paneId: string; turn_id: string; tool: string; output: unknown; isError: boolean }) => void
+    cb: (data: { paneId: string; turn_id: string; toolCallId: string; tool: string; output: unknown; isError: boolean }) => void
   ): (() => void) => {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:tool-end', handler)
     return () => ipcRenderer.removeListener('event:tool-end', handler)
+  },
+
+  /** Tool sub-activity update (from subagent). Returns unsubscribe function. */
+  onToolUpdate: (
+    cb: (data: { paneId: string; turn_id: string; toolCallId: string; tool: string; subItems: Array<{ type: 'text' | 'toolCall'; text?: string; name?: string; args?: Record<string, any> }> }) => void
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:tool-update', handler)
+    return () => ipcRenderer.removeListener('event:tool-update', handler)
   },
 
   /** Turn state changed. Returns unsubscribe function. */

@@ -7,7 +7,7 @@
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
-import { type ChatMessage, type AgentHealth, type ContentBlock } from './chat'
+import { type ChatMessage, type AgentHealth, type ContentBlock, type SubItem } from './chat'
 
 // ============================================================================
 // Open file tab model
@@ -64,8 +64,12 @@ export interface PaneChatState {
   addUserMessage: (text: string, turn_id: string) => void
   appendChunk: (turn_id: string, text: string) => void
   finalizeMessage: (turn_id: string, full_text: string) => void
-  addToolCall: (turn_id: string, tool: string, input: unknown) => void
-  finalizeToolCall: (turn_id: string, tool: string, output: unknown, isError: boolean) => void
+  addToolCall: (turn_id: string, toolCallId: string, tool: string, input: unknown) => void
+  finalizeToolCall: (turn_id: string, toolCallId: string, output: unknown, isError: boolean) => void
+  /** Replace sub-activity items on a specific tool_use block (matched by toolCallId). */
+  updateToolSubItems: (turn_id: string, toolCallId: string, subItems: SubItem[]) => void
+  /** Mark all in-flight (done=false) tool_use blocks as errored. */
+  markAllToolsErrored: (turn_id: string) => void
   addThinking: (turn_id: string) => void
   appendThinkingChunk: (turn_id: string, text: string) => void
   finalizeThinking: (turn_id: string, text: string) => void
@@ -247,7 +251,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         return { messages, isGenerating: false }
       }),
 
-    addToolCall: (turn_id, tool, input) =>
+    addToolCall: (turn_id, toolCallId, tool, input) =>
       set((s) => {
         let messages = ensureAssistantMessage(s.messages, turn_id)
         messages = messages.map((m) => {
@@ -257,30 +261,60 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
             ...m,
             contentBlocks: [
               ...m.contentBlocks,
-              { type: 'tool_use' as const, id, tool, input, done: false },
+              { type: 'tool_use' as const, id, toolCallId, tool, input, done: false },
             ],
           }
         })
         return { messages }
       }),
 
-    finalizeToolCall: (turn_id, tool, output, isError) =>
-      set((s) => {
-        return {
-          messages: s.messages.map((m) => {
-            if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-            let matched = false
-            const contentBlocks = m.contentBlocks.map((b) => {
-              if (b.type === 'tool_use' && b.tool === tool && !b.done && !matched) {
-                matched = true
-                return { ...b, output, isError, done: true }
+    finalizeToolCall: (turn_id, toolCallId, output, isError) =>
+      set((s) => ({
+        messages: s.messages.map((m) => {
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          const contentBlocks = m.contentBlocks.map((b) => {
+            if (b.type === 'tool_use' && b.toolCallId === toolCallId && !b.done) {
+              // Clear subItems when finalized — final output replaces them
+              return { ...b, output, isError, done: true, subItems: undefined }
+            }
+            return b
+          })
+          return { ...m, contentBlocks }
+        }),
+      })),
+
+    updateToolSubItems: (turn_id, toolCallId, subItems) =>
+      set((s) => ({
+        messages: s.messages.map((m) => {
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          const contentBlocks = m.contentBlocks.map((b) => {
+            if (b.type === 'tool_use' && b.toolCallId === toolCallId && !b.done) {
+              const toolCallCount = subItems.filter((si) => si.type === 'toolCall').length
+              return {
+                ...b,
+                subItems,
+                subItemCount: (b.subItemCount ?? 0) + toolCallCount,
               }
-              return b
-            })
-            return { ...m, contentBlocks }
-          }),
-        }
-      }),
+            }
+            return b
+          })
+          return { ...m, contentBlocks }
+        }),
+      })),
+
+    markAllToolsErrored: (turn_id) =>
+      set((s) => ({
+        messages: s.messages.map((m) => {
+          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
+          const contentBlocks = m.contentBlocks.map((b) => {
+            if (b.type === 'tool_use' && !b.done) {
+              return { ...b, done: true, isError: true }
+            }
+            return b
+          })
+          return { ...m, contentBlocks }
+        }),
+      })),
 
     addThinking: (turn_id) =>
       set((s) => {

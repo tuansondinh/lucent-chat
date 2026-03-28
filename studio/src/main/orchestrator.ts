@@ -32,11 +32,20 @@ export interface Turn {
   created_at: number
 }
 
+/** Sub-activity item from a subagent tool call. */
+export interface SubItem {
+  type: 'text' | 'toolCall'
+  text?: string
+  name?: string
+  args?: Record<string, any>
+}
+
 export interface OrchestratorCallbacks {
   onChunk: (data: { turn_id: string; text: string }) => void
   onDone: (data: { turn_id: string; full_text: string }) => void
-  onToolStart: (data: { turn_id: string; tool: string; input: any }) => void
-  onToolEnd: (data: { turn_id: string; tool: string; output: any; isError: boolean }) => void
+  onToolStart: (data: { turn_id: string; toolCallId: string; tool: string; input: any }) => void
+  onToolEnd: (data: { turn_id: string; toolCallId: string; tool: string; output: any; isError: boolean }) => void
+  onToolUpdate: (data: { turn_id: string; tool: string; toolCallId: string; subItems: SubItem[] }) => void
   onTurnState: (data: { turn_id: string; state: TurnState }) => void
   onError: (data: { source: string; message: string }) => void
   onThinkingStart: (data: { turn_id: string }) => void
@@ -160,6 +169,24 @@ export class Orchestrator extends EventEmitter {
     let agentEndReceived = false
     let firstActivityReceived = false
 
+    // Rolling idle safety timer — reset on every event, fires after 5 min of silence
+    let safetyTimerHandle: ReturnType<typeof setTimeout> | null = null
+    const resetSafetyTimer = () => {
+      if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
+      safetyTimerHandle = setTimeout(() => {
+        if (!agentEndReceived) {
+          console.warn('[orchestrator] safety timeout: no agent_end received, releasing lock')
+          clearTimeout(firstActivityTimer)
+          unsubscribe()
+          this.callbacks.onError({ source: 'orchestrator', message: 'Generation timed out (5 min idle)' })
+          if (turn.state !== 'aborted') {
+            this.setTurnState(turn, 'idle')
+          }
+          this.releaseLock()
+        }
+      }, 5 * 60 * 1000)
+    }
+
     // Set up event listener BEFORE sending prompt to avoid missing events
     const unsubscribe = this.agentBridge.onAgentEvent((event: any) => {
       if (turn.state === 'aborted') return
@@ -167,6 +194,9 @@ export class Orchestrator extends EventEmitter {
         firstActivityReceived = true
         clearTimeout(firstActivityTimer)
       }
+
+      // Reset rolling idle timer on every event
+      resetSafetyTimer()
 
       if (event.type === 'message_update') {
         // Extract events from the assistantMessageEvent
@@ -248,18 +278,48 @@ export class Orchestrator extends EventEmitter {
       } else if (event.type === 'tool_execution_start') {
         this.callbacks.onToolStart({
           turn_id: turn.turn_id,
+          toolCallId: event.toolCallId ?? '',
           tool: event.toolName ?? event.tool_name ?? '',
           input: event.args ?? {},
+        })
+      } else if (event.type === 'tool_execution_update') {
+        // Extract subItems from partialResult.details.results[].messages[]
+        const subItems: SubItem[] = []
+        const results: any[] = event.partialResult?.details?.results ?? []
+        for (const result of results) {
+          const messages: any[] = result.messages ?? []
+          for (const msg of messages) {
+            if (msg.role !== 'assistant') continue
+            const content: any[] = Array.isArray(msg.content) ? msg.content : []
+            for (const block of content) {
+              if (block.type === 'text' && typeof block.text === 'string') {
+                subItems.push({ type: 'text', text: block.text })
+              } else if (block.type === 'toolCall' || block.type === 'tool_use') {
+                subItems.push({
+                  type: 'toolCall',
+                  name: block.name ?? block.tool_name ?? '',
+                  args: block.arguments ?? block.input ?? {},
+                })
+              }
+            }
+          }
+        }
+        this.callbacks.onToolUpdate({
+          turn_id: turn.turn_id,
+          tool: event.toolName ?? '',
+          toolCallId: event.toolCallId ?? '',
+          subItems,
         })
       } else if (event.type === 'tool_execution_end') {
         this.callbacks.onToolEnd({
           turn_id: turn.turn_id,
+          toolCallId: event.toolCallId ?? '',
           tool: event.toolName ?? event.tool_name ?? '',
           output: event.result ?? {},
           isError: event.isError ?? false,
         })
       } else if (event.type === 'agent_process_exit') {
-        clearTimeout(safetyTimer)
+        if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         clearTimeout(firstActivityTimer)
         unsubscribe()
         this.callbacks.onError({
@@ -272,7 +332,7 @@ export class Orchestrator extends EventEmitter {
         this.releaseLock()
       } else if (event.type === 'agent_end') {
         agentEndReceived = true
-        clearTimeout(safetyTimer)
+        if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         clearTimeout(firstActivityTimer)
         unsubscribe()
 
@@ -300,7 +360,7 @@ export class Orchestrator extends EventEmitter {
     const firstActivityTimer = setTimeout(() => {
       if (!firstActivityReceived) {
         console.warn('[orchestrator] first-activity timeout: no response from agent')
-        clearTimeout(safetyTimer)
+        if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
         unsubscribe()
         this.callbacks.onError({
           source: 'orchestrator',
@@ -313,24 +373,13 @@ export class Orchestrator extends EventEmitter {
       }
     }, 30_000)
 
-    // Safety: if agent_end never arrives (crash, stuck), release lock after 5 minutes
-    const safetyTimer = setTimeout(() => {
-      if (!agentEndReceived) {
-        console.warn('[orchestrator] safety timeout: no agent_end received, releasing lock')
-        clearTimeout(firstActivityTimer)
-        unsubscribe()
-        this.callbacks.onError({ source: 'orchestrator', message: 'Generation timed out (5 min)' })
-        if (turn.state !== 'aborted') {
-          this.setTurnState(turn, 'idle')
-        }
-        this.releaseLock()
-      }
-    }, 5 * 60 * 1000)
+    // Start the rolling idle safety timer
+    resetSafetyTimer()
 
     try {
       await this.agentBridge.prompt(turn.text)
     } catch (err: any) {
-      clearTimeout(safetyTimer)
+      if (safetyTimerHandle) clearTimeout(safetyTimerHandle)
       unsubscribe()
       console.error('[orchestrator] prompt error:', err.message)
       this.callbacks.onError({ source: 'agent', message: err.message })
