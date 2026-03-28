@@ -32,11 +32,35 @@ describe('Button Component', () => {
     expect(button).toBeInTheDocument()
     expect(button.tagName).toBe('BUTTON')
     expect(button.className).toBeTruthy()
+    // Check for specific Tailwind classes that provide padding, background, and border
+    expect(button.className).toContain('px-4') // horizontal padding
+    expect(button.className).toContain('py-2') // vertical padding
+    expect(button.className).toContain('bg-blue-600') // background color
+    expect(button.className).toContain('rounded') // border radius
   })
 
   it('renders as a button element', () => {
     render(<Button>Button Element</Button>)
     const button = screen.getByRole('button', { name: 'Button Element' })
     expect(button).toBeInTheDocument()
+  })
+
+  it('handles multiple clicks correctly', () => {
+    const handleClick = vi.fn()
+    render(<Button onClick={handleClick}>Click me</Button>)
+    
+    const button = screen.getByText('Click me')
+    fireEvent.click(button)
+    fireEvent.click(button)
+    fireEvent.click(button)
+    
+    expect(handleClick).toHaveBeenCalledTimes(3)
+  })
+
+  it('can be clicked without onClick handler', () => {
+    render(<Button>Click me</Button>)
+    
+    const button = screen.getByText('Click me')
+    expect(() => fireEvent.click(button)).not.toThrow()
   })
 })
