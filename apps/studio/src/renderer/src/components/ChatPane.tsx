@@ -75,7 +75,7 @@ function PaneFooter({
     return () => observer.disconnect()
   }, [])
 
-  const showModeLabel = footerWidth > 420
+  const showModeLabel = footerWidth > 320
 
   const shortRoot = projectRoot
     ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
@@ -225,6 +225,7 @@ function PaneFooter({
               : permissionMode === 'accept-on-edit'
               ? 'Accept Edits'
               : 'Bypass Permissions'}
+            <span className="ml-1 opacity-50 font-normal">⇧Tab</span>
           </span>
         )}
       </button>
@@ -727,27 +728,6 @@ export function ChatPane({
       if (queuedPrompt) return
       setQueuedPrompt({ label: displayText, text, imageDataUrl })
       return
-    }
-
-    // /command detection — check if text starts with a /trigger
-    if (text.startsWith('/') && !imageDataUrl) {
-      const parts = text.slice(1).split(/\s+/)
-      const trigger = parts[0]
-      const skillInput = parts.slice(1).join(' ')
-
-      if (trigger && bridge.skillExecute) {
-        try {
-          // First add the user message to chat
-          const fakeTurnId = `skill-${Date.now()}`
-          store.getState().addUserMessage(displayText, fakeTurnId)
-          await bridge.skillExecute(paneId, trigger, skillInput)
-          return
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : `Skill "${trigger}" failed`
-          store.getState().addErrorMessage(msg)
-          return
-        }
-      }
     }
 
     try {

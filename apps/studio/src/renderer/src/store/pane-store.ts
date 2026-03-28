@@ -7,7 +7,7 @@
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand'
-import { type ChatMessage, type AgentHealth, type ContentBlock, type SkillBlock, type SkillStepState, type SubItem } from './chat'
+import { type ChatMessage, type AgentHealth, type ContentBlock, type SubItem } from './chat'
 
 // ============================================================================
 // Open file tab model
@@ -581,61 +581,6 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         const filtered = s.recentFiles.filter((p) => p !== relativePath)
         return { recentFiles: [relativePath, ...filtered].slice(0, 10) }
       }),
-
-    addSkillBlock: (turn_id, skillId, skillName, trigger, totalSteps) =>
-      set((s) => {
-        // Add skill block to a "skill" role message (or create assistant message placeholder)
-        // We attach skill blocks to the nearest recent assistant message, or create one
-        let messages = ensureAssistantMessage(s.messages, turn_id)
-        messages = messages.map((m) => {
-          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-          const block: SkillBlock = {
-            type: 'skill',
-            id: skillId,
-            skillId,
-            skillName,
-            trigger,
-            steps: Array.from({ length: totalSteps }, (_, i): SkillStepState => ({
-              index: i,
-              status: 'pending',
-            })),
-            totalSteps,
-            status: 'running',
-            startedAt: Date.now(),
-          }
-          return { ...m, contentBlocks: [...m.contentBlocks, block] }
-        })
-        return { messages }
-      }),
-
-    updateSkillStep: (skillId, stepIndex, status, output, error) =>
-      set((s) => ({
-        messages: s.messages.map((m) => {
-          if (m.role !== 'assistant') return m
-          const contentBlocks = m.contentBlocks.map((b) => {
-            if (b.type !== 'skill' || (b as SkillBlock).skillId !== skillId) return b
-            const skill = b as SkillBlock
-            const steps = skill.steps.map((step) => {
-              if (step.index !== stepIndex) return step
-              return { ...step, status, ...(output !== undefined ? { output } : {}), ...(error !== undefined ? { error } : {}) }
-            })
-            return { ...skill, steps }
-          })
-          return { ...m, contentBlocks }
-        }),
-      })),
-
-    finalizeSkillBlock: (skillId, status) =>
-      set((s) => ({
-        messages: s.messages.map((m) => {
-          if (m.role !== 'assistant') return m
-          const contentBlocks = m.contentBlocks.map((b) => {
-            if (b.type !== 'skill' || (b as SkillBlock).skillId !== skillId) return b
-            return { ...b, status, endedAt: Date.now() } as SkillBlock
-          })
-          return { ...m, contentBlocks }
-        }),
-      })),
   }))
 }
 

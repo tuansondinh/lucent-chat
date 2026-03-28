@@ -7,7 +7,7 @@ Status: draft
 
 ## Phases
 
-1. [ ] Phase 1: Types, RPC Protocol, and Settings — complexity: standard
+1. [x] Phase 1: Types, RPC Protocol, and Settings — complexity: standard
    - Extend `PermissionMode` type to include `'auto'` in `tool-approval.ts`
    - Update `getPermissionMode()` to recognize `'auto'` from `GSD_STUDIO_PERMISSION_MODE` env var
    - Add `classifier_request` stdout event type and `classifier_response` stdin type to `rpc-types.ts`
@@ -22,7 +22,7 @@ Status: draft
    - Update `togglePanePermissionMode()` to cycle through three states: danger-full-access → accept-on-edit → auto
    - Update renderer `pane-store.ts` permissionMode type to include `'auto'`
 
-2. [ ] Phase 2: Agent-Side beforeToolCall Gate — complexity: standard
+2. [x] Phase 2: Agent-Side beforeToolCall Gate — complexity: standard
    - Define `READ_ONLY_TOOLS` set (`read`, `grep`, `find`, `ls`, `lsp`, `hashline_read`) and `MUTATING_TOOLS` set (`bash`, `edit`, `write`, `hashline_edit`) in `tool-approval.ts`
    - Extend `_installAgentToolHooks()` in `agent-session.ts`: after existing extension hook, check `getPermissionMode() === 'auto'`
    - Read-only tools → return `undefined` (auto-approve, no classifier)
@@ -30,7 +30,7 @@ Status: draft
    - Handle concurrent classifier requests (multiple tools in parallel execution) — each gets its own pending promise
    - Ensure `requestFileChangeApproval()` short-circuits for `'auto'` mode (it already does since `'auto' !== 'accept-on-edit'`)
 
-3. [ ] Phase 3: ClassifierService on Host — complexity: standard
+3. [x] Phase 3: ClassifierService on Host — complexity: standard
    - Create new `apps/studio/src/main/classifier-service.ts`
    - Implement `evaluateRules(toolName, args, rules)`: pattern-matching with glob wildcards, deny rules checked first then allow
    - For bash: match against `command` arg; for edit/write: match against `file_path` arg

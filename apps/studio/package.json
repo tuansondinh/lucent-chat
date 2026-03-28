@@ -23,10 +23,13 @@
     "pack:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder --dir --arm64",
     "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
     "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
-    "dist:mac:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --arm64",
-    "dist:mac:x64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --x64",
-    "dist:mac:universal": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder -m --universal",
-    "release": "npm run build && npm run bundle-runtime && electron-builder -m --publish never"
+    "dist:mac:arm64": "npm run build && npm run bundle-runtime && electron-builder -m --arm64",
+    "dist:mac:x64": "npm run build && npm run bundle-runtime && electron-builder -m --x64",
+    "dist:mac:universal": "npm run build && npm run bundle-runtime && electron-builder -m --universal",
+    "release": "npm run build && npm run bundle-runtime && electron-builder -m --publish never",
+    "release:arm64": "node scripts/release.cjs",
+    "release:arm64:notarize": "node scripts/release.cjs --notarize",
+    "release:arm64:dry": "node scripts/release.cjs --dry-run"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
@@ -82,6 +85,7 @@
     "appId": "com.lucent.chat",
     "productName": "Lucent Chat",
     "electronVersion": "41.0.3",
+    "afterSign": "notarize.cjs",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -95,7 +99,8 @@
     "extraResources": [
       {
         "from": "../../packages/pi-coding-agent/bundle",
-        "to": "runtime"
+        "to": "runtime",
+        "filter": ["**/*"]
       },
       {
         "from": "audio-service",
@@ -107,18 +112,12 @@
       }
     ],
     "mac": {
-      "identity": null,
+      "identity": "Tuan Son Dinh (34UMY69QMK)",
       "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "universal"
-          ]
-        },
         {
           "target": "zip",
           "arch": [
-            "universal"
+            "arm64"
           ]
         }
       ],

@@ -28,6 +28,7 @@ import {
 	registerStdioClassifierHandler,
 	resolveApprovalResponse,
 	resolveClassifierResponse,
+	setFileChangeApprovalHandler,
 } from "../../core/tool-approval.js";
 import type {
 	RpcCommand,
@@ -60,6 +61,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 	if (process.env.GSD_STUDIO_PERMISSION_MODE === "auto") {
 		registerStdioClassifierHandler();
 	}
+
 
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
 		process.stdout.write(serializeJsonLine(obj));
@@ -704,6 +706,21 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 				}
 
 				return success(id, "get_commands", { commands });
+			}
+
+			// =================================================================
+			// Permission mode
+			// =================================================================
+
+			case "set_permission_mode": {
+				const mode = command.mode;
+				process.env.GSD_STUDIO_PERMISSION_MODE = mode;
+				if (mode === "accept-on-edit") {
+					registerStdioApprovalHandler();
+				} else {
+					setFileChangeApprovalHandler(null);
+				}
+				return success(id, "set_permission_mode");
 			}
 
 			case "terminal_input": {

@@ -15,11 +15,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
-import type { ChatMessage as ChatMsg, ContentBlock, SkillBlock as SkillBlockType, SubItem } from '../store/chat'
+import type { ChatMessage as ChatMsg, ContentBlock, SubItem } from '../store/chat'
 import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { SkillProgressBlock } from './SkillProgressBlock'
 import {
   ChevronRight,
   ChevronDown,
@@ -763,6 +762,18 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
 }
 
 // ============================================================================
+// Unknown block fallback — forward-compat collapsed info block
+// ============================================================================
+
+function UnknownBlockFallback({ block }: { block: { type: string; id: string; [key: string]: unknown } }) {
+  return (
+    <div className="mt-2 mb-1 rounded-md border border-border/40 px-2.5 py-1.5 text-xs font-mono text-text-tertiary bg-bg-tertiary/60">
+      [{block.type}]
+    </div>
+  )
+}
+
+// ============================================================================
 // Main ChatMessage component
 // ============================================================================
 
@@ -847,10 +858,6 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
                     <div key={block.id} className="mt-2 mb-1">
                       <ToolCallItem tc={block} />
                     </div>
-                  )
-                case 'skill':
-                  return (
-                    <SkillProgressBlock key={block.id} block={block as SkillBlockType} />
                   )
                 default:
                   // Forward-compat: render unknown block types as collapsed info blocks

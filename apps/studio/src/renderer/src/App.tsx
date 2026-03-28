@@ -891,9 +891,10 @@ export default function App() {
         onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
         onOpenFile={handleOpenFile}
         onRunSkill={(trigger) => {
-          if (bridge.skillExecute) {
-            bridge.skillExecute(activePaneId, trigger, '').catch(() => {})
-          }
+          const text = `/${trigger}`
+          bridge.prompt(activePaneId, text).then((turn_id) => {
+            getPaneStore(activePaneId).getState().addUserMessage(text, turn_id)
+          }).catch(() => {})
         }}
         isGenerating={activePaneGenerating}
         canSplit={paneCount < 4}

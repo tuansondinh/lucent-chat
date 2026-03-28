@@ -411,51 +411,6 @@ const bridge = {
   skillList: (): Promise<Array<{ name: string; description: string; trigger: string; stepCount: number }>> =>
     ipcRenderer.invoke('cmd:skill-list'),
 
-  /** Execute a skill by trigger with optional user input context. Returns skillId. */
-  skillExecute: (paneId: string, trigger: string, input: string): Promise<string> =>
-    ipcRenderer.invoke('cmd:skill-execute', paneId, trigger, input),
-
-  /** Abort a running skill execution. */
-  skillAbort: (skillId: string): Promise<void> =>
-    ipcRenderer.invoke('cmd:skill-abort', skillId),
-
-  // -------------------------------------------------------------------------
-  // Skill events (main → renderer)
-  // -------------------------------------------------------------------------
-
-  /** Subscribe to skill step progress events. Returns unsubscribe function. */
-  onSkillProgress: (
-    cb: (data: {
-      skillId: string
-      skillName: string
-      trigger: string
-      stepIndex: number
-      totalSteps: number
-      status: 'running' | 'done' | 'error' | 'aborted'
-      output?: string
-      error?: string
-    }) => void,
-  ): (() => void) => {
-    const handler = (_e: any, data: any) => cb(data)
-    ipcRenderer.on('event:skill-progress', handler)
-    return () => ipcRenderer.removeListener('event:skill-progress', handler)
-  },
-
-  /** Subscribe to skill completion events. Returns unsubscribe function. */
-  onSkillComplete: (
-    cb: (data: {
-      skillId: string
-      skillName: string
-      trigger: string
-      status: 'done' | 'error' | 'aborted'
-      outputs: string[]
-    }) => void,
-  ): (() => void) => {
-    const handler = (_e: any, data: any) => cb(data)
-    ipcRenderer.on('event:skill-complete', handler)
-    return () => ipcRenderer.removeListener('event:skill-complete', handler)
-  },
-
   // -------------------------------------------------------------------------
   // Approval RPC — bidirectional file change approval for accept-on-edit mode
   // -------------------------------------------------------------------------

@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { getPaneStore, deletePaneStore, createPaneChatStore, usePanesStore, splitLeaf, removeLeaf, collectLeafIds, countLeaves } from './pane-store'
+import { getPaneStore, deletePaneStore, createPaneChatStore, usePanesStore, splitNode, removeLeaf, collectLeafIds, countLeaves } from './pane-store'
 import type { PaneChatState, OpenFile, LayoutNode } from './pane-store'
 
 describe('pane-store', () => {
@@ -138,7 +138,7 @@ describe('pane-store', () => {
     it('should add tool calls', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
+      store.getState().addToolCall('turn-1', 'call-1', 'read_file', { path: '/test.txt' })
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -152,8 +152,8 @@ describe('pane-store', () => {
     it('should finalize tool calls', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
-      store.getState().finalizeToolCall('turn-1', 'tc-1', 'file content', false)
+      store.getState().addToolCall('turn-1', 'call-1', 'read_file', { path: '/test.txt' })
+      store.getState().finalizeToolCall('turn-1', 'call-1', 'file content', false)
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -165,8 +165,8 @@ describe('pane-store', () => {
     it('should handle multiple tool calls in the same turn', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test1.txt' })
-      store.getState().addToolCall('turn-1', 'tc-2', 'read_file', { path: '/test2.txt' })
+      store.getState().addToolCall('turn-1', 'call-1', 'read_file', { path: '/test1.txt' })
+      store.getState().addToolCall('turn-1', 'call-2', 'read_file', { path: '/test2.txt' })
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -244,7 +244,7 @@ describe('pane-store', () => {
     it('should mark incomplete tool calls as errors on finalization', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
+      store.getState().addToolCall('turn-1', 'call-1', 'read_file', { path: '/test.txt' })
       store.getState().finalizeMessage('turn-1', 'Response')
 
       const state = store.getState()
@@ -716,10 +716,10 @@ describe('pane-store', () => {
       })
     })
 
-    describe('splitLeaf', () => {
+    describe('splitNode', () => {
       it('should split a leaf node', () => {
         const root: LayoutNode = { type: 'leaf', paneId: 'pane-1' }
-        const result = splitLeaf(root, 'pane-1', 'pane-2', 'horizontal', 'split-1')
+        const result = splitNode(root, 'pane-1', 'pane-2', 'horizontal', 'split-1')
 
         expect(result.inserted).toBe(true)
         if (result.layout.type === 'split') {
@@ -731,7 +731,7 @@ describe('pane-store', () => {
 
       it('should not split if target pane not found', () => {
         const root: LayoutNode = { type: 'leaf', paneId: 'pane-1' }
-        const result = splitLeaf(root, 'pane-2', 'pane-3', 'horizontal', 'split-1')
+        const result = splitNode(root, 'pane-2', 'pane-3', 'horizontal', 'split-1')
 
         expect(result.inserted).toBe(false)
         expect(result.layout).toEqual(root)
@@ -747,7 +747,7 @@ describe('pane-store', () => {
             { type: 'leaf', paneId: 'pane-2' },
           ],
         }
-        const result = splitLeaf(root, 'pane-2', 'pane-3', 'vertical', 'split-2')
+        const result = splitNode(root, 'pane-2', 'pane-3', 'vertical', 'split-2')
 
         expect(result.inserted).toBe(true)
         const leaves = collectLeafIds(result.layout)
