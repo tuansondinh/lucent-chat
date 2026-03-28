@@ -56,6 +56,10 @@ class MockAgentBridge extends EventEmitter {
 }
 
 // Helper to create a mock callbacks collector
+// Helper: yield to the microtask queue so async operations (acquireLock + runTurn
+// startup) have a chance to run before assertions are made.
+const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
+
 function createCallbackCollector() {
   const events: any[] = []
   const callbacks: OrchestratorCallbacks = {
@@ -63,6 +67,7 @@ function createCallbackCollector() {
     onDone: (data) => events.push({ type: 'done', ...data }),
     onToolStart: (data) => events.push({ type: 'tool-start', ...data }),
     onToolEnd: (data) => events.push({ type: 'tool-end', ...data }),
+    onToolUpdate: (data) => events.push({ type: 'tool-update', ...data }),
     onTurnState: (data) => events.push({ type: 'state', ...data }),
     onError: (data) => events.push({ type: 'error', ...data }),
     onThinkingStart: (data) => events.push({ type: 'thinking-start', ...data }),
@@ -92,18 +97,23 @@ test('Orchestrator: all 8 states are reachable', async (t) => {
   assert.ok(queuedEvent, 'should have queued state')
   assert.equal(queuedEvent.turn_id, turnId)
 
-  // Simulate generation starting
-  agentBridge.simulateEvent({
-    type: 'message_update',
-    assistantMessageEvent: { type: 'text_start' },
-  })
+  // Await a microtask tick so acquireLock().then(runTurn) executes and sets 'generating'
+  await tick()
 
-  // Find the generating state event (transitioned from queued to generating)
+  // Find the generating state event (runTurn sets it synchronously on start)
   const generatingEvent = events.find((e) => e.type === 'state' && e.state === 'generating')
   assert.ok(generatingEvent, 'should have generating state')
 
   // For voice input, test listening -> transcribing -> speaking -> playback_pending
-  // These are set via setVoicePhase
+  // setVoicePhase only affects voice-type turns, so we need a voice turn
+  // Abort the text turn first, then submit a voice turn
+  await orchestrator.abortCurrentTurn()
+  events.length = 0
+
+  agentBridge.reset()
+  const voiceTurnId = orchestrator.submitTurn('voice input', 'voice')
+  await tick()
+
   orchestrator.setVoicePhase('listening')
   const listeningEvent = events.find((e) => e.type === 'state' && e.state === 'listening')
   assert.ok(listeningEvent, 'should have listening state')
@@ -131,6 +141,10 @@ test('Orchestrator: all 8 states are reachable', async (t) => {
   events.length = 0
 
   const turnId2 = orchestrator.submitTurn('test')
+
+  // Await a tick so runTurn starts and its listener is registered
+  await tick()
+
   agentBridge.simulateEvent({
     type: 'agent_end',
     messages: [{ role: 'assistant', content: [{ type: 'text', text: 'response' }] }],
@@ -159,6 +173,9 @@ test('Orchestrator: followUp bypasses lock', async (t) => {
   // Both should be queued
   const queuedEvents = events.filter((e) => e.type === 'state' && e.state === 'queued')
   assert.equal(queuedEvents.length, 2, 'both turns should be queued')
+
+  // Await a tick so acquireLock().then(runTurn) fires and sends the normal-turn prompt
+  await tick()
 
   // The followUp should prompt immediately without waiting for lock
   assert.ok(agentBridge.prompts.length >= 2, 'both prompts should be sent')
@@ -201,6 +218,9 @@ test('Orchestrator: duplicate/late agent_end handling', async (t) => {
   const orchestrator = new Orchestrator(agentBridge, callbacks)
 
   const turnId = orchestrator.submitTurn('test')
+
+  // Await a tick so runTurn starts and registers its event listener
+  await tick()
 
   // Send first agent_end
   agentBridge.simulateEvent({
@@ -297,6 +317,9 @@ test('Orchestrator: queue semantics - concurrent turns are serialized', async (t
   const queuedEvents = events.filter((e) => e.type === 'state' && e.state === 'queued')
   assert.equal(queuedEvents.length, 3, 'all turns should be queued')
 
+  // Await a tick so acquireLock().then(runTurn) executes for the first turn
+  await tick()
+
   // Only first should be in generating state
   const generatingEvents = events.filter((e) => e.type === 'state' && e.state === 'generating')
   assert.equal(generatingEvents.length, 1, 'only first turn should be generating')
@@ -320,6 +343,9 @@ test('Orchestrator: partial-stream cases - missing text_delta', async (t) => {
   const orchestrator = new Orchestrator(agentBridge, callbacks)
 
   const turnId = orchestrator.submitTurn('test')
+
+  // Await a tick so runTurn starts and registers its event listener
+  await tick()
 
   // Send only agent_end without any text_delta events
   agentBridge.simulateEvent({
