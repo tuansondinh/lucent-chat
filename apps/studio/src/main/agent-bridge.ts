@@ -77,6 +77,15 @@ export interface ClassifierRequest {
   args: any
 }
 
+export interface UiSelectRequest {
+  id: string
+  method: 'select'
+  title: string
+  options: string[]
+  allowMultiple?: boolean
+  timeout?: number
+}
+
 export class AgentBridge extends EventEmitter {
   private proc: ChildProcess | null = null
   private stopReading: (() => void) | null = null
@@ -241,6 +250,12 @@ export class AgentBridge extends EventEmitter {
       return
     }
 
+    // Intercept select UI requests — emit so the host can show interactive UI
+    if (data.type === 'extension_ui_request' && data.method === 'select' && typeof data.id === 'string') {
+      this.emit('ui-select-request', data as UiSelectRequest)
+      return
+    }
+
     // Otherwise treat as an event and broadcast
     this.emit('agent-event', data)
   }
@@ -257,6 +272,19 @@ export class AgentBridge extends EventEmitter {
     const msg = serializeJsonLine({ type: 'approval_response', id, approved })
     this.proc.stdin.write(msg)
     this.emit('approval-responded', { id, approved })
+  }
+
+  /**
+   * Send a UI select response back to the agent stdin.
+   * Called by ipc-handlers after the user makes a selection in the UI.
+   */
+  respondToUiSelect(id: string, selected: string | string[]): void {
+    if (!this.proc?.stdin) {
+      console.warn('[agent-bridge] respondToUiSelect: no agent process stdin available')
+      return
+    }
+    const msg = serializeJsonLine({ type: 'extension_ui_response', id, selected })
+    this.proc.stdin.write(msg)
   }
 
   /**

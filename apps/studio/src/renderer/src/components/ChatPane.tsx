@@ -23,6 +23,70 @@ import { getCapabilities } from '../lib/capabilities'
 import { chrome } from '../lib/theme'
 
 // ============================================================================
+// UiSelectCard — shown when agent emits extension_ui_request / ask_user_questions
+// ============================================================================
+
+interface UiSelectRequest {
+  paneId: string
+  id: string
+  method: 'select'
+  title: string
+  options: string[]
+  allowMultiple?: boolean
+  timeout?: number
+}
+
+function UiSelectCard({
+  request,
+  onRespond,
+}: {
+  request: UiSelectRequest
+  onRespond: (selected: string | string[]) => void
+}) {
+  const [selected, setSelected] = useState<string[]>([])
+
+  const toggle = (opt: string) => {
+    if (request.allowMultiple) {
+      setSelected((prev) =>
+        prev.includes(opt) ? prev.filter((s) => s !== opt) : [...prev, opt],
+      )
+    } else {
+      onRespond(opt)
+    }
+  }
+
+  return (
+    <div className="mx-4 mb-2 flex flex-col gap-2 px-3 py-3 bg-accent/5 border border-accent/30 rounded-lg text-sm">
+      <p className="font-medium text-text-primary">{request.title}</p>
+      <div className="flex flex-wrap gap-2">
+        {request.options.map((opt) => (
+          <button
+            key={opt}
+            onClick={() => toggle(opt)}
+            className={[
+              'px-3 py-1.5 rounded border text-xs font-medium transition-colors',
+              selected.includes(opt)
+                ? 'bg-accent text-white border-accent'
+                : 'bg-bg-secondary text-text-primary border-border hover:border-accent hover:text-accent',
+            ].join(' ')}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+      {request.allowMultiple && selected.length > 0 && (
+        <button
+          onClick={() => onRespond(selected)}
+          className="self-start px-3 py-1.5 rounded bg-accent text-white text-xs font-semibold hover:bg-accent/80 transition-colors"
+        >
+          Confirm ({selected.length})
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
 // ThinkingBubble (local copy to avoid circular dep with App.tsx)
 // ============================================================================
 
@@ -349,6 +413,7 @@ export function ChatPane({
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
+  const [pendingUiSelect, setPendingUiSelect] = useState<UiSelectRequest | null>(null)
   const autoModeState = store((s) => s.autoModeState)
 
   // Helper to map bridge response to store shape
@@ -802,6 +867,27 @@ export function ChatPane({
     }
   }, [bridge, pendingApproval])
 
+  // Listen for UI select requests for THIS pane
+  useEffect(() => {
+    const b = bridge as any
+    if (typeof b.onUiSelectRequest !== 'function') return
+    return b.onUiSelectRequest((req: UiSelectRequest) => {
+      if (req.paneId !== paneId) return
+      setPendingUiSelect(req)
+    })
+  }, [bridge, paneId])
+
+  const handleUiSelectRespond = useCallback(async (selected: string | string[]) => {
+    if (!pendingUiSelect) return
+    setPendingUiSelect(null)
+    try {
+      const b = bridge as any
+      await b.uiSelectRespond?.(pendingUiSelect.paneId, pendingUiSelect.id, selected)
+    } catch (err) {
+      console.error('[ui-select] failed to send response:', err)
+    }
+  }, [bridge, pendingUiSelect])
+
   // Keyboard shortcuts for approval card: Cmd+Enter = allow, Escape = deny
   useEffect(() => {
     if (!pendingApproval) return
@@ -963,6 +1049,14 @@ export function ChatPane({
           <ApprovalCard
             request={pendingApproval}
             onRespond={(approved) => void handleApprovalRespond(approved)}
+          />
+        )}
+
+        {/* Inline UI select card — shown when agent emits ask_user_questions */}
+        {pendingUiSelect && (
+          <UiSelectCard
+            request={pendingUiSelect}
+            onRespond={(selected) => void handleUiSelectRespond(selected)}
           />
         )}
 

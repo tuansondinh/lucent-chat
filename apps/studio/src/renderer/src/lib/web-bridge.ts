@@ -488,6 +488,14 @@ export class WebBridge implements Bridge {
     return this.cmd('approval-respond', paneId, id, approved)
   }
 
+  onUiSelectRequest(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:ui-select-request', cb)
+  }
+
+  uiSelectRespond(paneId: string, id: string, selected: string | string[]): Promise<void> {
+    return this.cmd('ui-select-respond', paneId, id, selected)
+  }
+
   // -------------------------------------------------------------------------
   // Classifier / auto mode — forwarded through bridge server
   // -------------------------------------------------------------------------

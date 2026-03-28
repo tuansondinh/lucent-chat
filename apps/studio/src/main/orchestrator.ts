@@ -54,6 +54,7 @@ export interface OrchestratorCallbacks {
   onThinkingEnd: (data: { turn_id: string; text: string }) => void
   onTextBlockStart: (data: { turn_id: string }) => void
   onTextBlockEnd: (data: { turn_id: string }) => void
+  onTurnComplete?: () => void
 }
 
 // ============================================================================
@@ -443,6 +444,7 @@ export class Orchestrator extends EventEmitter {
 
         this.callbacks.onDone({ turn_id: turn.turn_id, full_text: fullText })
         this.emit('done', { turn_id: turn.turn_id, full_text: fullText })
+        this.callbacks.onTurnComplete?.()
         this.setTurnState(turn, 'idle')
         this.releaseLock()
       }

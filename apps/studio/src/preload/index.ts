@@ -44,7 +44,6 @@ export interface RendererSettings {
   permissionMode?: 'danger-full-access' | 'accept-on-edit' | 'auto'
   remoteAccessEnabled?: boolean
   remoteAccessPort?: number
-  remoteAccessToken?: string
   tailscaleServeEnabled?: boolean
 }
 
@@ -441,6 +440,27 @@ const bridge = {
   /** Send an approval decision (Allow/Deny) back to the agent. */
   approvalRespond: (paneId: string, id: string, approved: boolean): Promise<void> =>
     ipcRenderer.invoke('cmd:approval-respond', paneId, id, approved),
+
+  /** Subscribe to extension UI select requests from the agent. Returns unsubscribe function. */
+  onUiSelectRequest: (
+    cb: (data: {
+      paneId: string
+      id: string
+      method: 'select'
+      title: string
+      options: string[]
+      allowMultiple?: boolean
+      timeout?: number
+    }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:ui-select-request', handler)
+    return () => ipcRenderer.removeListener('event:ui-select-request', handler)
+  },
+
+  /** Send a UI select response back to the agent. */
+  uiSelectRespond: (paneId: string, id: string, selected: string | string[]): Promise<void> =>
+    ipcRenderer.invoke('cmd:ui-select-respond', paneId, id, selected),
 
   /** Subscribe to classifier decisions. Returns unsubscribe function. */
   onClassifierDecision: (
