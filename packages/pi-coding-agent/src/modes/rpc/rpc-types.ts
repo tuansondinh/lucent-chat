@@ -66,6 +66,10 @@ export type RpcCommand =
 	// Commands (available for invocation via prompt)
 	| { id?: string; type: "get_commands" }
 
+	// Approval / Classifier responses (from host)
+	| { id: string; type: "approval_response"; approved: boolean }
+	| { id: string; type: "classifier_response"; approved: boolean }
+
 	// Bridge-hosted native terminal
 	| { id?: string; type: "terminal_input"; data: string }
 	| { id?: string; type: "terminal_resize"; cols: number; rows: number }
@@ -259,7 +263,9 @@ export type RpcExtensionUIRequest =
 			widgetPlacement?: "aboveEditor" | "belowEditor";
 	  }
 	| { type: "extension_ui_request"; id: string; method: "setTitle"; title: string }
-	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string };
+	| { type: "extension_ui_request"; id: string; method: "set_editor_text"; text: string }
+	| { type: "approval_request"; id: string; action: string; path: string; message: string }
+	| { type: "classifier_request"; id: string; toolName: string; toolCallId: string; args: any };
 
 // ============================================================================
 // Extension UI Commands (stdin)

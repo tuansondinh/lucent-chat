@@ -138,7 +138,7 @@ describe('pane-store', () => {
     it('should add tool calls', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'read_file', { path: '/test.txt' })
+      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -152,8 +152,8 @@ describe('pane-store', () => {
     it('should finalize tool calls', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'read_file', { path: '/test.txt' })
-      store.getState().finalizeToolCall('turn-1', 'read_file', 'file content', false)
+      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
+      store.getState().finalizeToolCall('turn-1', 'tc-1', 'file content', false)
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -165,8 +165,8 @@ describe('pane-store', () => {
     it('should handle multiple tool calls in the same turn', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'read_file', { path: '/test1.txt' })
-      store.getState().addToolCall('turn-1', 'read_file', { path: '/test2.txt' })
+      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test1.txt' })
+      store.getState().addToolCall('turn-1', 'tc-2', 'read_file', { path: '/test2.txt' })
 
       const state = store.getState()
       const lastMessage = state.messages[state.messages.length - 1]
@@ -244,7 +244,7 @@ describe('pane-store', () => {
     it('should mark incomplete tool calls as errors on finalization', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')
-      store.getState().addToolCall('turn-1', 'read_file', { path: '/test.txt' })
+      store.getState().addToolCall('turn-1', 'tc-1', 'read_file', { path: '/test.txt' })
       store.getState().finalizeMessage('turn-1', 'Response')
 
       const state = store.getState()

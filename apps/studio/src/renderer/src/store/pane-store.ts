@@ -63,7 +63,7 @@ export interface PaneChatState {
   /** Last 10 opened file paths (relative), most recent first. */
   recentFiles: string[]
   /** Per-pane permission mode. */
-  permissionMode: 'danger-full-access' | 'accept-on-edit'
+  permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
 
   // Actions
   addUserMessage: (text: string, turn_id: string) => void
@@ -105,7 +105,7 @@ export interface PaneChatState {
   /** Add a file to the recent files list (most recent first, capped at 10). */
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
-  setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit') => void
+  setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit' | 'auto') => void
   /** Add a new skill block to a turn's assistant message. */
   addSkillBlock: (turn_id: string, skillId: string, skillName: string, trigger: string, totalSteps: number) => void
   /** Update a skill step's progress. */
@@ -755,6 +755,11 @@ export function splitNode(
 
   return { layout: root, inserted: false }
 }
+
+/**
+ * Alias for splitNode — exported under the legacy name used in tests.
+ */
+export const splitLeaf = splitNode
 
 function findFirstLeaf(node: LayoutNode): string {
   if (node.type === 'leaf') return node.paneId

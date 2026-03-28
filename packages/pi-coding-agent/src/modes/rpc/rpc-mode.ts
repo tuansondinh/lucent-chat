@@ -23,7 +23,12 @@ import { type Theme, theme } from "../interactive/theme/theme.js";
 import { createDefaultCommandContextActions } from "../shared/command-context-actions.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import { RemoteTerminal } from "./remote-terminal.js";
-import { registerStdioApprovalHandler, resolveApprovalResponse } from "../../core/tool-approval.js";
+import {
+	registerStdioApprovalHandler,
+	registerStdioClassifierHandler,
+	resolveApprovalResponse,
+	resolveClassifierResponse,
+} from "../../core/tool-approval.js";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -51,6 +56,9 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 	// until the Studio host approves or denies the operation.
 	if (process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit") {
 		registerStdioApprovalHandler();
+	}
+	if (process.env.GSD_STUDIO_PERMISSION_MODE === "auto") {
+		registerStdioClassifierHandler();
 	}
 
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
@@ -761,6 +769,12 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			// Handle approval responses from the Studio host
 			if (parsed.type === "approval_response" && typeof parsed.id === "string") {
 				resolveApprovalResponse(parsed.id, parsed.approved === true);
+				return;
+			}
+
+			// Handle classifier responses from the Studio host
+			if (parsed.type === "classifier_response" && typeof parsed.id === "string") {
+				resolveClassifierResponse(parsed.id, parsed.approved === true);
 				return;
 			}
 

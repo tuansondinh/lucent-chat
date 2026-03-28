@@ -141,10 +141,31 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
   }
 
   if ('permissionMode' in partial) {
-    if (partial.permissionMode !== 'danger-full-access' && partial.permissionMode !== 'accept-on-edit') {
+    if (
+      partial.permissionMode !== 'danger-full-access' &&
+      partial.permissionMode !== 'accept-on-edit' &&
+      partial.permissionMode !== 'auto'
+    ) {
       throw new Error('Invalid permissionMode setting')
     }
     validated.permissionMode = partial.permissionMode
+  }
+
+  if ('autoModeRules' in partial) {
+    const value = partial.autoModeRules
+    if (!Array.isArray(value)) throw new Error('Invalid autoModeRules setting')
+    for (const rule of value) {
+      if (
+        typeof rule !== 'object' ||
+        rule === null ||
+        typeof rule.toolName !== 'string' ||
+        typeof rule.pattern !== 'string' ||
+        (rule.decision !== 'allow' && rule.decision !== 'deny')
+      ) {
+        throw new Error('Invalid autoModeRules rule structure')
+      }
+    }
+    validated.autoModeRules = value as AppSettings['autoModeRules']
   }
 
   const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))
