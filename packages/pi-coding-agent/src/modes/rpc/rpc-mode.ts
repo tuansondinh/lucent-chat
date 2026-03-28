@@ -23,6 +23,7 @@ import { type Theme, theme } from "../interactive/theme/theme.js";
 import { createDefaultCommandContextActions } from "../shared/command-context-actions.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import { RemoteTerminal } from "./remote-terminal.js";
+import { registerStdioApprovalHandler, resolveApprovalResponse } from "../../core/tool-approval.js";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -46,6 +47,12 @@ export type {
  * Listens for JSON commands on stdin, outputs events and responses on stdout.
  */
 export async function runRpcMode(session: AgentSession): Promise<never> {
+	// Register the stdio-based approval handler so edit/write tools block
+	// until the Studio host approves or denies the operation.
+	if (process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit") {
+		registerStdioApprovalHandler();
+	}
+
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
 		process.stdout.write(serializeJsonLine(obj));
 	};
@@ -748,6 +755,12 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 					pendingExtensionRequests.delete(response.id);
 					pending.resolve(response);
 				}
+				return;
+			}
+
+			// Handle approval responses from the Studio host
+			if (parsed.type === "approval_response" && typeof parsed.id === "string") {
+				resolveApprovalResponse(parsed.id, parsed.approved === true);
 				return;
 			}
 

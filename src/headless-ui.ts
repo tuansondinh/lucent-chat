@@ -8,7 +8,7 @@
 
 import type { Readable } from 'node:stream'
 
-import { RpcClient, attachJsonlLineReader, serializeJsonLine } from '@gsd/pi-coding-agent'
+import { RpcClient, attachJsonlLineReader, serializeJsonLine, registerStdioApprovalHandler, resolveApprovalResponse } from '@gsd/pi-coding-agent'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,6 +127,12 @@ export function startSupervisedStdinReader(
           onResponse(msg.id)
         }
         break
+      case 'approval_response':
+        // Resolve the pending approval promise in tool-approval.ts
+        if (typeof msg.id === 'string') {
+          resolveApprovalResponse(msg.id, msg.approved === true)
+        }
+        break
       case 'prompt':
         client.prompt(String(msg.message ?? ''), Array.isArray(msg.images) ? msg.images as any : undefined)
         break
@@ -142,3 +148,10 @@ export function startSupervisedStdinReader(
     }
   })
 }
+
+/**
+ * Register the stdio-based approval handler so that edit/write tools block
+ * until the Studio host approves or denies the operation.
+ * Must be called once during agent startup in supervised mode.
+ */
+export { registerStdioApprovalHandler }

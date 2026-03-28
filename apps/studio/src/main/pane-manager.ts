@@ -79,6 +79,8 @@ export class PaneManager {
     if (settings.tavilyApiKey) {
       agentEnv.TAVILY_API_KEY = settings.tavilyApiKey as string
     }
+    // Pass permission mode so the agent registers the stdio approval handler
+    agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
 
     const processManager = new ProcessManager()
     const agentBridge = new AgentBridge()

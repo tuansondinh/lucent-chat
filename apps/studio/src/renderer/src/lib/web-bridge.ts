@@ -467,4 +467,16 @@ export class WebBridge implements Bridge {
   onVoiceStatus(cb: (data: unknown) => void): () => void {
     return this.bus.on('event:voice-status', cb)
   }
+
+  // -------------------------------------------------------------------------
+  // Approval RPC — bidirectional file change approval for accept-on-edit mode
+  // -------------------------------------------------------------------------
+
+  onApprovalRequest(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:approval-request', cb)
+  }
+
+  approvalRespond(paneId: string, id: string, approved: boolean): Promise<void> {
+    return this.cmd('approval-respond', paneId, id, approved)
+  }
 }

@@ -150,6 +150,13 @@ async function main(): Promise<void> {
       case 'open-external': return null
       case 'set-window-title': return null
       case 'set-window-width': return null
+      case 'approval-respond': {
+        const approvalPane = pane(args)
+        if (approvalPane) {
+          approvalPane.agentBridge.respondToApproval(args[1] as string, args[2] as boolean)
+        }
+        return null
+      }
       default: throw new Error(`Command '${name}' not supported`)
     }
   }
@@ -203,9 +210,16 @@ async function main(): Promise<void> {
     broadcast('event:health', { paneId: 'pane-0', states })
   })
 
+  // Forward approval requests from pane-0 to PWA clients
+  agentBridge.on('approval-request', (req) => {
+    broadcast('event:approval-request', { paneId: 'pane-0', ...req })
+  })
+
   // 9. Spawn agent
   const agentEnv: Record<string, string> = {}
   if (settings.tavilyApiKey) agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
+  // Pass permission mode so the agent registers the stdio approval handler
+  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
   processManager.on('agent-restarting', () => setTimeout(attachAgentBridge, 200))

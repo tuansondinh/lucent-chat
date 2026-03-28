@@ -308,6 +308,16 @@ export {
 } from "./modes/index.js";
 // RPC JSONL utilities
 export { attachJsonlLineReader, serializeJsonLine } from "./modes/rpc/jsonl.js";
+// Tool approval — bidirectional approval RPC for supervised (Studio) mode
+export {
+	type FileChangeApprovalRequest,
+	type PermissionMode,
+	getPermissionMode,
+	registerStdioApprovalHandler,
+	resolveApprovalResponse,
+	requestFileChangeApproval,
+	setFileChangeApprovalHandler,
+} from "./core/tool-approval.js";
 // UI components for extensions
 export {
 	ArminComponent,

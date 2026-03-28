@@ -450,6 +450,29 @@ const bridge = {
   },
 
   // -------------------------------------------------------------------------
+  // Approval RPC — bidirectional file change approval for accept-on-edit mode
+  // -------------------------------------------------------------------------
+
+  /** Subscribe to file change approval requests from the agent. Returns unsubscribe function. */
+  onApprovalRequest: (
+    cb: (data: {
+      paneId: string
+      id: string
+      action: 'write' | 'edit' | 'delete' | 'move'
+      path: string
+      message: string
+    }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:approval-request', handler)
+    return () => ipcRenderer.removeListener('event:approval-request', handler)
+  },
+
+  /** Send an approval decision (Allow/Deny) back to the agent. */
+  approvalRespond: (paneId: string, id: string, approved: boolean): Promise<void> =>
+    ipcRenderer.invoke('cmd:approval-respond', paneId, id, approved),
+
+  // -------------------------------------------------------------------------
   // Voice — not pane-specific (sidecar is app-global)
   // Phase 2 wires the main-process IPC handlers; these are the renderer-side stubs.
   // -------------------------------------------------------------------------

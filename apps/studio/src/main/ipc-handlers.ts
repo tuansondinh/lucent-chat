@@ -43,7 +43,7 @@ export function registerIpcHandlers(
   skillRegistry?: SkillRegistry,
   skillExecutor?: SkillExecutor,
   broadcast?: (channel: string, data: unknown) => void,
-): void {
+): { registerApprovalForwardingForPane: (paneId: string) => void } {
   const approvedPaneRoots = new Set<string>()
 
   for (const paneId of paneManager.getPaneIds()) {
@@ -164,6 +164,8 @@ export function registerIpcHandlers(
       broadcast?.(channel, data)
     })
     fileWatchService.watchPane(pane.id, pane.projectRoot)
+    // Register approval forwarding for the new pane
+    registerApprovalForwardingForPane(pane.id)
     return { paneId: pane.id }
   })
 
@@ -459,6 +461,33 @@ export function registerIpcHandlers(
   }
 
   // --------------------------------------------------------------------------
+  // Approval RPC — bidirectional approval flow for accept-on-edit mode
+  // --------------------------------------------------------------------------
+
+  // Register approval-request listener for each existing pane, and for panes
+  // created later via cmd:pane-create (they call this function indirectly through
+  // the paneManager.createPane callback that already pushes events).
+  const registerApprovalForwardingForPane = (paneId: string): void => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) return
+    pane.agentBridge.on('approval-request', (req) => {
+      const win = getMainWindow()
+      pushEvent(win, 'event:approval-request', { paneId, ...req })
+      broadcast?.('event:approval-request', { paneId, ...req })
+    })
+  }
+
+  for (const paneId of paneManager.getPaneIds()) {
+    registerApprovalForwardingForPane(paneId)
+  }
+
+  // When new panes are created, auto-register the forwarding listener
+  // (paneManager itself doesn't emit events, but pane-create goes through here)
+  ipcMain.handle('cmd:approval-respond', (_event, paneId: string, id: string, approved: boolean) => {
+    paneManager.getPane(paneId)?.agentBridge.respondToApproval(id, approved)
+  })
+
+  // --------------------------------------------------------------------------
   // Voice — not pane-specific (global sidecar)
   // --------------------------------------------------------------------------
 
@@ -485,6 +514,8 @@ export function registerIpcHandlers(
   })
 
   void getMainWindow // referenced by pushEvent callers in index.ts
+
+  return { registerApprovalForwardingForPane }
 }
 
 function isSafeExternalUrl(url: string): boolean {

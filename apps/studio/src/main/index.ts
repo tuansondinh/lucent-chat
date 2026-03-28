@@ -223,11 +223,13 @@ app.whenReady().then(async () => {
   // 6. Resolve initial project root from the app's current working directory.
   const initialProjectRoot = process.cwd()
 
-  // 7. Spawn agent and attach — pass TAVILY_API_KEY if configured in settings
+  // 7. Spawn agent and attach — pass TAVILY_API_KEY and permission mode if configured
   const agentEnv: Record<string, string> = {}
   if (settings.tavilyApiKey) {
     agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   }
+  // Pass permission mode so the agent can register the stdio approval handler
+  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
 
@@ -379,6 +381,14 @@ app.whenReady().then(async () => {
         case 'git-modified-files': return root() ? gitService.getModifiedFiles(root()!) : []
         case 'git-changed-files': return root() ? gitService.getChangedFiles(root()!) : []
         case 'git-file-diff': return root() ? gitService.getFileDiff(root()!, args[1] as string) : null
+        // Approval RPC
+        case 'approval-respond': {
+          const approvalPane = pane()
+          if (approvalPane) {
+            approvalPane.agentBridge.respondToApproval(args[1] as string, args[2] as boolean)
+          }
+          return null
+        }
         // No-ops for remote context
         case 'open-external': return null
         case 'set-window-title': return null

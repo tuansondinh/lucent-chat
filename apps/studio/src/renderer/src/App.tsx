@@ -34,6 +34,7 @@ import { useVoiceStore } from './store/voice-store'
 import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
+import { ApprovalModalContainer } from './components/ApprovalModal'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 import { chrome } from './lib/theme'
 import { useSwipeGesture } from './lib/useSwipeGesture'
@@ -1125,6 +1126,9 @@ export default function App() {
       </PanelGroup>
 
       {sharedOverlays}
+
+      {/* Approval modal — rendered outside of all panels so it is always on top */}
+      <ApprovalModalContainer />
     </div>
   )
 }

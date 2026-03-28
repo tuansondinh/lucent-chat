@@ -63,6 +63,13 @@ function serializeJsonLine(obj: unknown): string {
 // AgentBridge
 // ============================================================================
 
+export interface ApprovalRequest {
+  id: string
+  action: 'write' | 'edit' | 'delete' | 'move'
+  path: string
+  message: string
+}
+
 export class AgentBridge extends EventEmitter {
   private proc: ChildProcess | null = null
   private stopReading: (() => void) | null = null
@@ -208,8 +215,28 @@ export class AgentBridge extends EventEmitter {
       return
     }
 
+    // Intercept approval requests — emit so the host can show a modal,
+    // then write the response back to the agent's stdin.
+    if (data.type === 'approval_request' && typeof data.id === 'string') {
+      this.emit('approval-request', data as ApprovalRequest)
+      return
+    }
+
     // Otherwise treat as an event and broadcast
     this.emit('agent-event', data)
+  }
+
+  /**
+   * Send an approval response back to the agent stdin.
+   * Called by ipc-handlers after the user makes a decision in the modal.
+   */
+  respondToApproval(id: string, approved: boolean): void {
+    if (!this.proc?.stdin) {
+      console.warn('[agent-bridge] respondToApproval: no agent process stdin available')
+      return
+    }
+    const msg = serializeJsonLine({ type: 'approval_response', id, approved })
+    this.proc.stdin.write(msg)
   }
 
   private send(command: Record<string, unknown>): Promise<any> {
