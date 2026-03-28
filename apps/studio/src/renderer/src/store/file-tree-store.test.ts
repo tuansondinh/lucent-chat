@@ -12,9 +12,16 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { getFileTreeStore, deleteFileTreeStore } from './file-tree-store'
 import type { DirEntry } from './file-tree-store'
 
-// Mock window.bridge
+// Mock getBridge so file-tree-store does not hit window.location
 const mockFsListDir = vi.fn()
 const mockGitChangedFiles = vi.fn()
+
+vi.mock('../lib/bridge', () => ({
+  getBridge: () => ({
+    fsListDir: mockFsListDir,
+    gitChangedFiles: mockGitChangedFiles,
+  }),
+}))
 
 beforeEach(() => {
   // Clean up stores first
@@ -36,14 +43,6 @@ beforeEach(() => {
   mockGitChangedFiles.mockResolvedValue([
     { path: 'file1.txt', status: 'M' },
   ])
-
-  // Mock window.bridge
-  global.window = {
-    bridge: {
-      fsListDir: mockFsListDir,
-      gitChangedFiles: mockGitChangedFiles,
-    },
-  } as any
 })
 
 describe('file-tree-store', () => {

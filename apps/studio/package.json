@@ -107,7 +107,7 @@
       }
     ],
     "mac": {
-      "identity": null,
+      "identity": "Tuan Son Dinh (34UMY69QMK)",
       "target": [
         {
           "target": "dmg",
@@ -126,7 +126,7 @@
       "category": "public.app-category.productivity",
       "entitlements": "entitlements.mac.plist",
       "entitlementsInherit": "entitlements.mac.plist",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "This app needs microphone access for voice input.",
