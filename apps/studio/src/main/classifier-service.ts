@@ -1,8 +1,10 @@
 import { request } from 'node:https'
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
+import type { AuthService } from './auth-service.js'
+
+function isOAuthToken(token: string): boolean {
+  return token.includes('sk-ant-oat')
+}
 
 export interface ClassifierRule {
   toolName: string
@@ -32,6 +34,8 @@ export class ClassifierService {
   private cache = new Map<string, { approved: boolean; timestamp: number }>()
   private blockStats = new Map<string, { consecutive: number; total: number; paused: boolean }>()
   private rateLimitState = new Map<string, PaneRateLimitState>()
+
+  constructor(private authService: AuthService) {}
 
   /**
    * Evaluate static rules before calling the LLM classifier.
@@ -80,7 +84,7 @@ export class ClassifierService {
       return { approved: cached.approved, reason: 'Cached decision', source: 'cache' }
     }
 
-    const apiKey = this.getAnthropicKey()
+    const apiKey = await this.authService.getApiKey('anthropic')
     if (!apiKey) {
       // Graceful degradation: no API key → degrade to accept-on-edit behavior (approve)
       return { approved: true, reason: 'No Anthropic API key found — degrading to accept-on-edit behavior', source: 'fallback' }
@@ -143,23 +147,33 @@ Decision (ALLOW/DENY)?`
 
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         max_tokens: 10,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
       })
+
+      const isOAuth = isOAuthToken(apiKey)
+      const headers: Record<string, string | number> = {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'Content-Length': Buffer.byteLength(data),
+      }
+      if (isOAuth) {
+        headers['Authorization'] = `Bearer ${apiKey}`
+        headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20'
+        headers['user-agent'] = 'claude-cli/2.1.62'
+        headers['x-app'] = 'cli'
+      } else {
+        headers['x-api-key'] = apiKey
+      }
 
       const req = request({
         hostname: 'api.anthropic.com',
         port: 443,
         path: '/v1/messages',
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'Content-Length': Buffer.byteLength(data)
-        },
+        headers,
         timeout: 10000 // 10s timeout
       }, (res) => {
         let body = ''
@@ -206,21 +220,6 @@ Decision (ALLOW/DENY)?`
 
   private hash(text: string): string {
     return createHash('sha256').update(text).digest('hex').slice(0, 16)
-  }
-
-  private getAnthropicKey(): string | undefined {
-    if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY
-
-    const authPath = join(homedir(), '.lucent', 'agent', 'auth.json')
-    if (existsSync(authPath)) {
-      try {
-        const auth = JSON.parse(readFileSync(authPath, 'utf8'))
-        return auth.anthropicApiKey
-      } catch {
-        return undefined
-      }
-    }
-    return undefined
   }
 
   private getStats(paneId: string) {

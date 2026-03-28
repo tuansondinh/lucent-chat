@@ -355,9 +355,13 @@ test('phase4: getUserMessages returns a copy (mutating result does not affect in
 // ClassifierService forwarding logic (isolated)
 // ============================================================================
 
+const mockAuthService = {
+  getApiKey: async (provider: string) => 'test-key',
+} as any
+
 test('phase4: classifier forwarding: allow rule match → respondToClassifier(true)', async () => {
   const { ClassifierService } = await import('../src/main/classifier-service.js')
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
 
   const bridge = new MockAgentBridge()
   bridge.attachFakeProc()
@@ -390,7 +394,7 @@ test('phase4: classifier forwarding: allow rule match → respondToClassifier(tr
 
 test('phase4: classifier forwarding: deny rule match → respondToClassifier(false)', async () => {
   const { ClassifierService } = await import('../src/main/classifier-service.js')
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
 
   const bridge = new MockAgentBridge()
   bridge.attachFakeProc()
@@ -420,7 +424,7 @@ test('phase4: classifier forwarding: deny rule match → respondToClassifier(fal
 
 test('phase4: ClassifierService.resume clears paused state', async () => {
   const { ClassifierService } = await import('../src/main/classifier-service.js')
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
 
   // Force paused state by simulating 3 consecutive deny decisions via updateStats (white-box)
   // Instead, use classifyToolCall with no API key — which auto-approves (no key = degraded).
@@ -441,7 +445,7 @@ test('phase4: ClassifierService.resume clears paused state', async () => {
 
 test('phase4: ClassifierService.getPaneState returns correct initial values', async () => {
   const { ClassifierService } = await import('../src/main/classifier-service.js')
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
 
   const state = svc.getPaneState('new-pane')
   assert.equal(state.paused, false)

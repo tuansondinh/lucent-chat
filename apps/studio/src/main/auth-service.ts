@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import * as https from 'node:https'
 import { getOAuthProvider, type OAuthLoginCallbacks } from '@gsd/pi-ai/oauth'
+import { AuthStorage } from '@gsd/pi-coding-agent'
 
 // ============================================================================
 // Types
@@ -78,44 +79,6 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
 
 function getAuthFilePath(): string {
   return join(homedir(), '.lucent', 'agent', 'auth.json')
-}
-
-function ensureAuthFile(authPath: string): void {
-  const dir = dirname(authPath)
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
-  if (!existsSync(authPath)) {
-    writeFileSync(authPath, '{}', { encoding: 'utf-8', mode: 0o600 })
-    chmodSync(authPath, 0o600)
-  }
-}
-
-function readAuthData(authPath: string): StoredCredentialData {
-  ensureAuthFile(authPath)
-  try {
-    const content = readFileSync(authPath, 'utf-8')
-    const parsed = JSON.parse(content)
-    return (typeof parsed === 'object' && parsed !== null) ? (parsed as StoredCredentialData) : {}
-  } catch {
-    return {}
-  }
-}
-
-function writeAuthData(authPath: string, data: StoredCredentialData): void {
-  writeFileSync(authPath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 })
-}
-
-function getCredentials(data: StoredCredentialData, provider: string): StoredCredential[] {
-  const entry = data[provider]
-  if (!entry) return []
-  return Array.isArray(entry) ? entry : [entry]
-}
-
-function mergeApiKey(existing: StoredCredential[], key: string): StoredCredential[] {
-  const alreadyStored = existing.some(
-    (c) => c.type === 'api_key' && (c as ApiKeyCredential).key === key,
-  )
-  if (alreadyStored) return existing
-  return [...existing, { type: 'api_key', key }]
 }
 
 // ============================================================================
@@ -234,6 +197,7 @@ function validateViaHttp(
 
 export class AuthService {
   private readonly authPath = getAuthFilePath()
+  private readonly authStorage = AuthStorage.create(this.authPath)
 
   /** Tracks in-flight OAuth flows by provider ID. */
   private activeFlows = new Map<string, {
@@ -246,11 +210,9 @@ export class AuthService {
   }
 
   getProviderStatuses(): ProviderAuthStatus[] {
-    const data = readAuthData(this.authPath)
+    this.authStorage.reload()
     return PROVIDER_CATALOG.map((entry) => {
-      const creds = getCredentials(data, entry.id)
-      // Configured via auth file if any credential type (api_key or oauth) is stored
-      const hasFileAuth = creds.some((c) => c.type === 'api_key' || c.type === 'oauth')
+      const hasFileAuth = this.authStorage.has(entry.id)
       const hasEnvAuth = (PROVIDER_ENV_VARS[entry.id] ?? []).some(
         (v) => Boolean(process.env[v]),
       )
@@ -281,11 +243,7 @@ export class AuthService {
         providerStatuses: this.getProviderStatuses(),
       }
     }
-    const data = readAuthData(this.authPath)
-    const existing = getCredentials(data, providerId)
-    const merged = mergeApiKey(existing, apiKey)
-    data[providerId] = merged.length === 1 ? merged[0] : merged
-    writeAuthData(this.authPath, data)
+    this.authStorage.set(providerId, { type: 'api_key', key: apiKey })
     return { ok: true, message: 'API key saved', providerStatuses: this.getProviderStatuses() }
   }
 
@@ -294,10 +252,15 @@ export class AuthService {
    * Method name kept as removeApiKey for backward compatibility with existing IPC wiring.
    */
   removeApiKey(providerId: string): ProviderAuthStatus[] {
-    const data = readAuthData(this.authPath)
-    delete data[providerId]
-    writeAuthData(this.authPath, data)
+    this.authStorage.remove(providerId)
     return this.getProviderStatuses()
+  }
+
+  /**
+   * Get an API key for a provider, supporting OAuth refresh.
+   */
+  async getApiKey(providerId: string): Promise<string | undefined> {
+    return this.authStorage.getApiKey(providerId)
   }
 
   /**
@@ -369,12 +332,7 @@ export class AuthService {
       const credentials = await provider.login(callbacks)
 
       // Save OAuth credentials: keep any existing API keys, replace any existing OAuth credential
-      const data = readAuthData(this.authPath)
-      const existing = getCredentials(data, providerId)
-      const apiKeys = existing.filter((c) => c.type === 'api_key')
-      const merged = [...apiKeys, { type: 'oauth' as const, ...credentials }]
-      data[providerId] = merged.length === 1 ? merged[0] : merged
-      writeAuthData(this.authPath, data)
+      this.authStorage.set(providerId, { type: 'oauth' as const, ...credentials })
 
       this.activeFlows.delete(providerId)
       return { ok: true, message: 'Authentication successful', providerStatuses: this.getProviderStatuses() }
@@ -419,3 +377,4 @@ export class AuthService {
     }
   }
 }
+

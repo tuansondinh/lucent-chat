@@ -29,14 +29,18 @@ import type { ClassifierRule, ClassifierContext } from '../src/main/classifier-s
 // evaluateRules tests
 // ============================================================================
 
+const mockAuthService = {
+  getApiKey: async (provider: string) => 'test-key',
+} as any
+
 test('phase3: evaluateRules returns null when rules array is empty', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const result = svc.evaluateRules('bash', { command: 'rm -rf /' }, [])
   assert.equal(result, null)
 })
 
 test('phase3: evaluateRules returns deny for exact deny rule match', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'rm -rf /', decision: 'deny' },
   ]
@@ -45,7 +49,7 @@ test('phase3: evaluateRules returns deny for exact deny rule match', () => {
 })
 
 test('phase3: evaluateRules returns allow for exact allow rule match', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'git status', decision: 'allow' },
   ]
@@ -54,7 +58,7 @@ test('phase3: evaluateRules returns allow for exact allow rule match', () => {
 })
 
 test('phase3: evaluateRules deny rules checked before allow rules (deny wins)', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   // Both deny and allow match the same command — deny should win
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'rm *', decision: 'allow' }, // allow first in array
@@ -65,7 +69,7 @@ test('phase3: evaluateRules deny rules checked before allow rules (deny wins)', 
 })
 
 test('phase3: evaluateRules glob wildcard * matches zero or more chars', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'git *', decision: 'allow' },
   ]
@@ -75,7 +79,7 @@ test('phase3: evaluateRules glob wildcard * matches zero or more chars', () => {
 })
 
 test('phase3: evaluateRules glob wildcard ? matches a single char', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'ls ?', decision: 'allow' },
   ]
@@ -84,7 +88,7 @@ test('phase3: evaluateRules glob wildcard ? matches a single char', () => {
 })
 
 test('phase3: evaluateRules for bash uses command arg', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'sudo *', decision: 'deny' },
   ]
@@ -95,7 +99,7 @@ test('phase3: evaluateRules for bash uses command arg', () => {
 })
 
 test('phase3: evaluateRules for edit uses file_path arg', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'edit', pattern: '/etc/*', decision: 'deny' },
   ]
@@ -104,7 +108,7 @@ test('phase3: evaluateRules for edit uses file_path arg', () => {
 })
 
 test('phase3: evaluateRules for write uses file_path arg', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'write', pattern: '/tmp/*', decision: 'allow' },
   ]
@@ -113,7 +117,7 @@ test('phase3: evaluateRules for write uses file_path arg', () => {
 })
 
 test('phase3: evaluateRules does not cross toolName boundaries', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'bash', pattern: 'rm *', decision: 'deny' },
   ]
@@ -122,7 +126,7 @@ test('phase3: evaluateRules does not cross toolName boundaries', () => {
 })
 
 test('phase3: evaluateRules returns null for unhandled toolName', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const rules: ClassifierRule[] = [
     { toolName: 'read', pattern: '*', decision: 'allow' },
   ]
@@ -136,21 +140,13 @@ test('phase3: evaluateRules returns null for unhandled toolName', () => {
 // ============================================================================
 
 test('phase3: classifyToolCall returns approved=true when no API key (accept-on-edit fallback)', async () => {
-  const svc = new ClassifierService()
-  // Ensure no env key
-  const originalKey = process.env.ANTHROPIC_API_KEY
-  delete process.env.ANTHROPIC_API_KEY
-  // Override getAnthropicKey to return undefined
-  ;(svc as any).getAnthropicKey = () => undefined
+  const noKeyAuthService = { getApiKey: async () => undefined } as any
+  const svc = new ClassifierService(noKeyAuthService)
 
-  try {
-    const context: ClassifierContext = { userMessages: ['do a thing'], projectInstructions: undefined }
-    const result = await svc.classifyToolCall('test-pane', 'bash', { command: 'ls' }, context)
-    assert.equal(result.approved, true, 'no-key degradation should approve (accept-on-edit behavior)')
-    assert.equal(result.source, 'fallback')
-  } finally {
-    if (originalKey !== undefined) process.env.ANTHROPIC_API_KEY = originalKey
-  }
+  const context: ClassifierContext = { userMessages: ['do a thing'], projectInstructions: undefined }
+  const result = await svc.classifyToolCall('test-pane', 'bash', { command: 'ls' }, context)
+  assert.equal(result.approved, true, 'no-key degradation should approve (accept-on-edit behavior)')
+  assert.equal(result.source, 'fallback')
 })
 
 // ============================================================================
@@ -158,7 +154,7 @@ test('phase3: classifyToolCall returns approved=true when no API key (accept-on-
 // ============================================================================
 
 test('phase3: classifyToolCall returns cache hit within 30s', async () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   let apiCallCount = 0
 
   // Override callAnthropicClassifier to track calls
@@ -166,8 +162,6 @@ test('phase3: classifyToolCall returns cache hit within 30s', async () => {
     apiCallCount++
     return true
   }
-  // Override getAnthropicKey to return a fake key
-  ;(svc as any).getAnthropicKey = () => 'test-api-key'
 
   const context: ClassifierContext = { userMessages: ['hello'], projectInstructions: undefined }
   const args = { command: 'git status' }
@@ -184,14 +178,13 @@ test('phase3: classifyToolCall returns cache hit within 30s', async () => {
 })
 
 test('phase3: classifyToolCall bypasses cache for different args', async () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   let apiCallCount = 0
 
   ;(svc as any).callAnthropicClassifier = async () => {
     apiCallCount++
     return true
   }
-  ;(svc as any).getAnthropicKey = () => 'test-api-key'
 
   const context: ClassifierContext = { userMessages: ['hello'] }
 
@@ -206,8 +199,7 @@ test('phase3: classifyToolCall bypasses cache for different args', async () => {
 // ============================================================================
 
 test('phase3: classifyToolCall returns approved=false when pane is paused', async () => {
-  const svc = new ClassifierService()
-  ;(svc as any).getAnthropicKey = () => 'test-api-key'
+  const svc = new ClassifierService(mockAuthService)
 
   // Manually pause the pane
   ;(svc as any).blockStats.set('paused-pane', { consecutive: 3, total: 5, paused: true })
@@ -223,8 +215,7 @@ test('phase3: classifyToolCall returns approved=false when pane is paused', asyn
 // ============================================================================
 
 test('phase3: 3 consecutive denials pause the pane', async () => {
-  const svc = new ClassifierService()
-  ;(svc as any).getAnthropicKey = () => 'test-key'
+  const svc = new ClassifierService(mockAuthService)
   let callCount = 0
   ;(svc as any).callAnthropicClassifier = async () => {
     callCount++
@@ -246,8 +237,7 @@ test('phase3: 3 consecutive denials pause the pane', async () => {
 })
 
 test('phase3: consecutive count resets on approval', async () => {
-  const svc = new ClassifierService()
-  ;(svc as any).getAnthropicKey = () => 'test-key'
+  const svc = new ClassifierService(mockAuthService)
   let approveNext = false
   ;(svc as any).callAnthropicClassifier = async () => approveNext
 
@@ -267,8 +257,7 @@ test('phase3: consecutive count resets on approval', async () => {
 })
 
 test('phase3: 20 total denials pause the pane', async () => {
-  const svc = new ClassifierService()
-  ;(svc as any).getAnthropicKey = () => 'test-key'
+  const svc = new ClassifierService(mockAuthService)
   ;(svc as any).callAnthropicClassifier = async () => false
 
   const context: ClassifierContext = { userMessages: [] }
@@ -291,7 +280,7 @@ test('phase3: 20 total denials pause the pane', async () => {
 // ============================================================================
 
 test('phase3: resume() clears paused state and consecutive count', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   ;(svc as any).blockStats.set('pane-resume', { consecutive: 5, total: 10, paused: true })
 
   svc.resume('pane-resume')
@@ -303,7 +292,7 @@ test('phase3: resume() clears paused state and consecutive count', () => {
 })
 
 test('phase3: getPaneState returns default stats for new pane', () => {
-  const svc = new ClassifierService()
+  const svc = new ClassifierService(mockAuthService)
   const state = svc.getPaneState('brand-new-pane')
   assert.equal(state.paused, false)
   assert.equal(state.consecutive, 0)
@@ -315,8 +304,7 @@ test('phase3: getPaneState returns default stats for new pane', () => {
 // ============================================================================
 
 test('phase3: rate limiting: max 5 concurrent calls per pane, excess are queued', async () => {
-  const svc = new ClassifierService()
-  ;(svc as any).getAnthropicKey = () => 'test-key'
+  const svc = new ClassifierService(mockAuthService)
 
   const callOrder: number[] = []
   let resolvers: Array<() => void> = []

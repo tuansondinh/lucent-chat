@@ -286,7 +286,7 @@ app.whenReady().then(async () => {
 
   // 10. Auth service + IPC handlers
   const authService = new AuthService()
-  const classifierService = new ClassifierService()
+  const classifierService = new ClassifierService(authService)
   const fileService = new FileService()
   const gitService = new GitService()
   fileWatchService = new FileWatchService((channel, data) => {
