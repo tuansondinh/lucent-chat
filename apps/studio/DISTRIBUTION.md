@@ -40,10 +40,11 @@ npm install
 ### Build for Distribution
 
 ```bash
-# Build universal DMG (recommended for distribution)
-npm run dist:mac:universal
+# Build unsigned Apple Silicon ZIP release and publish to GitHub
+npm run release:arm64
 
-# Output: release/Lucent Code-0.1.0-universal.dmg
+# Optional: build a signed and notarized Apple Silicon release
+npm run release:arm64:notarize
 ```
 
 ---
@@ -364,6 +365,19 @@ Example layout:
 ---
 
 ## Automated Release
+
+### Local GitHub Release Flow
+
+```bash
+# Default: unsigned, non-notarized Apple Silicon ZIP + GitHub release
+npm run release:arm64
+
+# Optional: signed + notarized Apple Silicon ZIP + GitHub release
+npm run release:arm64:notarize
+
+# Build the unsigned ZIP locally but skip GitHub release creation
+npm run release:arm64:dry
+```
 
 ### GitHub Actions (Recommended)
 

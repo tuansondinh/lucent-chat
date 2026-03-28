@@ -153,20 +153,20 @@ studio/
 ### One-command release (arm64)
 
 ```bash
-# Build → sign → zip → create GitHub release
+# Build unsigned, no notarization, zip, then create GitHub release
 npm run release:arm64
 
-# Also notarize with Apple (~5 min extra, removes Gatekeeper warning)
+# Also sign and notarize with Apple (~5 min extra, removes Gatekeeper warning)
 npm run release:arm64:notarize
 
-# Dry run — build and sign but skip GitHub upload
+# Dry run — build unsigned zip but skip GitHub upload
 npm run release:arm64:dry
 ```
 
 ### Prerequisites (one-time setup)
 
-1. **Developer ID cert** — install from [developer.apple.com](https://developer.apple.com/account/resources/certificates/list) → Developer ID Application
-2. **`gh` CLI** — `brew install gh && gh auth login`
+1. **`gh` CLI** — `brew install gh && gh auth login`
+2. **Developer ID cert** (for `--notarize` only) — install from [developer.apple.com](https://developer.apple.com/account/resources/certificates/list) → Developer ID Application
 3. **Notarization credentials** (for `--notarize` only):
    ```bash
    xcrun notarytool store-credentials "lucent-code-notary" \
