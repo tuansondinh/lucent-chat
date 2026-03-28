@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { toast } from 'sonner'
-import type { ChatMessage as ChatMsg, ContentBlock } from '../store/chat'
+import type { ChatMessage as ChatMsg, ContentBlock, SubItem } from '../store/chat'
 import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
@@ -262,6 +262,83 @@ function ThinkingBlock({ block }: { block: ThinkingBlockData }) {
 
 type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>
 
+/** Maximum number of sub-activity items to show at once. */
+const MAX_SUB_ITEMS = 8
+
+/**
+ * Returns a short arg summary string (max 40 chars) for a sub-item tool call.
+ * Handles common keys: command (Bash), file_path (Read/Edit/Write), path, query.
+ * Falls back to the first string value found in args, or empty string if none.
+ */
+function formatSubItemArgs(name: string, args?: Record<string, any>): string {
+  if (!args) return ''
+  // Priority key list based on common tool patterns
+  const priorityKeys = ['command', 'file_path', 'path', 'query', 'pattern', 'content']
+  for (const key of priorityKeys) {
+    if (typeof args[key] === 'string' && args[key].length > 0) {
+      const val = args[key] as string
+      // Take only the first line for multiline values (e.g. command content)
+      const firstLine = val.split('\n')[0]
+      return firstLine.slice(0, 40)
+    }
+  }
+  // Fallback: first string value in args
+  for (const val of Object.values(args)) {
+    if (typeof val === 'string' && val.length > 0) {
+      const firstLine = val.split('\n')[0]
+      return firstLine.slice(0, 40)
+    }
+  }
+  return ''
+}
+
+/**
+ * Renders the live activity feed for a running subagent tool call.
+ * Shows up to the last 8 sub-items, with a "... N earlier" line if truncated.
+ */
+function ToolCallActivity({ subItems }: { subItems: SubItem[] }) {
+  const hiddenCount = subItems.length > MAX_SUB_ITEMS ? subItems.length - MAX_SUB_ITEMS : 0
+  const visibleItems = subItems.slice(-MAX_SUB_ITEMS)
+
+  return (
+    <div className="px-2.5 py-1.5 bg-bg-primary/30 border-t border-border/30">
+      {hiddenCount > 0 && (
+        <div className="text-[10px] text-text-tertiary/50 font-mono leading-5 mb-0.5">
+          ... {hiddenCount} earlier
+        </div>
+      )}
+      {visibleItems.map((item, idx) => {
+        if (item.type === 'toolCall') {
+          const argSummary = formatSubItemArgs(item.name, item.args)
+          return (
+            <div
+              key={idx}
+              className="text-[11px] font-mono text-text-tertiary leading-5 truncate"
+            >
+              <span className="text-text-tertiary/60">→ </span>
+              <span>{item.name}</span>
+              {argSummary && (
+                <span className="text-text-tertiary/50 ml-1">{argSummary}</span>
+              )}
+            </div>
+          )
+        }
+        // text item: show first line truncated to 60 chars
+        const preview = item.text.split('\n')[0].slice(0, 60)
+        if (!preview) return null
+        return (
+          <div
+            key={idx}
+            className="text-[11px] font-mono text-text-tertiary/70 leading-5 truncate"
+          >
+            {preview}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -272,6 +349,12 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     : <Loader2 className="size-3.5 text-accent animate-spin flex-shrink-0" />
 
   const hasDetails = tc.input !== undefined || tc.output !== undefined
+
+  // Show live activity feed when running and sub-items are present
+  const showActivity = !tc.done && tc.subItems && tc.subItems.length > 0
+
+  // Show collapsed summary when done and there were sub-item tool calls
+  const showSummary = tc.done && tc.subItemCount && tc.subItemCount > 0
 
   return (
     <div className="rounded-md overflow-hidden border border-border/50">
@@ -308,6 +391,18 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
           <span className="text-text-tertiary text-[10px] ml-auto">running</span>
         )}
       </button>
+
+      {/* Live activity feed: shown when running and subItems present */}
+      {showActivity && (
+        <ToolCallActivity subItems={tc.subItems!} />
+      )}
+
+      {/* Collapsed summary: shown when done with recorded sub-item tool calls */}
+      {showSummary && (
+        <div className="text-[10px] text-text-tertiary/70 px-2.5 py-1 border-t border-border/30 font-mono">
+          {tc.subItemCount} tool calls
+        </div>
+      )}
 
       {expanded && hasDetails && (
         <div className="border-t border-border/50 bg-bg-primary">
