@@ -211,7 +211,7 @@ npm run test:watch   # Watch mode
 ### Running with PWA
 
 The app serves a built PWA on port **8788** via `WebBridgeServer`. Tailscale tunnels this to your MagicDNS HTTPS URL.
-**Note:** `WebBridgeServer` only starts when **Remote Access** is enabled in the app Settings (`remoteAccessEnabled: true`).
+**Note:** `WebBridgeServer` is opt-in and strictly gated; it only starts when **Remote Access** is enabled in the app Settings (`remoteAccessEnabled: true`). The server authenticates all connections with a Bearer token, enforces CORS specifically for Tailscale/localhost origins, and restricts access to sensitive IPC commands.
 
 #### Option A — standalone server (no Electron window needed)
 

@@ -107,30 +107,29 @@
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                    Core Services                                │ │
-│  │  ┌──────────────────┐  ┌──────────────────┐                  │ │
-│  │  │ AgentBridge      │  │ VoiceService     │                  │ │
-│  │  │ • Spawn proc     │  │ • Start sidecar  │                  │ │
-│  │  │ • SendMessage    │  │ • WebSocket      │                  │ │
-│  │  │ • GetState       │  │ • Probe deps     │                  │ │
-│  │  └──────────────────┘  └──────────────────┘                  │ │
-│  │  ┌──────────────────┐  ┌──────────────────┐                  │ │
-│  │  │ SessionService   │  │ FileService      │                  │ │
-│  │  │ • Create/Load    │  │ • Read files     │                  │ │
-│  │  │ • Save/Update    │  │ • Git status     │                  │ │
-│  │  │ • Delete         │  │ • Search         │                  │ │
-│  │  └──────────────────┘  └──────────────────┘                  │ │
-│  │  ┌──────────────────┐  ┌──────────────────┐                  │ │
-│  │  │ PaneManager      │  │ Orchestrator     │                  │ │
-│  │  │ • Create pane    │  │ • Route chunks   │                  │ │
-│  │  │ • Close pane     │  │ • Extract TTS    │                  │ │
-│  │  │ • Track layout   │  │ • Handle events  │                  │ │
-│  │  └──────────────────┘  └──────────────────┘                  │ │
-│  │  ┌──────────────────┐  ┌──────────────────┐                  │ │
-│  │  │ WebBridgeServer  │  │ ClassifierSvc    │                  │ │
-│  │  │ • PWA static dir │  │ • Static rules   │                  │ │
-│  │  │ • WebSocket proxy│  │ • LLM validation │                  │ │
-│  │  │ • Remote access  │  │ • Subcommands    │                  │ │
-│  │  └──────────────────┘  └──────────────────┘                  │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────┐ │ │
+│  │  │ AgentBridge      │  │ VoiceService     │  │ GitService     │ │ │
+│  │  │ • Spawn proc     │  │ • Start sidecar  │  │ • Diff/Branch  │ │ │
+│  │  │ • SendMessage    │  │ • WebSocket      │  │ • Git Status   │ │ │
+│  │  │ • GetState       │  │ • Probe deps     │  └────────────────┘ │ │
+│  │  └──────────────────┘  └──────────────────┘  ┌────────────────┐ │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐  │ TerminalMgr    │ │ │
+│  │  │ SessionService   │  │ FileService      │  │ • PTY Spawn    │ │ │
+│  │  │ • Create/Load    │  │ • Read/Write     │  │ • I/O streams  │ │ │
+│  │  │ • Save/Update    │  │ • Path bounds    │  └────────────────┘ │ │
+│  │  │ • Delete         │  │ • Search         │  ┌────────────────┐ │ │
+│  │  └──────────────────┘  └──────────────────┘  │ SettingsSvc    │ │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐  │ • App settings │ │ │
+│  │  │ PaneManager      │  │ Orchestrator     │  │ • Storage      │ │ │
+│  │  │ • Create pane    │  │ • Route chunks   │  └────────────────┘ │ │
+│  │  │ • Close pane     │  │ • Extract TTS    │  ┌────────────────┐ │ │
+│  │  │ • Track layout   │  │ • Handle events  │  │ Auth/Tailscale │ │ │
+│  │  └──────────────────┘  └──────────────────┘  │ • API Keys     │ │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐  │ • MagicDNS     │ │ │
+│  │  │ WebBridgeServer  │  │ ClassifierSvc    │  └────────────────┘ │ │
+│  │  │ • Opt-in remote  │  │ • Static rules   │                     │ │
+│  │  │ • WS/HTTP bridge │  │ • LLM validate   │                     │ │
+│  │  └──────────────────┘  └──────────────────┘                     │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
@@ -592,10 +591,18 @@ Settings (keytar)     →     System Keychain
 
 ### File System & Agent Sandbox Access
 
-- **Sandboxed Operations**: File operations are restricted to user-selected directories.
+- **Sandboxed Operations**: File operations are restricted to user-selected directories. Path traversal protection ensures files cannot be read/written outside the designated project root.
 - **Git Restrictions**: Git operations are read-only by default.
 - **Agent Validation**: Tool calls (e.g. bash commands or file mutations) are intercepted via the `AgentBridge`.
-- **Classifier Hardening**: When set to "Auto" mode, `ClassifierService` evaluates mutating tool calls via local static rules (with subcommand extraction support) before falling back to an LLM classifier. This provides strict runtime boundaries around agent capabilities.
+- **Classifier Hardening**: When set to "Auto" mode, `ClassifierService` evaluates mutating tool calls via strict local static rules before falling back to an LLM classifier. For `bash` commands, it extracts subcommands (handling command chaining, subshells, path stripping, and env stripping) to evaluate against deny rules, preventing evasion tactics.
+- **Session Validation**: Session paths are strictly validated to prevent directory traversal and ensure sessions are contained within authorized locations.
+
+### WebBridgeServer Security
+
+- **Opt-in Only**: The WebBridgeServer is strictly opt-in and only starts when `remoteAccessEnabled` is explicitly set to `true`.
+- **Authentication**: Requires a Bearer token (`remoteAccessToken`) for all API and WebSocket requests.
+- **CORS & Origin Control**: Limits access to Tailscale MagicDNS origins and localhost.
+- **Capability Scoping**: Remote access limits sensitive commands like terminal I/O and specific file writes to prevent escalation.
 
 ---
 

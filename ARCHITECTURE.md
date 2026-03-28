@@ -337,7 +337,7 @@ Main: ipc-handlers.ts
       │  handles classifier forwarding for pane
       ▼
 Main: classifier-service.ts
-      │  1. Evaluate static rules (extract subcommands via regex)
+      │  1. Evaluate static rules (extract subcommands for deny rules)
       │  2. If matched, approve/deny locally
       │  3. If no match, formulate system prompt with tool info
       │  4. Call LLM classifier (e.g. Anthropic) via API
@@ -349,7 +349,7 @@ Runtime subprocess
       │  resumes or denies tool execution
 ```
 
-The classifier flow hardens the runtime by enforcing static local rules (e.g. preventing unsafe `rm -rf` subcommands inside bash scripts) before failing over to the LLM agent for evaluation, significantly bounding agent capabilities.
+The classifier flow hardens the runtime by enforcing strict local static rules before falling back to the LLM agent for evaluation. For `bash` commands, the `ClassifierService` decomposes commands into subcommands (handling command chaining, subshells, interpreter wrappers, and path/env stripping). Deny rules evaluate against all extracted candidates to prevent evasion, while allow rules only match the full exact command. This provides significant bounds on agent capabilities and prevents unsafe execution like `rm -rf` nested inside a bash script.
 
 ---
 
