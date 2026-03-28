@@ -75,7 +75,7 @@ function PaneFooter({
     return () => observer.disconnect()
   }, [])
 
-  const showModeLabel = footerWidth > 420
+  const showModeLabel = footerWidth > 320
 
   const shortRoot = projectRoot
     ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
@@ -204,6 +204,7 @@ function PaneFooter({
         {showModeLabel && (
           <span className={`text-[10px] font-medium ${permissionMode === 'accept-on-edit' ? 'text-yellow-400' : 'text-red-400'}`}>
             {permissionMode === 'accept-on-edit' ? 'Accept Edits' : 'Bypass Permissions'}
+            <span className="ml-1 opacity-50 font-normal">⇧Tab</span>
           </span>
         )}
       </button>
@@ -569,25 +570,6 @@ export function ChatPane({
         store.getState().addErrorMessage(message)
         toast.error(message)
       }),
-      // Skill events — optional (bridge may not have these in older preloads)
-      ...(bridge.onSkillProgress ? [
-        bridge.onSkillProgress(({ skillId, skillName, trigger, stepIndex, totalSteps, status, output, error }) => {
-          const s = store.getState()
-          // Create skill block on first step event
-          if (stepIndex === 0 && status === 'running') {
-            const currentTurnId = s.currentTurnId
-            if (currentTurnId) {
-              s.addSkillBlock(currentTurnId, skillId, skillName, trigger, totalSteps)
-            }
-          }
-          s.updateSkillStep(skillId, stepIndex, status, output, error)
-        }),
-      ] : []),
-      ...(bridge.onSkillComplete ? [
-        bridge.onSkillComplete(({ skillId, status }) => {
-          store.getState().finalizeSkillBlock(skillId, status)
-        }),
-      ] : []),
     ]
 
     // Fetch initial state for this pane
@@ -672,27 +654,6 @@ export function ChatPane({
       if (queuedPrompt) return
       setQueuedPrompt({ label: displayText, text, imageDataUrl })
       return
-    }
-
-    // /command detection — check if text starts with a /trigger
-    if (text.startsWith('/') && !imageDataUrl) {
-      const parts = text.slice(1).split(/\s+/)
-      const trigger = parts[0]
-      const skillInput = parts.slice(1).join(' ')
-
-      if (trigger && bridge.skillExecute) {
-        try {
-          // First add the user message to chat
-          const fakeTurnId = `skill-${Date.now()}`
-          store.getState().addUserMessage(displayText, fakeTurnId)
-          await bridge.skillExecute(paneId, trigger, skillInput)
-          return
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : `Skill "${trigger}" failed`
-          store.getState().addErrorMessage(msg)
-          return
-        }
-      }
     }
 
     try {

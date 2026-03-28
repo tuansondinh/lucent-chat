@@ -14,8 +14,6 @@ import { VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
-import { SkillRegistry } from './skill-registry.js'
-import { SkillExecutor } from './skill-executor.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
 import { resolveRemotePaneRoot } from './pane-root-policy.js'
@@ -293,13 +291,6 @@ app.whenReady().then(async () => {
     }
   }
 
-  // 10a. Skill system — load registry, create executor
-  const skillRegistry = new SkillRegistry()
-  await skillRegistry.load().catch((err: Error) => {
-    console.warn('[studio] SkillRegistry load failed:', err.message)
-  })
-  const skillExecutor = new SkillExecutor(skillRegistry)
-
   registerIpcHandlers(
     paneManager,
     settingsService,
@@ -311,8 +302,6 @@ app.whenReady().then(async () => {
     fileWatchService,
     restartAllAgents,
     () => mainWindow,
-    skillRegistry,
-    skillExecutor,
     broadcast,
   )
 

@@ -151,6 +151,38 @@ studio/
 
 ---
 
+## Release
+
+### One-command release (arm64)
+
+```bash
+# Build → sign → zip → create GitHub release
+npm run release:arm64
+
+# Also notarize with Apple (~5 min extra, removes Gatekeeper warning)
+npm run release:arm64:notarize
+
+# Dry run — build and sign but skip GitHub upload
+npm run release:arm64:dry
+```
+
+### Prerequisites (one-time setup)
+
+1. **Developer ID cert** — install from [developer.apple.com](https://developer.apple.com/account/resources/certificates/list) → Developer ID Application
+2. **`gh` CLI** — `brew install gh && gh auth login`
+3. **Notarization credentials** (for `--notarize` only):
+   ```bash
+   xcrun notarytool store-credentials "lucent-chat-notary" \
+     --apple-id "tuansondinh96@gmail.com" \
+     --team-id "34UMY69QMK"
+   ```
+
+### Bump version
+
+Edit `version` in `package.json`, then run `npm run release:arm64`.
+
+---
+
 ## Development
 
 ### Available Scripts

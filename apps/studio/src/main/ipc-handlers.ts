@@ -10,6 +10,9 @@
 
 import { ipcMain, type BrowserWindow } from 'electron'
 import fs from 'node:fs/promises'
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import type { PaneManager } from './pane-manager.js'
 import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
@@ -18,8 +21,6 @@ import type { VoiceService } from './voice-service.js'
 import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
-import type { SkillRegistry } from './skill-registry.js'
-import type { SkillExecutor } from './skill-executor.js'
 import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
 
 // Re-export SessionFile for consumers that imported it from here
@@ -40,8 +41,6 @@ export function registerIpcHandlers(
   fileWatchService: FileWatchService,
   restartAllAgents: () => Promise<void>,
   getMainWindow: () => BrowserWindow | null,
-  skillRegistry?: SkillRegistry,
-  skillExecutor?: SkillExecutor,
   broadcast?: (channel: string, data: unknown) => void,
 ): { registerApprovalForwardingForPane: (paneId: string) => void } {
   const approvedPaneRoots = new Set<string>()
@@ -393,73 +392,38 @@ export function registerIpcHandlers(
   // --------------------------------------------------------------------------
 
   ipcMain.handle('cmd:skill-list', async () => {
-    if (!skillRegistry) return []
-    const skills = skillRegistry.listAll()
-    return skills.map((s) => ({
-      name: s.name,
-      description: s.description,
-      trigger: s.trigger,
-      stepCount: s.steps.length,
-    }))
-  })
+    // Scan skill directories: bundled (.gsd), user-level (.lc), project-level (.lc)
+    const gsdSkillsDir = join(process.env.GSD_HOME || join(homedir(), '.gsd'), 'agent', 'skills')
+    const userSkillsDir = join(homedir(), '.lc', 'agent', 'skills')
+    const skills: Array<{ name: string; description: string; trigger: string; stepCount: number }> = []
+    const seen = new Set<string>()
 
-  ipcMain.handle('cmd:skill-execute', async (_event, paneId: string, trigger: string, input: string) => {
-    if (!skillRegistry || !skillExecutor) throw new Error('Skill system not initialized')
-    if (!skillRegistry.isLoaded) throw new Error('SkillRegistry not loaded')
-
-    const pane = paneManager.getPane(paneId)
-    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
-
-    // Step runner: delegates to pane orchestrator
-    const runStep = async (step: import('./skill-registry.js').SkillStep, context: string): Promise<string> => {
-      const prompt = context ? `${step.prompt}\n\nContext:\n${context}` : step.prompt
-      return new Promise<string>((resolve, reject) => {
-        const turnId = pane.orchestrator.submitTurn(prompt, 'text')
-        // Collect agent output for chaining
-        let accumulated = ''
-        const handleChunk = (data: { turn_id: string; text: string }) => {
-          if (data.turn_id === turnId) accumulated += data.text
+    for (const dir of [gsdSkillsDir, userSkillsDir]) {
+      if (!existsSync(dir)) continue
+      for (const entry of readdirSync(dir)) {
+        if (seen.has(entry)) continue
+        const entryPath = join(dir, entry)
+        let mdPath: string | null = null
+        if (entry.endsWith('.md')) {
+          mdPath = entryPath
+        } else if (statSync(entryPath).isDirectory()) {
+          const skillMd = join(entryPath, 'SKILL.md')
+          if (existsSync(skillMd)) mdPath = skillMd
         }
-        const cleanup = () => {
-          pane.orchestrator.removeListener('chunk', handleChunk)
-          pane.orchestrator.removeListener('done', handleDone)
-          pane.orchestrator.removeListener('turn-error', handleError)
-        }
-        const handleDone = (data: { turn_id: string; full_text?: string }) => {
-          if (data.turn_id !== turnId) return
-          cleanup()
-          resolve(accumulated || data.full_text || '')
-        }
-        const handleError = (data: { turn_id: string; message: string }) => {
-          if (data.turn_id !== turnId) return
-          cleanup()
-          reject(new Error(data.message))
-        }
-        pane.orchestrator.on('chunk', handleChunk)
-        pane.orchestrator.on('done', handleDone)
-        pane.orchestrator.on('turn-error', handleError)
-      })
+        if (!mdPath) continue
+        const content = readFileSync(mdPath, 'utf8')
+        const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+        if (!fmMatch) continue
+        const fm = fmMatch[1]
+        const name = fm.match(/^name:\s*(.+)$/m)?.[1]?.trim() || entry.replace(/\.md$/, '')
+        const description = fm.match(/^description:\s*(.+)$/m)?.[1]?.trim() || ''
+        if (!description) continue
+        seen.add(name)
+        skills.push({ name, description, trigger: name, stepCount: 0 })
+      }
     }
-
-    const skillId = await skillExecutor.execute(trigger, input, runStep)
-    return skillId
+    return skills
   })
-
-  ipcMain.handle('cmd:skill-abort', (_event, skillId: string) => {
-    skillExecutor?.abort(skillId)
-  })
-
-  // Forward skill events to renderer
-  if (skillExecutor) {
-    skillExecutor.on('skill-progress', (data) => {
-      const win = getMainWindow()
-      pushEvent(win, 'event:skill-progress', data)
-    })
-    skillExecutor.on('skill-complete', (data) => {
-      const win = getMainWindow()
-      pushEvent(win, 'event:skill-complete', data)
-    })
-  }
 
   // --------------------------------------------------------------------------
   // Approval RPC — bidirectional approval flow for accept-on-edit mode

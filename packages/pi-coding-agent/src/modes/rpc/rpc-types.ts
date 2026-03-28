@@ -66,6 +66,9 @@ export type RpcCommand =
 	// Commands (available for invocation via prompt)
 	| { id?: string; type: "get_commands" }
 
+	// Permission mode
+	| { id?: string; type: "set_permission_mode"; mode: "danger-full-access" | "accept-on-edit" }
+
 	// Bridge-hosted native terminal
 	| { id?: string; type: "terminal_input"; data: string }
 	| { id?: string; type: "terminal_resize"; cols: number; rows: number }
@@ -210,6 +213,9 @@ export type RpcResponse =
 			success: true;
 			data: { commands: RpcSlashCommand[] };
 	  }
+
+	// Permission mode
+	| { id?: string; type: "response"; command: "set_permission_mode"; success: true }
 
 	// Bridge-hosted native terminal
 	| { id?: string; type: "response"; command: "terminal_input"; success: true }

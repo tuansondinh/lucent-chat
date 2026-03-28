@@ -23,7 +23,7 @@ import { type Theme, theme } from "../interactive/theme/theme.js";
 import { createDefaultCommandContextActions } from "../shared/command-context-actions.js";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.js";
 import { RemoteTerminal } from "./remote-terminal.js";
-import { registerStdioApprovalHandler, resolveApprovalResponse } from "../../core/tool-approval.js";
+import { registerStdioApprovalHandler, resolveApprovalResponse, setFileChangeApprovalHandler } from "../../core/tool-approval.js";
 import type {
 	RpcCommand,
 	RpcExtensionUIRequest,
@@ -52,7 +52,6 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 	if (process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit") {
 		registerStdioApprovalHandler();
 	}
-
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
 		process.stdout.write(serializeJsonLine(obj));
 	};
@@ -696,6 +695,21 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 				}
 
 				return success(id, "get_commands", { commands });
+			}
+
+			// =================================================================
+			// Permission mode
+			// =================================================================
+
+			case "set_permission_mode": {
+				const mode = command.mode;
+				process.env.GSD_STUDIO_PERMISSION_MODE = mode;
+				if (mode === "accept-on-edit") {
+					registerStdioApprovalHandler();
+				} else {
+					setFileChangeApprovalHandler(null);
+				}
+				return success(id, "set_permission_mode");
 			}
 
 			case "terminal_input": {

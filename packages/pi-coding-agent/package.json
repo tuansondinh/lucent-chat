@@ -4,8 +4,8 @@
   "description": "Coding agent CLI (vendored from pi-mono)",
   "type": "module",
   "piConfig": {
-    "name": "pi",
-    "configDir": ".pi"
+    "name": "lc",
+    "configDir": ".lc"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -210,16 +210,15 @@ export class PaneManager {
     const next = pane.permissionMode === 'danger-full-access' ? 'accept-on-edit' : 'danger-full-access'
     pane.permissionMode = next
     try {
-      await pane.orchestrator.abortCurrentTurn()
+      await pane.agentBridge.setPermissionMode(next)
     } catch {
-      // ignore — may be idle
-    }
-    await this.restartPaneAgentWithEnv(id, { GSD_STUDIO_PERMISSION_MODE: next })
-    try {
-      const state = await pane.agentBridge.getState()
-      if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile as string)
-    } catch {
-      // non-fatal
+      // Fallback: if the RPC call fails (e.g. agent not ready), restart the process
+      try { await pane.orchestrator.abortCurrentTurn() } catch { /* ignore */ }
+      await this.restartPaneAgentWithEnv(id, { GSD_STUDIO_PERMISSION_MODE: next })
+      try {
+        const state = await pane.agentBridge.getState()
+        if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile as string)
+      } catch { /* non-fatal */ }
     }
     return next
   }
