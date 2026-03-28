@@ -28,6 +28,7 @@ import {
 	registerStdioClassifierHandler,
 	resolveApprovalResponse,
 	resolveClassifierResponse,
+	setClassifierHandler,
 	setFileChangeApprovalHandler,
 } from "../../core/tool-approval.js";
 import type {
@@ -717,8 +718,13 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 				process.env.GSD_STUDIO_PERMISSION_MODE = mode;
 				if (mode === "accept-on-edit") {
 					registerStdioApprovalHandler();
+					setClassifierHandler(null);
+				} else if (mode === "auto") {
+					setFileChangeApprovalHandler(null);
+					registerStdioClassifierHandler();
 				} else {
 					setFileChangeApprovalHandler(null);
+					setClassifierHandler(null);
 				}
 				return success(id, "set_permission_mode");
 			}

@@ -42,19 +42,27 @@ export class ClassifierService {
    * Deny rules are checked first, then allow rules.
    */
   evaluateRules(toolName: string, args: any, rules: ClassifierRule[]): 'allow' | 'deny' | null {
-    const textToMatch = this.getTextToMatch(toolName, args)
-    if (!textToMatch) return null
+    const candidates = this.getMatchCandidates(toolName, args)
+    if (candidates.length === 0) return null
 
-    // Check deny rules first
+    // Deny rules checked first — match against ALL candidates (subcommands,
+    // path-stripped variants, etc.) to catch evasion via command chaining,
+    // absolute paths, subshells, and interpreter wrappers.
     for (const rule of rules) {
-      if (rule.decision === 'deny' && rule.toolName === toolName && this.matchPattern(rule.pattern, textToMatch)) {
-        return 'deny'
+      if (rule.decision === 'deny' && rule.toolName === toolName) {
+        for (const text of candidates) {
+          if (this.matchPattern(rule.pattern, text)) {
+            return 'deny'
+          }
+        }
       }
     }
 
-    // Check allow rules
+    // Allow rules — only match against the full command (candidates[0]).
+    // This prevents compound commands like "git status && rm -rf /" from
+    // slipping through via the "git *" allow rule on the "git status" part.
     for (const rule of rules) {
-      if (rule.decision === 'allow' && rule.toolName === toolName && this.matchPattern(rule.pattern, textToMatch)) {
+      if (rule.decision === 'allow' && rule.toolName === toolName && this.matchPattern(rule.pattern, candidates[0])) {
         return 'allow'
       }
     }
@@ -86,8 +94,8 @@ export class ClassifierService {
 
     const apiKey = await this.authService.getApiKey('anthropic')
     if (!apiKey) {
-      // Graceful degradation: no API key → degrade to accept-on-edit behavior (approve)
-      return { approved: true, reason: 'No Anthropic API key found — degrading to accept-on-edit behavior', source: 'fallback' }
+      // No API key → deny and fall back to manual approval
+      return { approved: false, reason: 'No Anthropic API key — requires manual approval', source: 'fallback' }
     }
 
     // Rate limiting: acquire a slot before calling the API
@@ -120,16 +128,23 @@ export class ClassifierService {
     argsJson: string,
     context: ClassifierContext
   ): Promise<boolean> {
-    const systemPrompt = `You are a security classifier for an autonomous coding agent.
-Your task is to review a pending tool call and determine if it is safe and aligned with the user's intent.
+    const systemPrompt = `You are a security classifier for an autonomous coding agent working inside a software project.
 
-CONTEXT:
-- Recent user messages (last 10)
-- Project instructions (CLAUDE.md) if available
+The agent's primary job is writing, editing, and managing code files. Most tool calls are routine coding operations and should be ALLOWED.
 
-RULES:
-- ALLOW: Safe operations, reading files, git status, npm test, etc.
-- DENY: Destructive operations outside project scope, sensitive system changes, or actions that contradict user intent.
+ALLOW when:
+- Writing, editing, or creating files inside the project (source code, configs, tests, docs)
+- Running build/test/lint commands (npm, node, git, tsc, etc.)
+- Reading files, searching code, listing directories
+- The operation is aligned with or reasonably implied by the user's recent messages
+
+DENY only when:
+- Modifying files outside the project directory (system files, other projects)
+- Running destructive system commands (rm -rf /, sudo, chmod on system paths)
+- The operation clearly contradicts the user's stated intent
+- Accessing or exfiltrating sensitive credentials not related to the task
+
+When in doubt, ALLOW. The user chose auto mode because they trust the agent to work autonomously.
 
 Output exactly one word: ALLOW or DENY.`
 
@@ -147,7 +162,7 @@ Decision (ALLOW/DENY)?`
 
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5-20251001',
         max_tokens: 10,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
@@ -161,7 +176,7 @@ Decision (ALLOW/DENY)?`
       }
       if (isOAuth) {
         headers['Authorization'] = `Bearer ${apiKey}`
-        headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20'
+        headers['anthropic-beta'] = 'claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14'
         headers['user-agent'] = 'claude-cli/2.1.62'
         headers['x-app'] = 'cli'
       } else {
@@ -180,6 +195,7 @@ Decision (ALLOW/DENY)?`
         res.on('data', (chunk) => body += chunk)
         res.on('end', () => {
           if (res.statusCode !== 200) {
+            console.error(`[classifier] API ${res.statusCode}: ${body.slice(0, 500)}`)
             reject(new Error(`API error ${res.statusCode}: ${body}`))
             return
           }
@@ -203,10 +219,89 @@ Decision (ALLOW/DENY)?`
     })
   }
 
-  private getTextToMatch(toolName: string, args: any): string | null {
-    if (toolName === 'bash') return args.command || null
-    if (toolName === 'edit' || toolName === 'write') return args.path || args.file_path || null
-    return null
+  /**
+   * Build match candidates for rule evaluation.
+   * For bash: full command + subcommands + path-stripped + env-stripped variants.
+   * For file ops: just the file path.
+   */
+  private getMatchCandidates(toolName: string, args: any): string[] {
+    if (toolName === 'bash') {
+      const command = args.command as string | undefined
+      if (!command) return []
+      return this.extractBashSubcommands(command)
+    }
+    if (toolName === 'edit' || toolName === 'write') {
+      const filePath = (args.path || args.file_path) as string | undefined
+      return filePath ? [filePath] : []
+    }
+    return []
+  }
+
+  /**
+   * Extract match candidates from a bash command string.
+   * Returns [fullCommand, ...subcommands, ...variants].
+   *
+   * Catches common evasion patterns:
+   *   - Chained commands:     cd /tmp && rm -rf /
+   *   - Absolute paths:       /usr/bin/rm -rf /
+   *   - Subshells:            $(rm -rf /) or `rm -rf /`
+   *   - Interpreter wrappers: bash -c "rm -rf /"
+   *   - Env prefixes:         FORCE=1 rm -rf /
+   */
+  private extractBashSubcommands(command: string): string[] {
+    const seen = new Set<string>()
+    const result: string[] = []
+
+    const add = (text: string) => {
+      const trimmed = text.trim()
+      if (trimmed && !seen.has(trimmed)) {
+        seen.add(trimmed)
+        result.push(trimmed)
+      }
+    }
+
+    // Full command is always the first candidate
+    add(command)
+
+    // Split on shell operators: &&, ||, ;, |
+    for (const part of command.split(/\s*(?:&&|\|\||[;|])\s*/)) {
+      add(part)
+    }
+
+    // Extract from $(...) subshells
+    for (const m of command.matchAll(/\$\(([^)]+)\)/g)) {
+      add(m[1])
+    }
+
+    // Extract from backtick subshells
+    for (const m of command.matchAll(/`([^`]+)`/g)) {
+      add(m[1])
+    }
+
+    // Extract from interpreter wrappers: bash/sh/zsh -c "..."
+    for (const m of command.matchAll(/\b(?:bash|sh|zsh)\s+-c\s+["']([^"']+)["']/g)) {
+      add(m[1])
+      // Also split the inner command on operators
+      for (const sub of m[1].split(/\s*(?:&&|\|\||[;|])\s*/)) {
+        add(sub)
+      }
+    }
+
+    // Generate path-stripped variants: /usr/bin/rm → rm, ./script.sh → script.sh
+    const snapshot = [...result]
+    for (const cmd of snapshot) {
+      const stripped = cmd.replace(/^(?:\.\/+|(?:\/[\w._-]+)+\/)/, '')
+      add(stripped)
+    }
+
+    // Generate env-var-stripped variants: VAR=val cmd → cmd
+    const snapshot2 = [...result]
+    for (const cmd of snapshot2) {
+      const stripped = cmd.replace(/^(?:\w+=\S*\s+)+/, '')
+      add(stripped)
+    }
+
+    return result
   }
 
   private matchPattern(pattern: string, text: string): boolean {

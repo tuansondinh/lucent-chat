@@ -125,6 +125,12 @@
 │  │  │ • Close pane     │  │ • Extract TTS    │                  │ │
 │  │  │ • Track layout   │  │ • Handle events  │                  │ │
 │  │  └──────────────────┘  └──────────────────┘                  │ │
+│  │  ┌──────────────────┐  ┌──────────────────┐                  │ │
+│  │  │ WebBridgeServer  │  │ ClassifierSvc    │                  │ │
+│  │  │ • PWA static dir │  │ • Static rules   │                  │ │
+│  │  │ • WebSocket proxy│  │ • LLM validation │                  │ │
+│  │  │ • Remote access  │  │ • Subcommands    │                  │ │
+│  │  └──────────────────┘  └──────────────────┘                  │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
@@ -584,11 +590,12 @@ Settings (keytar)     →     System Keychain
 - Never logged or exposed in IPC
 - Provider-specific encryption
 
-### File System Access
+### File System & Agent Sandbox Access
 
-- Sandboxed to user-selected directories
-- Git operations read-only by default
-- File writes require explicit user action
+- **Sandboxed Operations**: File operations are restricted to user-selected directories.
+- **Git Restrictions**: Git operations are read-only by default.
+- **Agent Validation**: Tool calls (e.g. bash commands or file mutations) are intercepted via the `AgentBridge`.
+- **Classifier Hardening**: When set to "Auto" mode, `ClassifierService` evaluates mutating tool calls via local static rules (with subcommand extraction support) before falling back to an LLM classifier. This provides strict runtime boundaries around agent capabilities.
 
 ---
 

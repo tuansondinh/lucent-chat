@@ -256,6 +256,7 @@ app.whenReady().then(async () => {
 
   // 8. PaneManager — create pane-0 with pane-aware event callbacks
   paneManager = new PaneManager()
+  paneManager.setSettingsService(settingsService)
 
   const orchestrator = new Orchestrator(agentBridge, {
     onChunk: (d) => broadcast('event:agent-chunk', { paneId: 'pane-0', ...d }),
@@ -454,12 +455,14 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Start WebBridgeServer after a brief delay (after window loads)
-  setTimeout(() => {
-    startWebBridgeServer().catch((err: Error) => {
-      console.warn('[studio] WebBridgeServer auto-start error:', err.message)
-    })
-  }, 1_500)
+  // Start WebBridgeServer after a brief delay, only if remote access is enabled
+  if (settings.remoteAccessEnabled) {
+    setTimeout(() => {
+      startWebBridgeServer().catch((err: Error) => {
+        console.warn('[studio] WebBridgeServer auto-start error:', err.message)
+      })
+    }, 1_500)
+  }
 
   // 13. System tray
   // Minimal 16×16 transparent PNG as placeholder icon

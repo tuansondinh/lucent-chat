@@ -768,6 +768,7 @@ function ProvidersSection({ providerStatuses, onRefresh }: ProvidersSectionProps
   const handleOAuthSubmitCode = (providerId: string, code: string) => {
     if (typeof bridge.oauthSubmitCode === 'function') {
       void bridge.oauthSubmitCode(providerId, code)
+      setOAuthStates((prev) => ({ ...prev, [providerId]: { phase: 'running', message: 'Exchanging token...' } }))
     }
   }
 

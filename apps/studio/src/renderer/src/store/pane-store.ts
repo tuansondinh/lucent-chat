@@ -223,7 +223,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionPath: null,
     currentSessionName: '',
     recentFiles: [],
-    permissionMode: 'danger-full-access',
+    permissionMode: 'auto',
     autoModeState: { paused: false, consecutiveBlocks: 0, totalBlocks: 0 },
 
     addUserMessage: (text, turn_id) =>

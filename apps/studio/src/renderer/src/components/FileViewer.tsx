@@ -21,7 +21,7 @@ import { getPaneStore, type OpenViewerItem, type OpenFile } from '../store/pane-
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search, GitBranch, Pencil, Eye, AlertTriangle, WrapText, ZoomIn, ZoomOut } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch, AlertTriangle, WrapText, ZoomIn, ZoomOut } from 'lucide-react'
 import type { GitChangeStatus } from '../../../preload'
 import { getBridge } from '../lib/bridge'
 import { toast } from 'sonner'
@@ -536,9 +536,6 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     reason: 'tab' | 'panel'
   } | null>(null)
 
-  // ---- Edit mode state (per-tab, reset when switching tabs) ----
-  const [editMode, setEditMode] = useState(false)
-
   // ---- Editor preferences (persisted to localStorage) ----
   const [wordWrap, setWordWrap] = useState<boolean>(() => readWordWrap())
   const [fontSize, setFontSize] = useState<number>(() => readFontSize())
@@ -576,10 +573,9 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
   // Track previous openFiles.length to detect transition to 0
   const prevOpenFilesLengthRef = useRef(openFiles.length)
 
-  // Reset "show all" AND edit mode when active file changes
+  // Reset "show all" when active file changes
   useEffect(() => {
     setShowAll(false)
-    setEditMode(false)
   }, [activeFilePath])
 
   // Reset search when active file changes
@@ -686,11 +682,9 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeFilePath, handleSave])
 
-  // ---- Cmd+= / Cmd+- / Cmd+0 font size shortcuts (only when in edit mode) ----
+  // ---- Cmd+= / Cmd+- / Cmd+0 font size shortcuts ----
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only active when in edit mode
-      if (!editMode) return
       if (!(e.metaKey || e.ctrlKey)) return
 
       if (e.key === '=' || e.key === '+') {
@@ -707,7 +701,7 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [editMode, handleFontSizeIncrease, handleFontSizeDecrease])
+  }, [handleFontSizeIncrease, handleFontSizeDecrease])
 
   // ---- Window beforeunload guard (dirty tabs) ----
   useEffect(() => {
@@ -768,6 +762,13 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
 
   const matchLineIndices = useMemo(() => new Set<number>(matchLines), [matchLines])
   const activeMatchLineIndex = matchLines.length > 0 ? (matchLines[searchMatchIndex] ?? null) : null
+
+  // ---- Editor update handler (must be before early returns — Rules of Hooks) ----
+  const handleEditorUpdate = useCallback((content: string) => {
+    if (activeFilePath) {
+      setDraftContent(activeFilePath, content)
+    }
+  }, [activeFilePath, setDraftContent])
 
   // ---- Empty state ----
   if (!activeFile) {
@@ -883,12 +884,6 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     }
   }
 
-  const handleEditorUpdate = useCallback((content: string) => {
-    if (activeFilePath) {
-      setDraftContent(activeFilePath, content)
-    }
-  }, [activeFilePath, setDraftContent])
-
   return (
     <>
     {/* Unsaved changes close guard dialog */}
@@ -965,11 +960,8 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         paneId={paneId}
         onClose={handlePanelClose}
         onSearchOpen={() => { setSearchOpen(true) }}
-        fullContent={editMode ? (activeFileAsFile.draftContent ?? content) : content}
-        editMode={editMode}
+        fullContent={activeFileAsFile.draftContent ?? content}
         canEdit={canEdit}
-        editDisabledReason={editDisabledReason}
-        onEditToggle={() => setEditMode((v) => !v)}
         wordWrap={wordWrap}
         onWordWrapToggle={handleWordWrapToggle}
         fontSize={fontSize}
@@ -986,8 +978,8 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         setActiveFile={setActiveFile}
       />
 
-      {/* Edit mode: CodeMirror editor */}
-      {editMode && canEdit && activeFile?.kind === 'file' ? (
+      {/* CodeMirror editor (default for all editable files) */}
+      {canEdit && activeFile?.kind === 'file' ? (
         <div className={cn('flex-1 min-h-0', CODE_BG)}>
           <Suspense fallback={
             <div className={cn('flex-1 h-full flex items-center justify-center', CODE_BG)}>
@@ -1156,15 +1148,9 @@ interface FileViewerHeaderProps {
   fullContent: string
   diffStatus?: GitChangeStatus
   previousPath?: string
-  /** Whether the editor is currently in edit mode. */
-  editMode?: boolean
   /** Whether edit mode can be activated for this file. */
   canEdit?: boolean
-  /** Explanation of why edit is unavailable (shown as tooltip). */
-  editDisabledReason?: string | null
-  /** Callback to toggle edit/view mode. */
-  onEditToggle?: () => void
-  /** Whether word wrap is currently enabled (shown only in edit mode). */
+  /** Whether word wrap is currently enabled (shown only for editable files). */
   wordWrap?: boolean
   /** Callback to toggle word wrap. */
   onWordWrapToggle?: () => void
@@ -1185,10 +1171,7 @@ function FileViewerHeader({
   fullContent,
   diffStatus,
   previousPath,
-  editMode = false,
   canEdit = false,
-  editDisabledReason = null,
-  onEditToggle,
   wordWrap = false,
   onWordWrapToggle,
   fontSize = EDITOR_FONT_SIZE_DEFAULT,
@@ -1229,35 +1212,8 @@ function FileViewerHeader({
         )}
       </div>
 
-      {/* Edit mode toggle button — only shown for regular files */}
-      {path && mode === 'file' && (
-        <button
-          onClick={canEdit ? onEditToggle : undefined}
-          disabled={!canEdit}
-          title={
-            editDisabledReason
-              ? editDisabledReason
-              : editMode
-                ? 'Switch to read-only view (view mode)'
-                : 'Edit file (edit mode)'
-          }
-          className={cn(
-            'flex items-center justify-center size-5 rounded transition-colors flex-shrink-0',
-            canEdit
-              ? editMode
-                ? 'text-accent bg-accent/10 hover:bg-accent/20'
-                : 'text-text-tertiary hover:text-text-primary hover:bg-bg-hover'
-              : 'text-text-tertiary/30 cursor-not-allowed',
-          )}
-          aria-label={editMode ? 'Switch to view mode' : 'Edit file'}
-          aria-pressed={editMode}
-        >
-          {editMode ? <Eye className="size-3.5" /> : <Pencil className="size-3.5" />}
-        </button>
-      )}
-
-      {/* Editor toolbar — only shown in edit mode */}
-      {path && mode === 'file' && editMode && (
+      {/* Editor toolbar — shown for editable files */}
+      {path && mode === 'file' && canEdit && (
         <>
           {/* Word wrap toggle */}
           <button
@@ -1302,8 +1258,8 @@ function FileViewerHeader({
         </>
       )}
 
-      {/* Search button — only in view mode */}
-      {path && mode === 'file' && !editMode && (
+      {/* Search button — only for non-editable files (binary/truncated/diff); CM6 handles search in editor */}
+      {path && mode === 'file' && !canEdit && (
         <button
           onClick={onSearchOpen}
           title="Search in file (⌘F)"

@@ -178,7 +178,7 @@ export function ApprovalCard({ request, onRespond }: ApprovalModalProps) {
         >
           <Check className="w-3.5 h-3.5" />
           Allow
-          <kbd className="text-[10px] opacity-70 font-mono bg-white/10 px-1 py-0.5 rounded">⌘↵</kbd>
+          <kbd className="text-[10px] font-mono bg-black/25 text-white/90 px-1.5 py-0.5 rounded">⌘↵</kbd>
         </button>
         <button
           className={`${btn.outline} px-4 py-2 text-sm font-medium flex items-center gap-2`}
@@ -187,7 +187,7 @@ export function ApprovalCard({ request, onRespond }: ApprovalModalProps) {
         >
           <X className="w-3.5 h-3.5" />
           Deny
-          <kbd className="text-[10px] opacity-70 font-mono bg-white/10 px-1 py-0.5 rounded">esc</kbd>
+          <kbd className="text-[10px] font-mono bg-white/10 text-text-secondary px-1.5 py-0.5 rounded">esc</kbd>
         </button>
       </div>
     </div>

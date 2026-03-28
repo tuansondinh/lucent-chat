@@ -462,27 +462,31 @@ export function registerIpcHandlers(
     pane.agentBridge.on('classifier-request', async (req) => {
       const win = getMainWindow()
       const stats = classifierService.getPaneState(paneId)
+      console.log(`[classifier] request: tool=${req.toolName} args=${JSON.stringify(req.args).slice(0, 200)}`)
 
       // 1. Evaluate static rules
       const rules = settingsService.get().autoModeRules ?? []
       const ruleDecision = classifierService.evaluateRules(req.toolName, req.args, rules)
-      if (ruleDecision) {
-        const approved = ruleDecision === 'allow'
-        pane.agentBridge.respondToClassifier(req.id, approved)
-        pushEvent(win, 'event:classifier-decision', { paneId, toolName: req.toolName, approved, source: 'rule' })
-        broadcast?.('event:classifier-decision', { paneId, toolName: req.toolName, approved, source: 'rule' })
+      console.log(`[classifier] rule decision: ${ruleDecision ?? 'none'} (${rules.length} rules)`)
+      if (ruleDecision === 'allow') {
+        pane.agentBridge.respondToClassifier(req.id, true)
+        broadcast?.('event:classifier-decision', { paneId, toolName: req.toolName, approved: true, source: 'rule' })
+        return
+      }
+      if (ruleDecision === 'deny') {
+        // Show approval card so user can override the deny
+        broadcast?.('event:approval-request', {
+          paneId,
+          id: req.id,
+          action: req.toolName,
+          path: '',
+          message: `Auto mode rule blocked ${req.toolName}: ${JSON.stringify(req.args).slice(0, 300)}`,
+        })
         return
       }
 
       // 2. If paused, fallback to manual approval
       if (stats.paused) {
-        pushEvent(win, 'event:approval-request', {
-          paneId,
-          id: req.id,
-          action: 'bash',
-          path: '',
-          message: `Auto mode paused (too many blocks). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
-        })
         broadcast?.('event:approval-request', {
           paneId,
           id: req.id,
@@ -504,36 +508,34 @@ export function registerIpcHandlers(
 
       // Fallback to manual if no key or error
       if (decision.source === 'fallback') {
-        pushEvent(win, 'event:approval-request', {
-          paneId,
-          id: req.id,
-          action: 'bash',
-          path: '',
-          message: `Classifier error (${decision.reason}). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
-        })
         broadcast?.('event:approval-request', {
           paneId,
           id: req.id,
-          action: 'bash',
+          action: req.toolName,
           path: '',
           message: `Classifier error (${decision.reason}). Manual approval for ${req.toolName}: ${JSON.stringify(req.args)}`,
         })
         return
       }
 
-      pane.agentBridge.respondToClassifier(req.id, decision.approved)
-      pushEvent(win, 'event:classifier-decision', {
-        paneId,
-        toolName: req.toolName,
-        approved: decision.approved,
-        source: decision.source,
-      })
-      broadcast?.('event:classifier-decision', {
-        paneId,
-        toolName: req.toolName,
-        approved: decision.approved,
-        source: decision.source,
-      })
+      if (decision.approved) {
+        pane.agentBridge.respondToClassifier(req.id, true)
+        broadcast?.('event:classifier-decision', {
+          paneId,
+          toolName: req.toolName,
+          approved: true,
+          source: decision.source,
+        })
+      } else {
+        // Classifier denied — show approval card so user can override
+        broadcast?.('event:approval-request', {
+          paneId,
+          id: req.id,
+          action: req.toolName,
+          path: '',
+          message: `Classifier denied ${req.toolName}: ${JSON.stringify(req.args).slice(0, 300)}`,
+        })
+      }
     })
   }
 

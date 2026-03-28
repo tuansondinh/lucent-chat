@@ -65,6 +65,8 @@ export interface AppSettings {
 // Defaults
 // ============================================================================
 
+export const DEFAULT_PERMISSION_MODE = 'auto' as const
+
 const DEFAULTS: AppSettings = {
   theme: 'dark',
   fontSize: 14,
@@ -74,7 +76,7 @@ const DEFAULTS: AppSettings = {
   remoteAccessEnabled: false,
   remoteAccessPort: 8788,
   tailscaleServeEnabled: false,
-  permissionMode: 'danger-full-access',
+  permissionMode: 'auto',
   autoModeRules: [
     { toolName: 'bash', pattern: 'git *', decision: 'allow' },
     { toolName: 'bash', pattern: 'npm *', decision: 'allow' },

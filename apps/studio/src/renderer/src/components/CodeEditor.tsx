@@ -161,14 +161,6 @@ const appTheme = EditorView.theme({
 }, { dark: true })
 
 // ============================================================================
-// Compartments — allow hot-swapping individual features
-// ============================================================================
-
-const languageCompartment = new Compartment()
-const wordWrapCompartment = new Compartment()
-const fontSizeCompartment = new Compartment()
-
-// ============================================================================
 // VS Code-style keymap additions
 //
 // Most are already in defaultKeymap (Alt+Up/Down, Shift-Mod-K, Mod-/) and
@@ -226,6 +218,10 @@ export function CodeEditor({
   const viewRef = useRef<EditorView | null>(null)
   const onUpdateRef = useRef(onUpdate)
   const readOnlyRef = useRef(readOnly)
+  // Per-instance compartments — must not be shared across simultaneous editor instances (split panes)
+  const languageCompartment = useRef(new Compartment()).current
+  const wordWrapCompartment = useRef(new Compartment()).current
+  const fontSizeCompartment = useRef(new Compartment()).current
 
   // Keep refs up to date without recreating the editor
   useEffect(() => { onUpdateRef.current = onUpdate }, [onUpdate])

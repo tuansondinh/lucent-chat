@@ -322,6 +322,37 @@ Key features:
 
 ---
 
+### Security Classifier Flow (Electron)
+
+When the agent attempts to execute a tool (e.g., `bash` or file mutations) and the user has configured "Auto" approval mode:
+
+```
+Runtime subprocess (RPC mode)
+      │  agent.invoke(toolName, args)
+      ▼
+Main: agent-bridge.ts
+      │  intercepts tool invocation → emits 'classifier-request'
+      ▼
+Main: ipc-handlers.ts
+      │  handles classifier forwarding for pane
+      ▼
+Main: classifier-service.ts
+      │  1. Evaluate static rules (extract subcommands via regex)
+      │  2. If matched, approve/deny locally
+      │  3. If no match, formulate system prompt with tool info
+      │  4. Call LLM classifier (e.g. Anthropic) via API
+      ▼
+Main: agent-bridge.ts
+      │  respondToClassifier(id, approved) back to stdin RPC
+      ▼
+Runtime subprocess
+      │  resumes or denies tool execution
+```
+
+The classifier flow hardens the runtime by enforcing static local rules (e.g. preventing unsafe `rm -rf` subcommands inside bash scripts) before failing over to the LLM agent for evaluation, significantly bounding agent capabilities.
+
+---
+
 ### CLI Startup
 
 ```

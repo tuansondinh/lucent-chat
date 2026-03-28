@@ -202,7 +202,7 @@ export class AgentBridge extends EventEmitter {
   }
 
   /** Change the permission mode on the live agent without restarting. */
-  async setPermissionMode(mode: 'danger-full-access' | 'accept-on-edit'): Promise<void> {
+  async setPermissionMode(mode: 'danger-full-access' | 'accept-on-edit' | 'auto'): Promise<void> {
     await this.send({ type: 'set_permission_mode', mode })
   }
 

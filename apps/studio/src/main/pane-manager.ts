@@ -11,6 +11,7 @@ import { AgentBridge } from './agent-bridge.js'
 import { Orchestrator, type OrchestratorCallbacks } from './orchestrator.js'
 import { SessionService } from './session-service.js'
 import type { SettingsService } from './settings-service.js'
+import { DEFAULT_PERMISSION_MODE } from './settings-service.js'
 
 // ============================================================================
 // Types
@@ -39,6 +40,11 @@ export interface PaneRuntime {
 export class PaneManager {
   private panes = new Map<string, PaneRuntime>()
   private nextPaneIndex = 1
+  private settingsService: SettingsService | null = null
+
+  setSettingsService(service: SettingsService): void {
+    this.settingsService = service
+  }
 
   /**
    * Initialize pane-0 from existing services (called from index.ts at startup).
@@ -62,7 +68,7 @@ export class PaneManager {
       projectRoot,
       accessRoot: projectRoot,
       attachBridge,
-      permissionMode: 'danger-full-access',
+      permissionMode: this.settingsService?.get().permissionMode ?? DEFAULT_PERMISSION_MODE,
     }
     this.panes.set('pane-0', pane)
     return pane
@@ -83,7 +89,7 @@ export class PaneManager {
       agentEnv.TAVILY_API_KEY = settings.tavilyApiKey as string
     }
     // Pass permission mode so the agent registers the stdio approval handler
-    agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'danger-full-access'
+    agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
 
     const processManager = new ProcessManager()
     const agentBridge = new AgentBridge()
@@ -133,7 +139,7 @@ export class PaneManager {
 
     await sessionService.loadActiveSessionId()
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? 'danger-full-access' }
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE }
     this.panes.set(id, pane)
     return pane
   }
@@ -206,7 +212,7 @@ export class PaneManager {
    */
   async togglePanePermissionMode(id: string): Promise<'danger-full-access' | 'accept-on-edit' | 'auto'> {
     const pane = this.panes.get(id)
-    if (!pane) return 'danger-full-access'
+    if (!pane) return DEFAULT_PERMISSION_MODE
 
     let next: 'danger-full-access' | 'accept-on-edit' | 'auto'
     if (pane.permissionMode === 'danger-full-access') {
@@ -218,6 +224,8 @@ export class PaneManager {
     }
 
     pane.permissionMode = next
+    // Persist so restarts and new panes use the same mode
+    this.settingsService?.save({ permissionMode: next })
     try {
       await pane.agentBridge.setPermissionMode(next)
     } catch {

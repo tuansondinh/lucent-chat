@@ -1187,8 +1187,8 @@ export default function App() {
             </div>
 
             {/* Unified horizontal PanelGroup */}
-            <div className="flex flex-1 min-h-0 min-w-0">
-              <div className="flex flex-1 min-h-0 min-w-0">
+            <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+              <div className="flex min-h-0 min-w-0" style={{ flex: '1 1 0%', minWidth: `${MIN_CHAT_AREA_WIDTH}px` }}>
                 {chatPaneGroup}
               </div>
 
@@ -1204,8 +1204,8 @@ export default function App() {
                     <div className="w-px bg-border transition-colors group-hover:bg-accent/50" />
                   </div>
                   <div
-                    className="flex min-h-0 flex-shrink-0 border-l border-border bg-bg-secondary"
-                    style={{ width: `${fileViewerWidth}px` }}
+                    className="flex min-h-0 border-l border-border bg-bg-secondary"
+                    style={{ width: `${fileViewerWidth}px`, minWidth: `${MIN_FILE_VIEWER_WIDTH}px`, maxWidth: `calc(100% - ${MIN_CHAT_AREA_WIDTH}px)`, flexShrink: 1 }}
                   >
                     <Suspense fallback={null}>
                       <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />
