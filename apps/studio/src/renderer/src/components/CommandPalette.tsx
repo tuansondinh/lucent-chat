@@ -46,6 +46,8 @@ interface CommandPaletteProps {
   onRunSkill?: (trigger: string) => void
   isGenerating: boolean
   canSplit: boolean
+  /** When true, render as a bottom sheet instead of a centered modal. */
+  isMobile?: boolean
 }
 
 // ============================================================================
@@ -70,6 +72,7 @@ export function CommandPalette({
   onRunSkill,
   isGenerating,
   canSplit,
+  isMobile = false,
 }: CommandPaletteProps) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [models, setModels] = useState<Model[]>([])
@@ -126,6 +129,16 @@ export function CommandPalette({
     onClose()
   }
 
+  // On mobile: bottom sheet (slides up from bottom, rounded top corners, max 80vh, drag handle)
+  // On desktop: centered modal appearing at 20vh from top
+  const dialogPositionClass = isMobile
+    ? 'fixed inset-0 z-50 flex items-end justify-center'
+    : 'fixed inset-0 z-50 flex items-start justify-center pt-[20vh]'
+
+  const panelClass = isMobile
+    ? 'relative z-10 w-full rounded-t-2xl border border-border bg-bg-secondary shadow-2xl overflow-hidden max-h-[80vh] flex flex-col'
+    : 'relative z-10 w-full max-w-lg mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden'
+
   return (
     <Command.Dialog
       open={open}
@@ -133,8 +146,7 @@ export function CommandPalette({
         if (!isOpen) onClose()
       }}
       label="Command palette"
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
-      // Overlay backdrop
+      className={dialogPositionClass}
       style={{}}
     >
       <VisuallyHidden.Root>
@@ -148,7 +160,13 @@ export function CommandPalette({
       />
 
       {/* Palette panel */}
-      <div className="relative z-10 w-full max-w-lg mx-4 rounded-xl border border-border bg-bg-secondary shadow-2xl overflow-hidden">
+      <div className={panelClass}>
+        {/* Drag handle — visible on mobile bottom sheet only */}
+        {isMobile && (
+          <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0">
+            <div className="w-10 h-1 rounded-full bg-border" aria-hidden="true" />
+          </div>
+        )}
         {/* Search input row */}
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <Search className="h-4 w-4 text-text-tertiary flex-shrink-0" />
@@ -159,8 +177,8 @@ export function CommandPalette({
           />
         </div>
 
-        {/* Command list */}
-        <Command.List className="max-h-80 overflow-y-auto py-1.5">
+        {/* Command list — flex-1 on mobile so it fills the bottom sheet; fixed max-h on desktop */}
+        <Command.List className={isMobile ? 'flex-1 overflow-y-auto py-1.5' : 'max-h-80 overflow-y-auto py-1.5'}>
           <Command.Empty className="py-8 text-center text-sm text-text-tertiary">
             No commands found.
           </Command.Empty>

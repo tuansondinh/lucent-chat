@@ -16,10 +16,10 @@
  *   Voice PTT   → configurable in Settings (default: hold Space)
  */
 
-import { useEffect, useCallback, useState, useRef, type ReactNode } from 'react'
+import { useEffect, useCallback, useState, useRef, lazy, Suspense, type ReactNode } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, RefreshCw, LogIn } from 'lucide-react'
 import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
 import { getFileTreeStore, deleteFileTreeStore } from './store/file-tree-store'
 import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
@@ -28,14 +28,21 @@ import { ChatPane } from './components/ChatPane'
 import { Sidebar, type SidebarView } from './components/Sidebar'
 import { useIsMobile } from './lib/useIsMobile'
 import { VoiceDownloadBanner } from './components/VoiceDownloadBanner'
+import { IOSInstallBanner } from './components/IOSInstallBanner'
 import { ModelPicker } from './components/ModelPicker'
 import { useVoiceStore } from './store/voice-store'
 import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
-import { Terminal } from './components/Terminal'
-import { FileViewer } from './components/FileViewer'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
+import { useSwipeGesture } from './lib/useSwipeGesture'
+import { useIOSKeyboard } from './lib/useIOSKeyboard'
+import type { ConnectionStatus } from './lib/web-bridge'
+import type { Bridge } from '../../../preload/index'
+
+// Lazy-load heavy desktop-only components — not needed on mobile
+const Terminal = lazy(() => import('./components/Terminal').then((m) => ({ default: m.Terminal })))
+const FileViewer = lazy(() => import('./components/FileViewer').then((m) => ({ default: m.FileViewer })))
 
 const MIN_FILE_VIEWER_WIDTH = 360
 const MAX_FILE_VIEWER_WIDTH = 840
@@ -148,7 +155,10 @@ export default function App() {
   // -------------------------------------------------------------------------
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+  // Restore mobile drawer open state from localStorage (Task 10: State persistence)
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(() => {
+    try { return localStorage.getItem('lc_sidebar_open') === 'true' } catch { return false }
+  })
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
@@ -161,6 +171,11 @@ export default function App() {
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
+  // Reconnect banner state (PWA only)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
+
+  // iOS keyboard state — used to pin input bar above keyboard
+  const { isKeyboardOpen, keyboardHeight } = useIOSKeyboard()
 
   // Refs kept in sync with modal open state — used in keydown handler for gating
   const commandPaletteOpenRef = useRef(commandPaletteOpen)
@@ -202,6 +217,67 @@ export default function App() {
       .catch(() => {})
       .finally(() => setSettingsLoaded(true))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -------------------------------------------------------------------------
+  // Swipe gesture: right-swipe from left edge opens drawer, left-swipe closes
+  // -------------------------------------------------------------------------
+
+  const handleSwipeOpen = useCallback(() => setMobileDrawerOpen(true), [])
+  const handleSwipeClose = useCallback(() => setMobileDrawerOpen(false), [])
+
+  useSwipeGesture({
+    onSwipeRight: handleSwipeOpen,
+    onSwipeLeft: handleSwipeClose,
+    isOpen: mobileDrawerOpen,
+    enabled: isMobile,
+  })
+
+  // -------------------------------------------------------------------------
+  // State persistence — save mobile drawer open state to localStorage
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!isMobile) return
+    try {
+      if (mobileDrawerOpen) {
+        localStorage.setItem('lc_sidebar_open', 'true')
+      } else {
+        localStorage.removeItem('lc_sidebar_open')
+      }
+    } catch {
+      // localStorage may be unavailable in some private browsing modes
+    }
+  }, [mobileDrawerOpen, isMobile])
+
+  // -------------------------------------------------------------------------
+  // State persistence — save active session path to localStorage on mobile
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!isMobile) return
+    try {
+      if (activePaneSessionPath) {
+        localStorage.setItem('lc_active_session', activePaneSessionPath)
+      } else {
+        localStorage.removeItem('lc_active_session')
+      }
+    } catch {
+      // localStorage may be unavailable in some private browsing modes
+    }
+  }, [activePaneSessionPath, isMobile])
+
+  // -------------------------------------------------------------------------
+  // Reconnect resilience — subscribe to WebBridge connection status changes
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    const b = bridge as Bridge & { onConnectionStatusChange?: (cb: (s: ConnectionStatus) => void) => () => void }
+    if (typeof b.onConnectionStatusChange !== 'function') return
+    const unsubscribe = b.onConnectionStatusChange((status) => {
+      setConnectionStatus(status)
+    })
+    return () => unsubscribe()
+  }, [bridge]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Persist sidebar collapsed state when it changes
@@ -771,10 +847,12 @@ export default function App() {
   // Shared dialogs/overlays (used in both mobile and desktop renders)
   const sharedOverlays = (
     <>
-      {/* Model picker dialog */}
-      <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} />
+      {/* Model picker dialog — full-screen overlay on mobile */}
+      <div data-mobile-fullscreen={isMobile ? 'true' : undefined}>
+        <ModelPicker open={modelPickerOpen} onOpenChange={setModelPickerOpen} isMobile={isMobile} />
+      </div>
 
-      {/* Command palette — Cmd+K */}
+      {/* Command palette — Cmd+K; bottom sheet on mobile */}
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
@@ -797,17 +875,21 @@ export default function App() {
         }}
         isGenerating={activePaneGenerating}
         canSplit={paneCount < 4}
+        isMobile={isMobile}
       />
 
-      {/* Settings dialog — Cmd+, */}
-      <Settings
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        voicePttShortcut={voicePttShortcut}
-        onVoicePttShortcutChange={setVoicePttShortcut}
-        voiceAudioEnabled={voiceAudioEnabled}
-        onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
-      />
+      {/* Settings dialog — full-screen overlay on mobile */}
+      <div data-mobile-fullscreen={isMobile ? 'true' : undefined}>
+        <Settings
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          voicePttShortcut={voicePttShortcut}
+          onVoicePttShortcutChange={setVoicePttShortcut}
+          voiceAudioEnabled={voiceAudioEnabled}
+          onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+          isMobile={isMobile}
+        />
+      </div>
 
       {/* First-run onboarding overlay */}
       {showOnboarding && (
@@ -821,8 +903,18 @@ export default function App() {
 
   // ── Mobile layout ──────────────────────────────────────────────────────────
   if (isMobile) {
+    // When keyboard is open, pin input area above the keyboard using visualViewport height.
+    // We do NOT add safe-area-inset-bottom on top of this (prevents double-offset).
+    const mobileInputStyle = isKeyboardOpen
+      ? { paddingBottom: `${keyboardHeight}px` }
+      : undefined
+
     return (
-      <div className="mobile-touch flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
+      <div
+        className="mobile-touch flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden"
+        // When keyboard is open, constrain to visible area
+        style={isKeyboardOpen ? { height: `${window.visualViewport?.height ?? window.innerHeight}px` } : undefined}
+      >
         {/* Mobile header: no drag region, hamburger left, title center, health right */}
         <header className="mobile-header">
           <button
@@ -841,6 +933,34 @@ export default function App() {
           </div>
         </header>
 
+        {/* iOS Safari "Add to Home Screen" install guidance */}
+        <IOSInstallBanner />
+
+        {/* Reconnecting banner — shown when WebSocket drops (PWA mode) */}
+        {connectionStatus === 'reconnecting' && (
+          <div className="reconnecting-banner" role="status" aria-live="polite">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+            <span>Reconnecting...</span>
+          </div>
+        )}
+
+        {/* Re-auth prompt — shown when token is expired */}
+        {connectionStatus === 'reauth' && (
+          <div className="reauth-banner" role="alert">
+            <LogIn className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>Session expired — </span>
+            <button
+              className="underline font-medium ml-1"
+              onClick={() => {
+                localStorage.removeItem('lc_bridge_token')
+                window.location.reload()
+              }}
+            >
+              Sign in again
+            </button>
+          </div>
+        )}
+
         {/* Voice download banner */}
         <VoiceDownloadBanner
           show={settingsLoaded && !voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
@@ -848,8 +968,8 @@ export default function App() {
           error={voiceError ?? undefined}
         />
 
-        {/* Single chat pane — full width */}
-        <div className="flex-1 min-h-0 flex flex-col">
+        {/* Single chat pane — full width, constrained above keyboard */}
+        <div className="flex-1 min-h-0 flex flex-col mobile-input-area" style={mobileInputStyle}>
           <ChatPane
             paneId={activePaneId}
             isActive
@@ -939,6 +1059,9 @@ export default function App() {
         </div>
       </header>
 
+      {/* iOS Safari "Add to Home Screen" install guidance */}
+      <IOSInstallBanner />
+
       {/* Voice download banner — only shows on first startup when models need downloading */}
       <VoiceDownloadBanner
         show={settingsLoaded && !voiceModelsDownloaded && (voiceSidecarState === 'starting' || voiceSidecarState === 'error')}
@@ -977,7 +1100,9 @@ export default function App() {
                     className="flex min-h-0 flex-shrink-0 border-l border-border bg-bg-secondary"
                     style={{ width: `${fileViewerWidth}px` }}
                   >
-                    <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />
+                    <Suspense fallback={null}>
+                      <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />
+                    </Suspense>
                   </div>
                 </>
               )}
@@ -990,7 +1115,9 @@ export default function App() {
           <>
             <PanelResizeHandle className="h-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-row-resize" />
             <Panel defaultSize={30} minSize={10} className="flex flex-col min-h-0">
-              <Terminal />
+              <Suspense fallback={null}>
+                <Terminal />
+              </Suspense>
             </Panel>
           </>
         )}
