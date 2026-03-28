@@ -4,7 +4,8 @@
  */
 
 import { readdir, stat, unlink, readFile, writeFile, mkdir, realpath } from 'node:fs/promises'
-import { join, basename, extname, isAbsolute, relative } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join, basename, extname, isAbsolute, relative, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBridge } from './agent-bridge.js'
 import type { Orchestrator } from './orchestrator.js'
@@ -30,9 +31,10 @@ export interface FormattedMessage {
 // ============================================================================
 
 export class SessionService {
+  private readonly resolvedPaths = resolveSessionPaths()
   /** Path to the file that persists the active session ID across launches. */
-  private readonly activeSessionFile = join(homedir(), '.lucent', 'active-session')
-  private readonly sessionsBase = join(homedir(), '.lucent', 'agent', 'sessions')
+  private readonly activeSessionFile = this.resolvedPaths.activeSessionFile
+  private readonly sessionsBase = this.resolvedPaths.sessionsBase
 
   /** In-memory cache of the current active session path. */
   private activeSessionId: string | null = null
@@ -45,10 +47,9 @@ export class SessionService {
 
   /**
    * List all sessions on disk, sorted newest-first.
-   * Reads from ~/.lucent/agent/sessions/ (and subdirectories).
+   * Reads from the active runtime sessions directory (and subdirectories).
    */
   async listSessions(): Promise<SessionInfo[]> {
-    const sessionsBase = join(homedir(), '.lucent', 'agent', 'sessions')
     const results: SessionInfo[] = []
 
     async function walk(dir: string): Promise<void> {
@@ -90,7 +91,7 @@ export class SessionService {
       }
     }
 
-    await walk(sessionsBase)
+    await walk(this.sessionsBase)
     // Sort newest first
     results.sort((a, b) => b.modified - a.modified)
     return results
@@ -178,8 +179,7 @@ export class SessionService {
   setActiveSessionId(id: string): void {
     this.activeSessionId = id
     // Persist asynchronously — best-effort, no throw on failure
-    const dir = join(homedir(), '.lucent')
-    mkdir(dir, { recursive: true })
+    mkdir(dirname(this.activeSessionFile), { recursive: true })
       .then(() => writeFile(this.activeSessionFile, id, 'utf8'))
       .catch((err: Error) => {
         console.warn('[session-service] failed to persist active session:', err.message)
@@ -201,6 +201,23 @@ export class SessionService {
       // File may not exist yet — that's fine
     }
     return null
+  }
+
+  /**
+   * Refresh the active session ID from the live agent state.
+   * Safe to call after a turn completes or after the agent restarts.
+   */
+  async syncActiveSessionFromAgent(): Promise<string | null> {
+    try {
+      const state = await this.agentBridge.getState()
+      const sessionFile = typeof state.sessionFile === 'string' ? state.sessionFile : null
+      if (sessionFile) {
+        this.setActiveSessionId(sessionFile)
+      }
+      return sessionFile
+    } catch {
+      return this.activeSessionId
+    }
   }
 
   // =========================================================================
@@ -252,5 +269,25 @@ export class SessionService {
     }
 
     return realTarget
+  }
+}
+
+function resolveSessionPaths(): { activeSessionFile: string; sessionsBase: string } {
+  const home = homedir()
+  const candidates = [
+    process.env.LUCENT_CODING_AGENT_DIR,
+    process.env.LUCENT_CONFIG_DIR ? join(process.env.LUCENT_CONFIG_DIR, 'agent') : undefined,
+    process.env.GSD_CODING_AGENT_DIR,
+    process.env.LC_CODING_AGENT_DIR,
+    join(home, '.lucent', 'agent'),
+    join(home, '.gsd', 'agent'),
+  ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+
+  const existingBase = candidates.find((dir) => existsSync(dir))
+
+  const agentBase = existingBase ?? candidates[0] ?? join(home, '.lucent', 'agent')
+  return {
+    activeSessionFile: join(dirname(agentBase), 'active-session'),
+    sessionsBase: join(agentBase, 'sessions'),
   }
 }

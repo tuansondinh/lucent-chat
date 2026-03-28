@@ -53,6 +53,7 @@ test('Main entry: SettingsService loads settings on startup', async (t) => {
       onboardingComplete: true,
       voicePttShortcut: 'alt+space' as const,
       voiceAudioEnabled: false,
+      voiceServiceEnabled: false,
       voiceModelsDownloaded: true,
     }
     await writeFile(settingsPath, JSON.stringify(testSettings, null, 2), 'utf8')
@@ -70,7 +71,8 @@ test('Main entry: SettingsService loads settings on startup', async (t) => {
     assert.equal(settings.lastActiveFilePath, 'src/main.ts')
     assert.equal(settings.onboardingComplete, true)
     assert.equal(settings.voicePttShortcut, 'alt+space')
-    assert.equal(settings.voiceAudioEnabled, false)
+    assert.equal(settings.voiceAudioEnabled, true)
+    assert.equal(settings.voiceServiceEnabled, false)
     assert.equal(settings.voiceModelsDownloaded, true)
 
     // Restore env
@@ -101,7 +103,8 @@ test('Main entry: SettingsService creates default settings when file missing', a
     assert.equal(settings.sidebarCollapsed, false)
     assert.equal(settings.onboardingComplete, false)
     assert.equal(settings.voicePttShortcut, 'space')
-    assert.equal(settings.voiceAudioEnabled, true)
+    assert.equal(settings.voiceAudioEnabled, false)
+    assert.equal(settings.voiceServiceEnabled, true)
     assert.equal(settings.voiceModelsDownloaded, false)
 
     // File should be created
@@ -138,6 +141,7 @@ test('Main entry: SettingsService handles malformed settings file', async (t) =>
     // Should have defaults
     assert.equal(settings.theme, 'dark')
     assert.equal(settings.fontSize, 14)
+    assert.equal(settings.voiceServiceEnabled, true)
 
     if (originalEnv === undefined) {
       delete process.env.LUCENT_CONFIG_DIR

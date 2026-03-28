@@ -169,7 +169,7 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
   const displayLang = language || 'text'
 
   return (
-    <div className="my-3 rounded-lg overflow-hidden border border-border">
+    <div className="my-3 rounded-lg border border-border" style={{ overflow: 'hidden' }}>
       {/* Header bar */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-bg-tertiary border-b border-border">
         <span className="text-[11px] font-mono text-text-tertiary uppercase tracking-wide">
@@ -559,7 +559,7 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
   if (!modulesLoaded || !ReactMarkdown) {
     // Plain fallback while modules load
     return (
-      <p className="whitespace-pre-wrap break-words text-sm leading-7">
+      <p className="whitespace-pre-wrap break-words text-sm leading-5">
         {text}
         {isStreaming && <StreamingCursor />}
       </p>
@@ -567,7 +567,7 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
   }
 
   return (
-    <div className="markdown-body text-sm leading-7">
+    <div className="markdown-body text-sm leading-5 min-w-0 overflow-hidden">
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         components={{
@@ -590,7 +590,7 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
           code({ children, ...props }) {
             return (
               <code
-                className="bg-bg-tertiary text-accent rounded px-1.5 py-0.5 text-[0.85em] font-mono"
+                className="bg-bg-tertiary text-accent rounded px-1.5 py-0.5 text-[0.85em] font-mono break-all"
                 {...props}
               >
                 {children}
@@ -722,16 +722,16 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
             return <h3 className="text-base font-semibold text-text-primary mt-3 mb-1" {...props}>{children}</h3>
           },
           p({ children, ...props }) {
-            return <p className="mb-3 last:mb-0 leading-7" {...props}>{children}</p>
+            return <p className="mb-1 last:mb-0 leading-5" {...props}>{children}</p>
           },
           ul({ children, ...props }) {
-            return <ul className="list-disc pl-5 mb-3 space-y-1" {...props}>{children}</ul>
+            return <ul className="list-disc pl-5 mb-2 space-y-0.5" {...props}>{children}</ul>
           },
           ol({ children, ...props }) {
-            return <ol className="list-decimal pl-5 mb-3 space-y-1" {...props}>{children}</ol>
+            return <ol className="list-decimal pl-5 mb-2 space-y-0.5" {...props}>{children}</ol>
           },
           li({ children, ...props }) {
-            return <li className="leading-7" {...props}>{children}</li>
+            return <li className="leading-5" {...props}>{children}</li>
           },
           blockquote({ children, ...props }) {
             return (
@@ -792,18 +792,18 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
 
   return (
     <div
-      className={cn('flex w-full mb-4', isUser ? 'justify-end' : 'justify-start')}
+      className={cn('flex w-full mb-2', isUser ? 'justify-end' : 'justify-start')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       <div
         className={cn(
-          'relative max-w-[80%] rounded-2xl px-4 py-3',
+          'relative min-w-0 overflow-hidden rounded-xl px-3 py-1.5 max-w-[85%]',
           isUser
-            ? 'bg-accent/15 border border-accent/30 text-text-primary rounded-br-sm'
+            ? 'bg-accent/15 border border-accent/30 text-text-primary'
             : isError
-              ? 'bg-red-900/20 border border-red-700/40 text-red-300 rounded-bl-sm'
-              : 'bg-bg-secondary border border-border text-text-primary rounded-bl-sm',
+              ? 'bg-red-900/20 border border-red-700/40 text-red-300'
+              : 'bg-bg-secondary border border-border text-text-primary',
         )}
       >
         {/* Copy message button — top-right, on hover (only when there's text to copy) */}
@@ -822,7 +822,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
         {isError && (
           <div className="flex items-start gap-2">
             <AlertCircle className="size-4 mt-0.5 flex-shrink-0 text-red-400" />
-            <p className="whitespace-pre-wrap break-words text-sm leading-7">
+            <p className="whitespace-pre-wrap break-words text-sm leading-5">
               {plainText}
             </p>
           </div>
@@ -830,7 +830,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
 
         {/* User messages: plain text */}
         {isUser && (
-          <p className="whitespace-pre-wrap break-words text-sm leading-7 pr-6">
+          <p className="whitespace-pre-wrap break-words text-sm leading-5 pr-6">
             {plainText}
             {isStreaming && <StreamingCursor />}
           </p>

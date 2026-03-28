@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// GSD Startup Loader
+// Lucent Startup Loader
 // Copyright (c) 2026 Jeremy McSpadden <jeremy@fluxlabs.net>
 import { fileURLToPath } from 'url'
 import { dirname, resolve, join, relative, delimiter } from 'path'
@@ -36,20 +36,20 @@ import { discoverExtensionEntryPaths } from './extension-discovery.js'
 import { loadRegistry, readManifestFromEntryPath, isExtensionEnabled } from './extension-registry.js'
 import { renderLogo } from './logo.js'
 
-// pkg/ is a shim directory: contains gsd's piConfig (package.json) and pi's
+// pkg/ is a shim directory: contains Lucent's piConfig (package.json) and pi's
 // theme assets (dist/modes/interactive/theme/) without a src/ directory.
 // This allows config.js to:
-//   1. Read piConfig.name → "gsd" (branding)
+//   1. Read piConfig.name → "lucent" (branding)
 //   2. Resolve themes via dist/ (no src/ present → uses dist path)
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'pkg')
 
 // MUST be set before any dynamic import of pi SDK fires — this is what config.js
 // reads to determine APP_NAME and CONFIG_DIR_NAME
 process.env.PI_PACKAGE_DIR = pkgDir
-process.env.PI_SKIP_VERSION_CHECK = '1'  // GSD runs its own update check in cli.ts — suppress pi's
-process.title = 'voice-bridge-desktop'
+process.env.PI_SKIP_VERSION_CHECK = '1'  // Lucent runs its own update check in cli.ts — suppress pi's
+process.title = 'lucent-code'
 
-// Print branded banner on first launch (before ~/.gsd/ exists)
+// Print branded banner on first launch (before ~/.lucent/ exists)
 if (!existsSync(appRoot)) {
   const cyan  = '\x1b[36m'
   const green = '\x1b[32m'
@@ -59,18 +59,21 @@ if (!existsSync(appRoot)) {
   process.stderr.write(
     renderLogo(colorCyan) +
     '\n' +
-    `  Get Shit Done ${dim}v${gsdVersion}${reset}\n` +
+    `  Lucent ${dim}v${gsdVersion}${reset}\n` +
     `  ${green}Welcome.${reset} Setting up your environment...\n\n`
   )
 }
 
-// GSD_CODING_AGENT_DIR — tells pi's getAgentDir() to return ~/.gsd/agent/ instead of ~/.gsd/agent/
+process.env.LUCENT_HOME = appRoot
+process.env.LUCENT_CONFIG_DIR = appRoot
+process.env.LUCENT_CODING_AGENT_DIR = agentDir
+// Preserve the legacy variable for older integrations that still read it.
 process.env.GSD_CODING_AGENT_DIR = agentDir
 
-// NODE_PATH — make gsd's own node_modules available to extensions loaded via jiti.
+// NODE_PATH — make Lucent's own node_modules available to extensions loaded via jiti.
 // Without this, extensions (e.g. browser-tools) can't resolve dependencies like
-// `playwright` because jiti resolves modules from pi-coding-agent's location, not gsd's.
-// Prepending gsd's node_modules to NODE_PATH fixes this for all extensions.
+// `playwright` because jiti resolves modules from pi-coding-agent's location, not Lucent's.
+// Prepending Lucent's node_modules to NODE_PATH fixes this for all extensions.
 const gsdNodeModules = join(gsdRoot, 'node_modules')
 process.env.NODE_PATH = [gsdNodeModules, process.env.NODE_PATH]
   .filter(Boolean)
@@ -81,7 +84,7 @@ process.env.NODE_PATH = [gsdNodeModules, process.env.NODE_PATH]
 const { Module } = await import('module');
 (Module as any)._initPaths?.()
 
-// GSD_VERSION — expose package version so extensions can display it
+// GSD_VERSION — preserve the legacy env name so existing extensions can display it
 process.env.GSD_VERSION = gsdVersion
 
 // GSD_BIN_PATH — absolute path to this loader (dist/loader.js), used by patched subagent
@@ -96,7 +99,7 @@ const resourcesDir = existsSync(distRes) ? distRes : srcRes
 
 // GSD_BUNDLED_EXTENSION_PATHS — dynamically discovered bundled extension entry points.
 // Uses the shared discoverExtensionEntryPaths() to scan the bundled resources
-// directory, then remaps discovered paths to agentDir (~/.gsd/agent/extensions/)
+// directory, then remaps discovered paths to agentDir (~/.lucent/agent/extensions/)
 // where initResources() will sync them.
 const bundledExtDir = join(resourcesDir, 'extensions')
 const agentExtDir = join(agentDir, 'extensions')

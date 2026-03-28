@@ -278,23 +278,22 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         let messages = s.messages.map((m) => {
           if (m.turn_id !== turn_id || m.role !== 'assistant') return m
 
-          let blocks = m.contentBlocks.map((b) => {
+          const nonTextBlocks = m.contentBlocks.map((b) => {
             if (b.type === 'tool_use' && !b.done) {
               return { ...b, done: true, isError: true, output: 'Aborted' }
             }
-            if (b.type === 'thinking' || b.type === 'text') {
+            if (b.type === 'thinking') {
               return { ...b, isStreaming: false }
             }
             return b
-          })
+          }).filter((b) => b.type !== 'text')
 
-          const hasText = blocks.some((b) => b.type === 'text')
-          if (!hasText && full_text) {
-            blocks = [
-              ...blocks,
-              { type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false },
-            ]
-          }
+          const blocks = full_text
+            ? [
+                ...nonTextBlocks,
+                { type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false },
+              ]
+            : nonTextBlocks
 
           return { ...m, contentBlocks: blocks, isStreaming: false }
         })

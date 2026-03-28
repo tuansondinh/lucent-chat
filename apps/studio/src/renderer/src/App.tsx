@@ -74,6 +74,7 @@ function renderLayoutNode(
   paneCount: number,
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
   voiceAudioEnabled: boolean,
+  textToSpeechMode: boolean,
   setActivePane: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
   handleOpenFile: (paneId: string, relativePath: string) => Promise<void>,
@@ -87,6 +88,7 @@ function renderLayoutNode(
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
         voiceAudioEnabled={voiceAudioEnabled}
+        textToSpeechMode={textToSpeechMode}
         onFocus={() => setActivePane(node.paneId)}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         onOpenFile={handleOpenFile}
@@ -114,7 +116,7 @@ function renderLayoutNode(
     const childKey = child.type === 'leaf' ? child.paneId : child.id
     panels.push(
       <Panel key={childKey} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, textToSpeechMode, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>,
     )
   })
@@ -178,6 +180,7 @@ export default function App() {
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
+  const [textToSpeechMode, setTextToSpeechMode] = useState(false)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
   // Reconnect banner state (PWA only)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
@@ -222,6 +225,9 @@ export default function App() {
         }
         if (s.voiceAudioEnabled === false) {
           setVoiceAudioEnabled(false)
+        }
+        if (s.textToSpeechMode === true) {
+          setTextToSpeechMode(true)
         }
         if (s.voiceModelsDownloaded === true) {
           setVoiceModelsDownloaded(true)
@@ -859,6 +865,7 @@ export default function App() {
     paneCount,
     voicePttShortcut,
     voiceAudioEnabled,
+    textToSpeechMode,
     setActivePane,
     handleClosePane,
     handleOpenFile,

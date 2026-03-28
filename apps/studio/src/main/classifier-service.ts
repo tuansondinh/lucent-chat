@@ -29,36 +29,36 @@ const MAX_CONCURRENT_PER_PANE = 5
  * Built-in hard deny rules for bash commands.
  * These are checked against ALL subcommands (same as user deny rules) and
  * always result in DENY regardless of LLM decision or user context.
+ *
+ * PHILOSOPHY: Only block genuinely catastrophic / irreversible operations that
+ * have no legitimate use in a coding-agent context. Normal dev operations like
+ * rm, kill, sed -i are intentionally NOT listed here — the LLM classifier
+ * handles nuance. When in doubt, let it through rather than blocking legit work.
  */
 const BUILT_IN_BASH_DENY_PATTERNS: string[] = [
-  // Remote shell / file transfer
+  // Remote shell / file transfer (out of scope for coding agent)
   'ssh *', 'ssh',
   'scp *',
   'sftp *', 'sftp',
   // Arbitrary remote code execution via pipe
   'curl * | sh', 'curl * | bash', 'curl * | zsh',
   'wget * | sh', 'wget * | bash', 'wget * | zsh',
-  'wget -O- *', 'wget --output-document=- *',
-  // Netcat in listen/server mode
+  // Netcat in listen/server mode (reverse shell risk)
   'nc -l *', 'nc -l', 'ncat -l *', 'ncat -l',
-  // Credential exfiltration patterns
+  // Credential exfiltration — sending local secrets to external hosts
   'curl * -d @*/.ssh/*', 'curl * --data @*/.ssh/*',
   'curl * -d @*/.aws/*', 'curl * --data @*/.aws/*',
   // Privilege escalation
   'sudo *', 'sudo',
-  // Process termination
-  'kill -9 *', 'killall *',
-  // Scheduled job modification
-  'crontab *',
-  // Disk/filesystem operations
-  'dd *',
+  // Truly destructive recursive removal of root/system paths only
+  'rm -rf /', 'rm -rf /*',
+  // Disk/filesystem writes (catastrophic, irreversible)
+  'dd if=* of=/dev/*',
   'mkfs *', 'mkfs.*',
-  // In-place file editing (sed -i can silently corrupt files)
-  'sed -i *', 'sed -i',
-  // Publishing packages (requires explicit user action)
+  // Publishing packages (requires explicit user action, cannot be undone)
   'npm publish', 'npm publish *',
   'pip publish', 'pip publish *', 'twine upload *',
-  // Destructive git remote ops
+  // Destructive git remote ops (rewrites shared history)
   'git push --force *', 'git push --force',
   'git push -f *', 'git push -f',
 ]
@@ -86,6 +86,10 @@ const BUILT_IN_BASH_ALLOW_PATTERNS: string[] = [
   'which *', 'type *', 'command *',
   // Disk usage (read-only)
   'du *', 'df *',
+  // Directory navigation (safe — just changes cwd, no side effects)
+  'cd', 'cd *',
+  // Pipe helpers — xargs passes output to another command; safety determined by the target
+  'xargs *',
   // Read-only git operations
   'git status', 'git status *',
   'git log', 'git log *',
@@ -156,22 +160,25 @@ export class ClassifierService {
       }
     }
 
-    // Allow rules — only match against the full command (candidates[0]).
-    // This prevents compound commands like "git status && rm -rf /" from
-    // slipping through via the "git *" allow rule on the "git status" part.
+    // Allow rules — match against the full command AND all subcommands.
+    // A compound command like "cd /tmp && find . -name *.ts | grep foo" should
+    // be allowed if ALL of its subcommands individually match allow rules.
+    // This prevents a single allow match on a sub-part from letting through a
+    // chain that also contains a non-allowed (but non-denied) command.
     for (const rule of rules) {
-      if (rule.decision === 'allow' && rule.toolName === toolName && this.matchPattern(rule.pattern, candidates[0])) {
-        return 'allow'
+      if (rule.decision === 'allow' && rule.toolName === toolName) {
+        if (this.allSubcommandsAllowed(candidates, [rule.pattern])) {
+          return 'allow'
+        }
       }
     }
 
     // Built-in allow rules for known read-only bash commands.
     // Checked after deny rules so chained destructive commands are still caught.
+    // For compound commands every subcommand must match a built-in allow pattern.
     if (toolName === 'bash') {
-      for (const pattern of BUILT_IN_BASH_ALLOW_PATTERNS) {
-        if (this.matchPattern(pattern, candidates[0])) {
-          return 'allow'
-        }
+      if (this.allSubcommandsAllowed(candidates, BUILT_IN_BASH_ALLOW_PATTERNS)) {
+        return 'allow'
       }
     }
 
@@ -430,6 +437,34 @@ Decision (ALLOW/DENY)?`
     return result
   }
 
+  /**
+   * Returns true if every actual subcommand from a compound command matches
+   * at least one of the given patterns.
+   *
+   * `candidates` contains [fullCommand, splitParts..., pathStrippedVariants..., envStrippedVariants...].
+   * We only want to check the directly split subcommand parts — not the path/env stripped variants,
+   * which are synthetic and don't represent real commands to evaluate.
+   *
+   * To do this we re-split the full command (candidates[0]) ourselves, keeping only the direct parts.
+   */
+  private allSubcommandsAllowed(candidates: string[], patterns: string[]): boolean {
+    const full = candidates[0]
+    if (!full) return false
+
+    // Re-split the full command on shell operators to get the real subcommand parts
+    const parts = full.split(/\s*(?:&&|\|\||[;|])\s*/).map((s) => s.trim()).filter(Boolean)
+
+    // Single command — check directly
+    if (parts.length === 1) {
+      return patterns.some((p) => this.matchPattern(p, parts[0]))
+    }
+
+    // Compound command: every part must match a pattern
+    return parts.every((part) =>
+      patterns.some((p) => this.matchPattern(p, part))
+    )
+  }
+
   private matchPattern(pattern: string, text: string): boolean {
     const regexSource = pattern
       .replace(/[.+^${}()|[\]\\]/g, '\\$&')
@@ -457,7 +492,9 @@ Decision (ALLOW/DENY)?`
     } else {
       stats.consecutive++
       stats.total++
-      if (stats.consecutive >= 3 || stats.total >= 20) {
+      // Only pause after a very high number of denials to avoid interrupting legit work.
+      // 10 consecutive or 50 total is the threshold.
+      if (stats.consecutive >= 10 || stats.total >= 50) {
         stats.paused = true
       }
     }

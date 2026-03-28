@@ -8,8 +8,9 @@
  *   npm run serve        # build:pwa first, then serve PWA + bridge on port 8788
  *
  * All agent events are broadcast directly to WebSocket clients.
- * Token is read from settings (~/.voice-bridge-desktop/settings.json),
- * auto-generated on first run.
+ * Token is read from settings (~/.lucent-code/settings.json),
+ * auto-generated on first run. Legacy ~/.voice-bridge-desktop/settings.json
+ * is migrated automatically.
  */
 
 import { fileURLToPath } from 'node:url'
@@ -25,7 +26,7 @@ import { SettingsService } from './settings-service.js'
 import { AuthService } from './auth-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
-import { VoiceService } from './voice-service.js'
+import { getDisabledVoiceStatus, VOICE_SERVICE_DISABLED_REASON, VoiceService } from './voice-service.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
 import { resolveRemotePaneRoot } from './pane-root-policy.js'
@@ -55,9 +56,11 @@ async function main(): Promise<void> {
 
   // 2b. Voice service — project root for audio-service lookup
   const voiceService = new VoiceService(() => join(__dirname, '..', '..', '..'))
+  const isVoiceServiceEnabled = (): boolean => settingsService.get().voiceServiceEnabled !== false
   voiceService.probe()
     .then((result) => {
       if (!result.available) return
+      if (!isVoiceServiceEnabled()) return
       // Only prewarm if the user opted in — keeps behaviour consistent with index.ts.
       if (settings.voiceOptIn !== true) return
       setTimeout(() => {
@@ -106,6 +109,14 @@ async function main(): Promise<void> {
       case 'set-settings': {
         const validated = validateSettingsPatch(args[0] as Record<string, unknown>)
         settingsService.save(validated)
+        if ('voiceServiceEnabled' in validated) {
+          if (validated.voiceServiceEnabled === false) {
+            await voiceService.stop()
+            broadcast('event:voice-status', getDisabledVoiceStatus())
+          } else {
+            await voiceService.probe()
+          }
+        }
         return sanitizeSettingsForRenderer(settingsService.get())
       }
       case 'pane-list': return paneManager.getPaneIds()
@@ -145,10 +156,16 @@ async function main(): Promise<void> {
       case 'git-modified-files': return root(args) ? gitService.getModifiedFiles(root(args)!) : []
       case 'git-changed-files': return root(args) ? gitService.getChangedFiles(root(args)!) : []
       case 'git-file-diff': return root(args) ? gitService.getFileDiff(root(args)!, args[1] as string) : null
-      case 'voice-probe': return voiceService.probe()
-      case 'voice-start': return voiceService.start()
+      case 'voice-probe':
+        if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
+        return voiceService.probe()
+      case 'voice-start':
+        if (!isVoiceServiceEnabled()) throw new Error(VOICE_SERVICE_DISABLED_REASON)
+        return voiceService.start()
       case 'voice-stop': return voiceService.stop()
-      case 'voice-status': return voiceService.getStatus()
+      case 'voice-status':
+        if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
+        return voiceService.getStatus()
       case 'open-external': return null
       case 'set-window-title': return null
       case 'set-window-width': return null

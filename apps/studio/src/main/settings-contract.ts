@@ -93,6 +93,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.voiceAudioEnabled = partial.voiceAudioEnabled
   }
 
+  if ('voiceServiceEnabled' in partial) {
+    if (typeof partial.voiceServiceEnabled !== 'boolean') {
+      throw new Error('Invalid voiceServiceEnabled setting')
+    }
+    validated.voiceServiceEnabled = partial.voiceServiceEnabled
+  }
+
   if ('voiceModelsDownloaded' in partial) {
     if (typeof partial.voiceModelsDownloaded !== 'boolean') {
       throw new Error('Invalid voiceModelsDownloaded setting')
@@ -105,6 +112,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
       throw new Error('Invalid voiceOptIn setting')
     }
     validated.voiceOptIn = partial.voiceOptIn
+  }
+
+  if ('textToSpeechMode' in partial) {
+    if (typeof partial.textToSpeechMode !== 'boolean') {
+      throw new Error('Invalid textToSpeechMode setting')
+    }
+    validated.textToSpeechMode = partial.textToSpeechMode
   }
 
   if ('remoteAccessEnabled' in partial) {

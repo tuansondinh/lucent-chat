@@ -105,7 +105,7 @@ The `.app` bundle breaks down roughly as:
 |-----------|------|-------|
 | Electron Frameworks | ~263 MB | Chromium + Node — unavoidable |
 | `runtime/` (pi-coding-agent) | ~400 MB | See below |
-| `audio-service/`, `voice_bridge/` | ~3 MB | Small |
+| `audio-service/` | ~120 KB | Small |
 
 The `runtime/` directory (shipped via `extraResources`) contains the coding-agent Node process and is the main lever for reducing app size.
 

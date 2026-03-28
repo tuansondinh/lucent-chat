@@ -93,7 +93,7 @@ function UiSelectCard({
 function ThinkingBubble() {
   return (
     <div className="flex w-full mb-4 justify-start">
-      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-4 py-3 bg-bg-secondary border border-border">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-3 py-2 bg-bg-secondary border border-border">
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:0ms]" />
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:150ms]" />
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:300ms]" />
@@ -326,6 +326,8 @@ interface ChatPaneProps {
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space'
   /** Whether assistant TTS playback is enabled globally. */
   voiceAudioEnabled: boolean
+  /** When true, all text responses are spoken (TTS-only mode). */
+  textToSpeechMode: boolean
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
   /** Called to close this pane — undefined if this is the only pane. */
@@ -363,6 +365,7 @@ export function ChatPane({
   sidebarCollapsed,
   voicePttShortcut,
   voiceAudioEnabled,
+  textToSpeechMode,
   onFocus,
   onClose,
   onOpenFile,
@@ -405,10 +408,14 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLElement>(null)
   const inputRef = useRef<ChatInputHandle>(null)
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false)
+  const isNearBottomRef = useRef(true)
   const pttPressedRef = useRef(false)
   const pttStartedVoiceRef = useRef(false)
   const pttActivationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pttShortcutHeldRef = useRef(false)
+  // Keep a ref so the bridge-listener effect (deps=[paneId]) can read the latest value
+  const textToSpeechModeRef = useRef(textToSpeechMode)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
@@ -416,6 +423,9 @@ export function ChatPane({
   const [pendingUiSelect, setPendingUiSelect] = useState<UiSelectRequest | null>(null)
   const autoModeState = store((s) => s.autoModeState)
   const permissionMode = store((s) => s.permissionMode)
+
+  // Keep textToSpeechModeRef in sync so the stale bridge-listener closure reads the current value
+  useEffect(() => { textToSpeechModeRef.current = textToSpeechMode }, [textToSpeechMode])
 
   // Helper to map bridge response to store shape
   const applyAutoModeState = useCallback((bridgeState: { paused: boolean; consecutive: number; total: number }) => {
@@ -448,7 +458,8 @@ export function ChatPane({
   const { toggleVoice, beginVoiceCapture, finishVoiceCapture, stopTts, feedAgentChunk, flushTts } = useVoice({
     onTranscript: (text) => void handleSubmit(text),
     activePaneId: paneId,
-    ttsEnabled: voiceAudioEnabled,
+    ttsEnabled: voiceAudioEnabled || textToSpeechMode,
+    textOnlyMode: textToSpeechMode,
   })
 
   // Stable callback ref for root div — registers the element for spatial navigation
@@ -465,10 +476,28 @@ export function ChatPane({
     }
   }, [paneId])
 
-  // Auto-scroll when messages change
+  // Track whether user is near the bottom of the scroll container
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const el = scrollContainerRef.current
+    if (!el) return
+    const handleScroll = () => {
+      const threshold = 120
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+      isNearBottomRef.current = nearBottom
+      if (nearBottom) setShowScrollIndicator(false)
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true })
+    return () => el.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Auto-scroll only when already near the bottom; otherwise show indicator
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    } else if (isGenerating) {
+      setShowScrollIndicator(true)
+    }
+  }, [messages, isGenerating])
 
   useEffect(() => {
     const matchesVoiceShortcut = (e: KeyboardEvent): boolean => {
@@ -597,16 +626,18 @@ export function ChatPane({
       bridge.onAgentChunk(({ paneId: pid, turn_id, text }) => {
         if (pid !== paneId || isStale()) return
         store.getState().appendChunk(turn_id, text)
-        // Forward chunk to TTS sentence accumulator when voice is active on this pane
+        // Forward chunk to TTS when voice is active OR when TTS-only mode is on
         const voiceState = useVoiceStore.getState()
-        if (isActive && voiceState.active && voiceState.activePaneId === paneId) feedAgentChunk(text, turn_id)
+        const ttsActive = (voiceState.active && voiceState.activePaneId === paneId) || textToSpeechModeRef.current
+        if (isActive && ttsActive) feedAgentChunk(text, turn_id)
       }),
       bridge.onAgentDone(({ paneId: pid, turn_id, full_text }) => {
         if (pid !== paneId || isStale()) return
         store.getState().finalizeMessage(turn_id, full_text)
         // Flush remaining TTS buffer at end of turn
         const voiceState = useVoiceStore.getState()
-        if (isActive && voiceState.active && voiceState.activePaneId === paneId) flushTts(turn_id)
+        const ttsActive = (voiceState.active && voiceState.activePaneId === paneId) || textToSpeechModeRef.current
+        if (isActive && ttsActive) flushTts(turn_id)
       }),
       bridge.onToolStart(({ paneId: pid, turn_id, toolCallId, tool, input }) => {
         if (pid !== paneId || isStale()) return
@@ -730,8 +761,13 @@ export function ChatPane({
         store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
         store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
 
-        // Restore message history for the active session
-        if (typeof state.sessionFile === 'string' && state.sessionFile) {
+        // Restore history only for an empty pane store. This avoids clobbering
+        // live transient UI state (for example active thinking blocks) when a
+        // pane remounts after layout changes such as closing a sibling pane.
+        const paneState = store.getState()
+        const shouldRestoreHistory = paneState.messages.length === 0 && !paneState.isGenerating
+
+        if (typeof state.sessionFile === 'string' && state.sessionFile && shouldRestoreHistory) {
           bridge.getMessages(paneId)
             .then((history) => {
               if (history.length > 0) store.getState().loadHistory(history)
@@ -847,6 +883,12 @@ export function ChatPane({
 
   const handleClearQueuedMessage = useCallback(() => {
     setQueuedPrompt(null)
+  }, [])
+
+  const handleScrollToBottom = useCallback(() => {
+    isNearBottomRef.current = true
+    setShowScrollIndicator(false)
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
   // Listen for per-pane permission mode changes from main process
@@ -1039,7 +1081,7 @@ export function ChatPane({
         {/* Messages area */}
         <main
           ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
-          className="flex-1 overflow-y-auto px-4 py-3 min-h-0"
+          className="flex-1 overflow-y-auto px-3 py-2 min-h-0"
         >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -1134,6 +1176,23 @@ export function ChatPane({
               className="px-2 py-1 bg-yellow-400 text-black font-semibold rounded hover:bg-yellow-300 transition-colors"
             >
               Resume
+            </button>
+          </div>
+        )}
+
+        {/* New message indicator — shown when user has scrolled up during generation */}
+        {showScrollIndicator && (
+          <div className="flex-shrink-0 flex justify-center py-1.5">
+            <button
+              onClick={handleScrollToBottom}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-accent text-white shadow-lg hover:bg-accent/80 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+              </span>
+              New message
+              <ChevronDown className="size-3" />
             </button>
           </div>
         )}

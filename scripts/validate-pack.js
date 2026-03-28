@@ -107,7 +107,7 @@ try {
   // --- Verify runtime bundle is present and valid ---
   // The runtime bundle is self-contained with entrypoint, node binary, and dependencies.
   console.log('==> Verifying runtime bundle is present...');
-  const installedRoot = join(installDir, 'node_modules', 'voice-bridge-desktop');
+  const installedRoot = join(installDir, 'node_modules', 'lucent-code');
   const bundlePaths = [
     'packages/pi-coding-agent/bundle/entrypoint.js',
     'packages/pi-coding-agent/bundle/node',
@@ -128,7 +128,7 @@ try {
   console.log('    Runtime bundle is present.');
 
   // --- Run the binary to confirm end-to-end resolution ---
-  console.log('==> Running installed binary (voice-bridge-desktop -v)...');
+  console.log('==> Running installed binary (gsd -v)...');
   const loaderPath = join(installedRoot, 'dist', 'loader.js');
   try {
     const versionOutput = execSync(`node "${loaderPath}" -v`, {
@@ -137,7 +137,7 @@ try {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 15000,
     }).trim();
-    console.log(`    voice-bridge-desktop -v => ${versionOutput}`);
+    console.log(`    gsd -v => ${versionOutput}`);
     if (!versionOutput.match(/^\d+\.\d+\.\d+/)) {
       console.log('ERROR: gsd -v returned unexpected output (expected a version string).');
       process.exit(1);

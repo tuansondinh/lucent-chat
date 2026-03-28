@@ -135,6 +135,24 @@ describe('pane-store', () => {
       expect(state.isGenerating).toBe(false)
     })
 
+    it('should replace overlapping streamed text with final assembled text', () => {
+      const store = createPaneChatStore('test-pane')
+      store.getState().addUserMessage('Test', 'turn-1')
+      store.getState().appendChunk('turn-1', 'Hey')
+      store.getState().finalizeTextBlock('turn-1')
+      store.getState().startTextBlock('turn-1')
+      store.getState().appendChunk('turn-1', 'Hey! How can I help you today?')
+      store.getState().finalizeMessage('turn-1', 'Hey! How can I help you today?')
+
+      const state = store.getState()
+      const lastMessage = state.messages[state.messages.length - 1]
+      const textBlocks = lastMessage.contentBlocks.filter((b) => b.type === 'text')
+
+      expect(textBlocks).toHaveLength(1)
+      expect(textBlocks[0].text).toBe('Hey! How can I help you today?')
+      expect(textBlocks[0].isStreaming).toBe(false)
+    })
+
     it('should add tool calls', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')

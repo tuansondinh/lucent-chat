@@ -41,6 +41,11 @@ test('settings contract: validates remote access settings', () => {
   })
 })
 
+test('settings contract: validates voiceServiceEnabled', () => {
+  const result = validateSettingsPatch({ voiceServiceEnabled: false })
+  assert.deepEqual(result, { voiceServiceEnabled: false })
+})
+
 test('settings contract: rejects invalid remoteAccessPort', () => {
   assert.throws(
     () => validateSettingsPatch({ remoteAccessPort: 70_000 }),
@@ -58,6 +63,18 @@ test('settings contract: validates persisted project/file context', () => {
     lastProjectRoot: '/tmp/project',
     lastActiveFilePath: 'src/App.tsx',
   })
+})
+
+test('settings contract: validates textToSpeechMode', () => {
+  const result = validateSettingsPatch({ textToSpeechMode: true })
+  assert.deepEqual(result, { textToSpeechMode: true })
+})
+
+test('settings contract: rejects invalid textToSpeechMode', () => {
+  assert.throws(
+    () => validateSettingsPatch({ textToSpeechMode: 'yes' }),
+    /Invalid textToSpeechMode setting/,
+  )
 })
 
 // ============================================================================
@@ -97,8 +114,10 @@ test('settings contract: sanitizeSettingsForRenderer includes permissionMode whe
     fontSize: 14,
     sidebarCollapsed: true,
     permissionMode: 'danger-full-access',
+    voiceServiceEnabled: false,
   })
   assert.equal((result as any).permissionMode, 'danger-full-access')
+  assert.equal((result as any).voiceServiceEnabled, false)
 })
 
 test('remote pane root policy: allows descendants within scope root', async () => {

@@ -18,14 +18,26 @@ import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { app } from 'electron'
 
-type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
+export type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
 
-interface VoiceServiceStatus {
+export interface VoiceServiceStatus {
   available: boolean
   state: VoiceSidecarState
   port: number | null
   token: string | null
   reason?: string
+}
+
+export const VOICE_SERVICE_DISABLED_REASON = 'Voice service disabled in settings'
+
+export function getDisabledVoiceStatus(): VoiceServiceStatus {
+  return {
+    available: false,
+    state: 'unavailable',
+    port: null,
+    token: null,
+    reason: VOICE_SERVICE_DISABLED_REASON,
+  }
 }
 
 export class VoiceService extends EventEmitter {
@@ -46,7 +58,7 @@ export class VoiceService extends EventEmitter {
     super()
   }
 
-  /** Probe Python availability and voice_bridge package. Returns true if voice is usable. */
+  /** Probe Python availability and the installed voice_bridge package. Returns true if voice is usable. */
   async probe(): Promise<{ available: boolean; reason?: string }> {
     // Resolve audio service path — differs between dev and packaged build
     const root = this.resolveProjectRoot()
@@ -61,13 +73,11 @@ export class VoiceService extends EventEmitter {
     }
     this.audioServicePath = servicePath
 
-    // Resolve voice_bridge package path (for sys.path injection)
-    // In packaged build: extraResources copies voice_bridge → Resources/voice_bridge
-    // In dev: voice-bridge lives at repo root (one level above apps/)
-    const defaultVbPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'voice_bridge')
-      : path.join(root, '..', 'voice-bridge')
-    this.voiceBridgePath = existsSync(defaultVbPath) ? path.resolve(defaultVbPath) : null
+    // Optional override for local debugging; normal operation uses the installed package.
+    const configuredVbPath = process.env.VOICE_BRIDGE_PATH ?? process.env.LUCENT_VOICE_BRIDGE_PATH
+    this.voiceBridgePath = configuredVbPath && existsSync(configuredVbPath)
+      ? path.resolve(configuredVbPath)
+      : null
 
     // Try python runtimes in order
     const candidates = ['uv', 'python3', 'python']
@@ -75,7 +85,7 @@ export class VoiceService extends EventEmitter {
       try {
         const version = await runCommand(cmd, this.getVersionArgs(cmd))
         if (version) {
-          // Check the actual audio-service import surface, not just voice_bridge.
+          // Check the actual audio-service import surface, not just the top-level package name.
           const importArgs = cmd === 'uv'
             ? this.getUvPythonArgs(['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")'])
             : ['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")']
@@ -93,7 +103,7 @@ export class VoiceService extends EventEmitter {
             return { available: true }
           } else {
             this.state = 'unavailable'
-            this.reason = 'Voice Python dependencies are missing — install numpy, uvicorn, fastapi, and voice_bridge'
+            this.reason = 'Voice Python dependencies are missing — install lucent-voice-bridge'
             this.emitStatus()
             return {
               available: false,
@@ -325,7 +335,7 @@ function normalizeProbeError(error: unknown): string {
     return 'Python dependency missing: fastapi'
   }
   if (message.includes("No module named 'voice_bridge'")) {
-    return 'Python dependency missing: voice_bridge'
+    return 'Python dependency missing: lucent-voice-bridge (import name: voice_bridge)'
   }
   return message
 }

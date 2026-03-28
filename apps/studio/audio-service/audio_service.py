@@ -27,7 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# VOICE_BRIDGE_PATH injection — must happen before any voice_bridge imports
+# Optional VOICE_BRIDGE_PATH injection for local debugging — must happen
+# before any voice_bridge imports
 # ---------------------------------------------------------------------------
 
 vb_path = os.environ.get("VOICE_BRIDGE_PATH")

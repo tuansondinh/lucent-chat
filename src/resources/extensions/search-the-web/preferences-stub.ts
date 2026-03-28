@@ -1,7 +1,7 @@
 /**
  * Stub for gsd preferences integration.
  *
- * In voice-bridge-desktop there is no gsd extension or preferences.md file,
+ * In Lucent Code there is no gsd extension or preferences.md file,
  * so we always return undefined here. The search provider falls back to
  * the env var / auth.json resolution path in provider.ts.
  */

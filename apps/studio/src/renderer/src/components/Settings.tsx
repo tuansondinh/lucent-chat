@@ -18,6 +18,7 @@ import {
   Key,
   Cpu,
   Keyboard,
+  ScrollText,
   Eye,
   EyeOff,
   Check,
@@ -34,6 +35,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from 'lucide-react'
+import packageJson from '../../../../package.json'
 import {
   Dialog,
   DialogContent,
@@ -66,7 +68,7 @@ interface SettingsProps {
   isMobile?: boolean
 }
 
-type Tab = 'general' | 'apikeys' | 'models' | 'permissions' | 'shortcuts' | 'skills' | 'remote-access'
+type Tab = 'general' | 'updates' | 'apikeys' | 'models' | 'permissions' | 'shortcuts' | 'skills' | 'remote-access'
 
 interface Model {
   provider: string
@@ -111,6 +113,7 @@ type OAuthFlowState =
 
 const TABS: TabItem[] = [
   { id: 'general',   label: 'General',   icon: <SettingsIcon className="w-3.5 h-3.5" /> },
+  { id: 'updates',   label: 'Updates',   icon: <ScrollText className="w-3.5 h-3.5" /> },
   { id: 'apikeys',   label: 'API Keys',  icon: <Key          className="w-3.5 h-3.5" /> },
   { id: 'models',    label: 'Models',    icon: <Cpu          className="w-3.5 h-3.5" /> },
   { id: 'permissions', label: 'Auto Mode', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
@@ -134,6 +137,29 @@ const SHORTCUTS = [
 ]
 
 const SETTINGS_MODELS_PANE_ID = 'pane-0'
+const CURRENT_VERSION = packageJson.version
+const CURRENT_VERSION_NOTES = [
+  {
+    title: 'Text-to-speech mode in Settings',
+    description: 'A new "Read all text" toggle speaks assistant replies without requiring microphone input.',
+  },
+  {
+    title: 'Expanded voice controls',
+    description: 'Voice service power, speech playback, and push-to-talk behavior are easier to manage from one place.',
+  },
+  {
+    title: 'Remote access controls',
+    description: 'Settings now expose remote access, bearer token rotation, and Tailscale serve options for the bridge server.',
+  },
+  {
+    title: 'Provider setup improvements',
+    description: 'LLM providers now show clearer auth status, support OAuth where available, and allow in-app credential refresh.',
+  },
+  {
+    title: 'Auto mode configuration',
+    description: 'Permission automation rules are available directly in Settings so tool access can be tuned without editing files.',
+  },
+] as const
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -165,6 +191,8 @@ export function Settings({
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
+  const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(true)
+  const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(false)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
@@ -244,6 +272,8 @@ export function Settings({
         setHasStoredTavilyKey(s.hasTavilyKey === true)
         setTavilyKey('')
         setLocalVoiceAudioEnabled(s.voiceAudioEnabled !== false)
+        setLocalVoiceServiceEnabled(s.voiceServiceEnabled !== false)
+        setLocalTextToSpeechMode(s.textToSpeechMode === true)
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setLocalVoicePttShortcut(s.voicePttShortcut)
         } else {
@@ -319,6 +349,16 @@ export function Settings({
     setLocalVoiceAudioEnabled(enabled)
     onVoiceAudioEnabledChange(enabled)
   }, [onVoiceAudioEnabledChange])
+
+  const handleVoiceServiceEnabledChange = useCallback((enabled: boolean) => {
+    setLocalVoiceServiceEnabled(enabled)
+    bridge.setSettings({ voiceServiceEnabled: enabled }).catch(() => {})
+  }, [bridge])
+
+  const handleTextToSpeechModeChange = useCallback((enabled: boolean) => {
+    setLocalTextToSpeechMode(enabled)
+    bridge.setSettings({ textToSpeechMode: enabled }).catch(() => {})
+  }, [bridge])
 
   const handleAutoModeRulesChange = useCallback((rules: ClassifierRule[]) => {
     setAutoModeRules(rules)
@@ -410,10 +450,15 @@ export function Settings({
               <GeneralTab
                 fontSize={fontSize}
                 onFontSizeChange={handleFontSizeChange}
+                voiceServiceEnabled={localVoiceServiceEnabled}
+                onVoiceServiceEnabledChange={handleVoiceServiceEnabledChange}
                 voiceAudioEnabled={localVoiceAudioEnabled}
                 onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+                textToSpeechMode={localTextToSpeechMode}
+                onTextToSpeechModeChange={handleTextToSpeechModeChange}
               />
             )}
+            {activeTab === 'updates' && <UpdatesTab />}
             {activeTab === 'apikeys' && (
               <ApiKeysTab
                 tavilyKey={tavilyKey}
@@ -483,18 +528,34 @@ export function Settings({
 interface GeneralTabProps {
   fontSize: number
   onFontSizeChange: (v: number) => void
+  voiceServiceEnabled: boolean
+  onVoiceServiceEnabledChange: (enabled: boolean) => void
   voiceAudioEnabled: boolean
   onVoiceAudioEnabledChange: (enabled: boolean) => void
+  textToSpeechMode: boolean
+  onTextToSpeechModeChange: (enabled: boolean) => void
 }
 
 function GeneralTab({
   fontSize,
   onFontSizeChange,
+  voiceServiceEnabled,
+  onVoiceServiceEnabledChange,
   voiceAudioEnabled,
   onVoiceAudioEnabledChange,
+  textToSpeechMode,
+  onTextToSpeechModeChange,
 }: GeneralTabProps) {
   return (
     <div className="p-6 space-y-6">
+      <Section title="Release notes">
+        <div className="rounded-xl border border-accent/20 bg-accent/5 p-4">
+          <p className="text-sm font-medium text-text-primary">Version {CURRENT_VERSION}</p>
+          <p className="mt-1 text-xs text-text-secondary">
+            Open the Updates tab for a changelog of what is included in this release.
+          </p>
+        </div>
+      </Section>
       <Section title="Appearance">
         <Field
           label="Font size"
@@ -521,6 +582,36 @@ function GeneralTab({
       </Section>
 
       <Section title="Voice">
+        <Field
+          label="Voice service"
+          hint="Turns the background Python voice sidecar on or off. When off, voice input and spoken replies are unavailable."
+        >
+          <div className="inline-flex rounded-lg border border-border bg-bg-tertiary p-1">
+            <button
+              onClick={() => onVoiceServiceEnabledChange(true)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                voiceServiceEnabled
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              On
+            </button>
+            <button
+              onClick={() => onVoiceServiceEnabledChange(false)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                !voiceServiceEnabled
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              Off
+            </button>
+          </div>
+        </Field>
+
         <Field
           label="Speech audio"
           hint="Turns assistant voice playback on or off. Voice input still works when speech audio is off."
@@ -550,6 +641,70 @@ function GeneralTab({
             </button>
           </div>
         </Field>
+
+        <Field
+          label="Read all text"
+          hint="When enabled, all assistant text responses are spoken aloud. No microphone is used—this is text-to-speech only."
+        >
+          <div className="inline-flex rounded-lg border border-border bg-bg-tertiary p-1">
+            <button
+              onClick={() => onTextToSpeechModeChange(true)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                textToSpeechMode
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              On
+            </button>
+            <button
+              onClick={() => onTextToSpeechModeChange(false)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                !textToSpeechMode
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              Off
+            </button>
+          </div>
+        </Field>
+      </Section>
+    </div>
+  )
+}
+
+function UpdatesTab() {
+  return (
+    <div className="p-6">
+      <Section title={`What’s new in ${CURRENT_VERSION}`}>
+        <div className="rounded-xl border border-accent/20 bg-accent/5 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-text-primary">Release highlights</p>
+              <p className="mt-1 text-xs text-text-secondary">
+                This build focuses on voice workflow controls, remote access setup, and provider configuration clarity.
+              </p>
+            </div>
+            <div className="rounded-full border border-accent/30 bg-bg-primary px-2.5 py-1 text-[11px] font-semibold tracking-[0.2em] text-accent uppercase">
+              v{CURRENT_VERSION}
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {CURRENT_VERSION_NOTES.map((note) => (
+              <div
+                key={note.title}
+                className="rounded-lg border border-border/70 bg-bg-primary/70 px-3 py-2.5"
+              >
+                <p className="text-sm font-medium text-text-primary">{note.title}</p>
+                <p className="mt-1 text-xs leading-5 text-text-secondary">{note.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </Section>
     </div>
   )

@@ -1,9 +1,9 @@
 /**
- * Unit tests for the gsd CLI package.
+ * Unit tests for the Lucent CLI package.
  *
  * Tests the glue code that IS the product:
- * - app-paths resolve to ~/.gsd/
- * - loader sets all required env vars
+ * - app-paths resolve to ~/.lucent/
+ * - loader sets all required Lucent and legacy compatibility env vars
  * - resource-loader syncs bundled resources
  * - wizard loadStoredEnvKeys hydrates env
  *
@@ -32,21 +32,21 @@ function assertExtensionIndexExists(agentDir: string, extensionName: string): vo
 // 1. app-paths
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("app-paths resolve to ~/.gsd/", async () => {
+test("app-paths resolve to ~/.lucent/", async () => {
   const { appRoot, agentDir, sessionsDir, authFilePath } = await import("../app-paths.ts");
   const home = process.env.HOME!;
 
-  assert.equal(appRoot, join(home, ".gsd"), "appRoot is ~/.gsd/");
-  assert.equal(agentDir, join(home, ".gsd", "agent"), "agentDir is ~/.gsd/agent/");
-  assert.equal(sessionsDir, join(home, ".gsd", "sessions"), "sessionsDir is ~/.gsd/sessions/");
-  assert.equal(authFilePath, join(home, ".gsd", "agent", "auth.json"), "authFilePath is ~/.gsd/agent/auth.json");
+  assert.equal(appRoot, join(home, ".lucent"), "appRoot is ~/.lucent/");
+  assert.equal(agentDir, join(home, ".lucent", "agent"), "agentDir is ~/.lucent/agent/");
+  assert.equal(sessionsDir, join(home, ".lucent", "sessions"), "sessionsDir is ~/.lucent/sessions/");
+  assert.equal(authFilePath, join(home, ".lucent", "agent", "auth.json"), "authFilePath is ~/.lucent/agent/auth.json");
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. loader env vars
 // ═══════════════════════════════════════════════════════════════════════════
 
-test("loader sets all 4 GSD_ env vars and PI_PACKAGE_DIR", async () => {
+test("loader sets Lucent runtime env vars and legacy compatibility env vars", async () => {
   // Run loader in a subprocess that prints env vars and exits before TUI starts
   const script = `
     import { fileURLToPath } from 'url';
@@ -90,11 +90,14 @@ test("loader sets all 4 GSD_ env vars and PI_PACKAGE_DIR", async () => {
 
   // Direct logic verification (no subprocess needed)
   const { agentDir: ad } = await import("../app-paths.ts");
-  assert.ok(ad.endsWith(join(".gsd", "agent")), "agentDir ends with .gsd/agent");
+  assert.ok(ad.endsWith(join(".lucent", "agent")), "agentDir ends with .lucent/agent");
 
   // Verify the env var names are in loader.ts source
   const loaderSrc = readFileSync(join(projectRoot, "src", "loader.ts"), "utf-8");
   assert.ok(loaderSrc.includes("PI_PACKAGE_DIR"), "loader sets PI_PACKAGE_DIR");
+  assert.ok(loaderSrc.includes("LUCENT_HOME"), "loader sets LUCENT_HOME");
+  assert.ok(loaderSrc.includes("LUCENT_CONFIG_DIR"), "loader sets LUCENT_CONFIG_DIR");
+  assert.ok(loaderSrc.includes("LUCENT_CODING_AGENT_DIR"), "loader sets LUCENT_CODING_AGENT_DIR");
   assert.ok(loaderSrc.includes("GSD_CODING_AGENT_DIR"), "loader sets GSD_CODING_AGENT_DIR");
   assert.ok(loaderSrc.includes("GSD_BIN_PATH"), "loader sets GSD_BIN_PATH");
   assert.ok(loaderSrc.includes("GSD_BUNDLED_EXTENSION_PATHS"), "loader sets GSD_BUNDLED_EXTENSION_PATHS");

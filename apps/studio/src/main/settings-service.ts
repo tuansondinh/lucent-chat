@@ -1,11 +1,11 @@
 /**
  * SettingsService — persists app-level settings to disk.
  *
- * Settings file: ~/.voice-bridge-desktop/settings.json
+ * Settings file: ~/.lucent-code/settings.json
  * File permissions: 0o600 (contains API keys).
  */
 
-import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, existsSync, copyFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { homedir } from 'node:os'
 
@@ -32,10 +32,14 @@ export interface AppSettings {
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
   /** Whether assistant TTS playback is enabled. */
   voiceAudioEnabled?: boolean
+  /** Whether the Python voice sidecar is allowed to run. */
+  voiceServiceEnabled?: boolean
   /** Whether voice models have already been downloaded on this machine. */
   voiceModelsDownloaded?: boolean
   /** Whether the user opted in to voice features during onboarding. */
   voiceOptIn?: boolean
+  /** When true, all text responses are spoken aloud (TTS-only mode, no mic). */
+  textToSpeechMode?: boolean
 
   // ---------------------------------------------------------------------------
   // Remote Access (PWA / Tailscale)
@@ -75,6 +79,8 @@ const DEFAULTS: AppSettings = {
   voiceModelsDownloaded: false,
   voicePttShortcut: 'space',
   voiceAudioEnabled: true,
+  voiceServiceEnabled: true,
+  textToSpeechMode: false,
   remoteAccessEnabled: false,
   remoteAccessPort: 8788,
   tailscaleServeEnabled: false,
@@ -97,10 +103,11 @@ export class SettingsService {
   private settings: AppSettings
 
   constructor() {
-    const dir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.voice-bridge-desktop')
+    const dir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.lucent-code')
     this.settingsPath = join(dir, 'settings.json')
     this.settings = { ...DEFAULTS }
     this.ensureDir(dir)
+    this.migrateLegacySettings(dir)
   }
 
   // =========================================================================
@@ -165,6 +172,23 @@ export class SettingsService {
       if (err?.code !== 'EEXIST') {
         console.warn('[settings-service] could not create settings dir:', err?.message)
       }
+    }
+  }
+
+  /**
+   * Migrate the legacy Voice Bridge Desktop settings path on first run after rename.
+   */
+  private migrateLegacySettings(dir: string): void {
+    if (existsSync(this.settingsPath)) return
+
+    const legacyPath = join(homedir(), '.voice-bridge-desktop', 'settings.json')
+    if (!existsSync(legacyPath)) return
+
+    try {
+      copyFileSync(legacyPath, this.settingsPath)
+      try { chmodSync(this.settingsPath, 0o600) } catch { /* ignore */ }
+    } catch (err: any) {
+      console.warn('[settings-service] could not migrate legacy settings:', err?.message)
     }
   }
 }

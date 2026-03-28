@@ -37,6 +37,7 @@ export interface RendererSettings {
   onboardingComplete?: boolean
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
   voiceAudioEnabled?: boolean
+  voiceServiceEnabled?: boolean
   voiceModelsDownloaded?: boolean
   voiceOptIn?: boolean
   hasTavilyKey: boolean

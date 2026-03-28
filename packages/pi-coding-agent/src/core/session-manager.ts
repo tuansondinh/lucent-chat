@@ -927,6 +927,15 @@ export class SessionManager {
 		if (this.persist) {
 			const fileTimestamp = timestamp.replace(/[:.]/g, "-");
 			this.sessionFile = join(this.getSessionDir(), `${fileTimestamp}_${this.sessionId}.jsonl`);
+			// Write the header immediately so the session appears in the session list
+			// even before the first message is sent. flushed stays false so the first
+			// _persist() call will rewrite the file atomically with all accumulated entries.
+			try {
+				mkdirSync(this.getSessionDir(), { recursive: true });
+				atomicWriteFileSync(this.sessionFile, `${JSON.stringify(header)}\n`);
+			} catch {
+				// Non-fatal — session will still be written on first message
+			}
 		}
 		return this.sessionFile;
 	}
@@ -999,10 +1008,10 @@ export class SessionManager {
 		try {
 			release = tryAcquireLockSync(this.sessionFile);
 			if (!this.flushed) {
-				for (const e of this.fileEntries) {
-					const prepared = prepareForPersistence(e, this.blobStore) as FileEntry;
-					appendFileSync(this.sessionFile, `${JSON.stringify(prepared)}\n`);
-				}
+				// Rewrite the entire file atomically so the header is never duplicated
+				// (the header may have been pre-written by newSession()).
+				const content = `${this.fileEntries.map((e) => JSON.stringify(prepareForPersistence(e, this.blobStore))).join("\n")}\n`;
+				atomicWriteFileSync(this.sessionFile, content);
 				this.flushed = true;
 			} else {
 				const prepared = prepareForPersistence(entry, this.blobStore) as FileEntry;

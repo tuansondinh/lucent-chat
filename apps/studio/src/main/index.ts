@@ -11,7 +11,7 @@ import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
 import { TerminalManager } from './terminal-manager.js'
 import { AuthService } from './auth-service.js'
-import { VoiceService } from './voice-service.js'
+import { getDisabledVoiceStatus, VOICE_SERVICE_DISABLED_REASON, VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
@@ -218,9 +218,11 @@ app.whenReady().then(async () => {
 
   // 3a. Voice Service — project root is 3 levels up from studio/dist/main at runtime
   voiceService = new VoiceService(() => join(__dirname, '..', '..', '..'))
+  const isVoiceServiceEnabled = (): boolean => settingsService.get().voiceServiceEnabled !== false
   voiceService.probe()
     .then((result) => {
       if (!result.available) return
+      if (!isVoiceServiceEnabled()) return
       // Only prewarm the sidecar if the user has opted in to voice features.
       // On first launch (voiceOptIn undefined), skip — the onboarding will ask.
       // Clicking the mic always starts on demand regardless of this flag.
@@ -379,12 +381,26 @@ app.whenReady().then(async () => {
       // This mirrors a subset of the IPC handlers — only safe, non-terminal commands.
       const pane = () => paneManager?.getPane(args[0] as string)
       const root = () => pane()?.projectRoot
+      const broadcastVoiceDisabledStatus = () => {
+        const status = getDisabledVoiceStatus()
+        pushEvent(mainWindow, 'event:voice-status', status)
+        broadcast('event:voice-status', status)
+        return status
+      }
       switch (name) {
         // Settings
         case 'get-settings': return sanitizeSettingsForRenderer(settingsService.get())
         case 'set-settings': {
           const validated = validateSettingsPatch(args[0] as Record<string, unknown>)
           settingsService.save(validated)
+          if ('voiceServiceEnabled' in validated) {
+            if (validated.voiceServiceEnabled === false) {
+              await voiceService?.stop()
+              broadcastVoiceDisabledStatus()
+            } else {
+              await voiceService?.probe()
+            }
+          }
           return sanitizeSettingsForRenderer(settingsService.get())
         }
         // Pane lifecycle
@@ -451,10 +467,16 @@ app.whenReady().then(async () => {
           return null
         }
         // Voice sidecar
-        case 'voice-probe': return voiceService?.probe() ?? { available: false, reason: 'Voice service unavailable' }
-        case 'voice-start': return voiceService?.start()
+        case 'voice-probe':
+          if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
+          return voiceService?.probe() ?? { available: false, reason: 'Voice service unavailable' }
+        case 'voice-start':
+          if (!isVoiceServiceEnabled()) throw new Error(VOICE_SERVICE_DISABLED_REASON)
+          return voiceService?.start()
         case 'voice-stop': return voiceService?.stop()
-        case 'voice-status': return voiceService?.getStatus() ?? { available: false, state: 'unavailable', port: null, token: null }
+        case 'voice-status':
+          if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
+          return voiceService?.getStatus() ?? { available: false, state: 'unavailable', port: null, token: null }
         // No-ops for remote context
         case 'open-external': return null
         case 'set-window-title': return null

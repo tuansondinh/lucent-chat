@@ -116,21 +116,54 @@ export class PaneManager {
     }
     const orchestrator = new Orchestrator(agentBridge, callbacks)
 
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+    const waitForAgentReady = async (timeoutMs = 15_000): Promise<void> => {
+      const proc = processManager.getAgentProcess()
+      if (!proc?.stdout || !proc.stdin) {
+        return
+      }
+
+      const deadline = Date.now() + timeoutMs
+      let lastError: Error | null = null
+
+      while (Date.now() < deadline) {
+        try {
+          const state = await agentBridge.getState()
+          processManager.setState('agent', 'ready')
+          if (state.sessionFile) {
+            sessionService.setActiveSessionId(state.sessionFile)
+          }
+          return
+        } catch (err) {
+          lastError = err as Error
+          await wait(100)
+        }
+      }
+
+      throw lastError ?? new Error(`Timed out waiting for ${id} agent readiness`)
+    }
+
     // Helper: attach bridge once the agent process is up
     const attachBridge = () => {
       const proc = processManager.getAgentProcess()
       if (!proc) return
       agentBridge.detach()
       agentBridge.attach(proc)
-      agentBridge
-        .getState()
-        .then((state) => {
-          processManager.setState('agent', 'ready')
-          if (state.sessionFile) {
-            sessionService.setActiveSessionId(state.sessionFile)
-          }
-        })
-        .catch(() => {})
+      void waitForAgentReady().catch(() => {})
+    }
+
+    const initializeFreshPaneSession = async (): Promise<void> => {
+      try {
+        const result = await agentBridge.newSession()
+        if (result.cancelled) return
+        const state = await agentBridge.getState()
+        if (state.sessionFile) {
+          sessionService.setActiveSessionId(state.sessionFile)
+        }
+      } catch (err) {
+        console.warn(`[pane-manager] failed to initialize fresh session for ${id}:`, (err as Error).message)
+      }
     }
 
     // Spawn agent and wire up bridge
@@ -142,7 +175,8 @@ export class PaneManager {
       pushEvent('event:health', { paneId: id, states })
     })
 
-    await sessionService.loadActiveSessionId()
+    await waitForAgentReady()
+    await initializeFreshPaneSession()
 
     const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE }
     this.panes.set(id, pane)

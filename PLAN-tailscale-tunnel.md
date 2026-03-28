@@ -1,4 +1,4 @@
-# Plan: Tailscale Tunneling for voice-bridge-desktop
+# Plan: Tailscale Tunneling for Lucent Code
 
 ## Context
 

@@ -48,11 +48,8 @@ npm install
 #### 2. Install Python voice dependencies
 
 ```bash
-# Install voice_bridge and dependencies
-pip install -e voice-bridge/
-
-# Or install individually
-pip install numpy uvicorn fastapi voice_bridge
+# Install the published voice package and its dependencies
+pip install lucent-voice-bridge
 ```
 
 #### 3. Start the application
@@ -252,12 +249,14 @@ ELECTRON_RENDERER_URL=http://localhost:5173
 The Python voice service runs as a separate process. To develop it:
 
 ```bash
+# Ensure the published package is installed first
+pip install lucent-voice-bridge
+
 # Run voice service directly
 cd audio-service
 python audio_service.py
 
 # With auto-reload
-pip install uvicorn[standard]
 uvicorn audio_service:app --reload --port 0
 ```
 
@@ -280,7 +279,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system architecture, compo
 
 2. **Verify installation:**
    ```bash
-   pip list | grep -E "(numpy|uvicorn|fastapi|voice_bridge)"
+   pip show lucent-voice-bridge
    ```
 
 3. **Check logs** — Open Developer Tools (`Cmd+Option+I`) → Console

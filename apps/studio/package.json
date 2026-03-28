@@ -1,7 +1,7 @@
 {
   "name": "@gsd/studio",
   "private": true,
-  "version": "0.9.3",
+  "version": "0.9.5",
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
@@ -126,10 +126,6 @@
       {
         "from": "audio-service",
         "to": "audio-service"
-      },
-      {
-        "from": "../../voice_bridge",
-        "to": "voice_bridge"
       }
     ],
     "mac": {

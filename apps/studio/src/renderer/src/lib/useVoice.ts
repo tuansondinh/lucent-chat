@@ -177,6 +177,8 @@ interface UseVoiceOptions {
   activePaneId: string
   /** Whether assistant TTS playback is enabled. */
   ttsEnabled: boolean
+  /** Whether the dedicated read-all-text mode is enabled. */
+  textOnlyMode: boolean
 }
 
 interface UseVoiceReturn {
@@ -194,10 +196,11 @@ interface UseVoiceReturn {
 // useVoice
 // ============================================================================
 
-export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled }: UseVoiceOptions): UseVoiceReturn {
+export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled, textOnlyMode }: UseVoiceOptions): UseVoiceReturn {
   const voiceStore = useVoiceStore
   const bridge = getBridge()
   const isVoiceOwner = useVoiceStore((state) => state.active && state.activePaneId === _activePaneId)
+  const sidecarState = useVoiceStore((state) => state.sidecarState)
 
   // Refs for mutable audio/WS state (not React state — avoids re-render churn)
   const wsRef = useRef<WebSocket | null>(null)
@@ -212,7 +215,10 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   const ttsRequestedForTurnRef = useRef(false)
   const turnFinishedRef = useRef(false)
   const ttsEnabledRef = useRef(ttsEnabled)
+  const textOnlyModeEnabledRef = useRef(textOnlyMode)
   const sidecarTokenRef = useRef<string | null>(null)
+  const textOnlyModeRef = useRef(false) // Tracks active TTS-only sidecar/ws resources.
+  const pendingTtsRequestsRef = useRef<Array<{ text: string; turnId: string; gen: number }>>([])
 
   // TTS sentence accumulation
   const ttsSentenceBufferRef = useRef('')
@@ -228,13 +234,36 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     if (!ttsEnabledRef.current) return
     const prepared = prepareTtsText(text)
     if (!prepared) return
-    const ws = wsRef.current
     const turnId = ttsTurnIdRef.current
     const gen = ttsTurnGenRef.current
-    if (ws?.readyState === WebSocket.OPEN && turnId && gen !== null) {
+    if (!turnId || gen === null) return
+
+    const ws = wsRef.current
+    if (ws?.readyState === WebSocket.OPEN) {
       ttsRequestedForTurnRef.current = true
       ws.send(JSON.stringify({ type: 'tts_synthesize', text: prepared, turn_id: turnId, gen }))
+      return
     }
+    pendingTtsRequestsRef.current.push({ text: prepared, turnId, gen })
+  }, [])
+
+  const flushPendingTtsRequests = useCallback(() => {
+    const ws = wsRef.current
+    if (ws?.readyState !== WebSocket.OPEN) return
+    const queued = pendingTtsRequestsRef.current
+    if (queued.length === 0) return
+
+    for (const request of queued) {
+      ttsRequestedForTurnRef.current = true
+      ws.send(JSON.stringify({
+        type: 'tts_synthesize',
+        text: request.text,
+        turn_id: request.turnId,
+        gen: request.gen,
+      }))
+    }
+
+    pendingTtsRequestsRef.current = []
   }, [])
 
   /** Flush whatever remains in the TTS sentence buffer. */
@@ -252,6 +281,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     const ws = wsRef.current
     playbackQueueRef.current?.stop()
     voiceStore.getState().setTtsPlaying(false)
+    pendingTtsRequestsRef.current = []
     const nextGen = voiceStore.getState().nextTtsGen()
     ttsTurnGenRef.current = null
     if (ws?.readyState === WebSocket.OPEN) {
@@ -262,13 +292,71 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
 
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled
+    textOnlyModeEnabledRef.current = textOnlyMode
     if (!ttsEnabled) {
       stopTts()
       ttsSentenceBufferRef.current = ''
       ttsTurnIdRef.current = null
       ttsTurnGenRef.current = null
+      pendingTtsRequestsRef.current = []
     }
-  }, [ttsEnabled, stopTts])
+  }, [ttsEnabled, textOnlyMode, stopTts])
+
+  // =========================================================================
+  // TTS-only mode initialization (no microphone)
+  // =========================================================================
+
+  // Initialize voice service for TTS-only mode when enabled
+  useEffect(() => {
+    let cancelled = false
+
+    const initTtsOnlyMode = async () => {
+      if (cancelled) return
+      
+      const state = voiceStore.getState()
+      
+      // Only initialize for explicit text-only mode. Normal voice playback should
+      // start the sidecar only when the user activates voice capture.
+      if (!textOnlyMode || state.active || state.sidecarState === 'ready' || state.sidecarState === 'starting') {
+        return
+      }
+
+      try {
+        state.setSidecarState('starting')
+        const started = await bridge.voiceStart()
+        if (cancelled) return
+        
+        sidecarTokenRef.current = started.token
+        state.setPort(started.port)
+        state.setAvailable(true, null)
+        state.setSidecarState('ready')
+        textOnlyModeRef.current = true
+      } catch (err) {
+        if (cancelled) return
+        const msg = err instanceof Error ? err.message : 'Voice service failed to start'
+        state.setError(msg)
+        state.setSidecarState('error')
+      }
+    }
+
+    void initTtsOnlyMode()
+
+    // Cleanup on unmount or when TTS is disabled
+    return () => {
+      cancelled = true
+      if (textOnlyModeRef.current && !textOnlyModeEnabledRef.current) {
+        // Clean up TTS-only mode resources when TTS is disabled
+        playbackQueueRef.current?.destroy()
+        playbackQueueRef.current = null
+        if (wsRef.current) {
+          wsRef.current.close()
+          wsRef.current = null
+        }
+        pendingTtsRequestsRef.current = []
+        textOnlyModeRef.current = false
+      }
+    }
+  }, [textOnlyMode, bridge, voiceStore])
 
   // =========================================================================
   // Sidecar status sync
@@ -366,6 +454,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     stopMic()
     playbackQueueRef.current?.destroy()
     playbackQueueRef.current = null
+    pendingTtsRequestsRef.current = []
     if (wsRef.current) {
       wsRef.current.close()
       wsRef.current = null
@@ -383,6 +472,12 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     state.setActive(false, null)
     disconnectVoiceIo()
   }, [voiceStore, _activePaneId, disconnectVoiceIo])
+
+  useEffect(() => {
+    if (sidecarState !== 'unavailable' || !isVoiceOwner) return
+    voiceStore.getState().setActive(false, null)
+    disconnectVoiceIo()
+  }, [sidecarState, isVoiceOwner, voiceStore, disconnectVoiceIo])
 
   // =========================================================================
   // Playback queue drain — called when audio queue empties
@@ -469,6 +564,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
         switch (msg.type) {
           case 'ready':
             voiceStore.getState().setWsConnected(true)
+            flushPendingTtsRequests()
             break
           case 'vad_state':
             voiceStore.getState().setSpeaking(msg.speaking as boolean)
@@ -520,7 +616,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
       console.error('[voice] WebSocket error', err)
       voiceStore.getState().setError('WebSocket connection failed')
     }
-  }, [voiceStore, onTranscript, handlePlaybackDrain, _activePaneId, completePushToTalkRelease])
+  }, [voiceStore, onTranscript, handlePlaybackDrain, _activePaneId, completePushToTalkRelease, flushPendingTtsRequests])
 
   const startMic = useCallback(async () => {
     try {
@@ -688,13 +784,25 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   const feedAgentChunk = useCallback((text: string, turnId: string) => {
     if (!ttsEnabledRef.current) return
     const state = voiceStore.getState()
-    if (!state.active || state.activePaneId !== _activePaneId) return
+    
+    // In TTS-only mode, we process text even if voice is not "active" (no mic)
+    const isTtsOnlyMode = !state.active && textOnlyModeEnabledRef.current
+    if (!state.active && !isTtsOnlyMode) return
+    if (!isTtsOnlyMode && state.activePaneId !== _activePaneId) return
+    
+    // Ensure WebSocket is connected for TTS
+    const ws = wsRef.current
+    const port = state.port
+    if (state.sidecarState === 'ready' && (!ws || ws.readyState !== WebSocket.OPEN) && port) {
+      connectWs(port)
+    }
 
     // Reset buffer if this is a new turn
     if (turnId !== ttsTurnIdRef.current) {
       ttsSentenceBufferRef.current = ''
       ttsTurnIdRef.current = turnId
       ttsTurnGenRef.current = voiceStore.getState().nextTtsGen()
+      pendingTtsRequestsRef.current = []
       ttsRequestedForTurnRef.current = false
       turnFinishedRef.current = false
     }
@@ -713,7 +821,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
       sendTtsSynthesize(ttsSentenceBufferRef.current)
       ttsSentenceBufferRef.current = ''
     }
-  }, [voiceStore, _activePaneId, sendTtsSynthesize])
+  }, [voiceStore, _activePaneId, sendTtsSynthesize, connectWs])
 
   // =========================================================================
   // Flush TTS at end of agent turn
@@ -722,7 +830,11 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   const flushTts = useCallback((turnId: string) => {
     if (!ttsEnabledRef.current) return
     const state = voiceStore.getState()
-    if (!state.active || state.activePaneId !== _activePaneId) return
+    
+    // In TTS-only mode, process even if voice is not "active"
+    const isTtsOnlyMode = !state.active && textOnlyModeEnabledRef.current
+    if (!state.active && !isTtsOnlyMode) return
+    if (!isTtsOnlyMode && state.activePaneId !== _activePaneId) return
     if (turnId !== ttsTurnIdRef.current) return
     flushTtsBuffer()
 

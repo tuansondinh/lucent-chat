@@ -46,7 +46,7 @@ function resolveAgentPath(): string {
   }
 
   // Dev mode: __dirname is apps/studio/dist/main (after electron-vite build).
-  // Going up 4 levels: dist/main → dist → studio → apps → voice-bridge-desktop (project root).
+  // Going up 4 levels: dist/main → dist → studio → apps → repo root.
   const projectRoot = join(__dirname, '..', '..', '..', '..')
   return join(projectRoot, 'dist', 'loader.js')
 }
@@ -58,8 +58,11 @@ function resolveAgentCommand(entry: string): {
 } {
   const userSkillsDir = join(homedir(), '.lc', 'agent', 'skills')
   const mappedEnv = { ...process.env }
-  if (!mappedEnv.LC_CODING_AGENT_DIR && mappedEnv.LUCENT_CONFIG_DIR) {
-    mappedEnv.LC_CODING_AGENT_DIR = join(mappedEnv.LUCENT_CONFIG_DIR, 'agent')
+  if (!mappedEnv.LUCENT_CODING_AGENT_DIR) {
+    mappedEnv.LUCENT_CODING_AGENT_DIR =
+      mappedEnv.LC_CODING_AGENT_DIR
+      ?? mappedEnv.GSD_CODING_AGENT_DIR
+      ?? (mappedEnv.LUCENT_CONFIG_DIR ? join(mappedEnv.LUCENT_CONFIG_DIR, 'agent') : undefined)
   }
 
   if (process.resourcesPath && entry.startsWith(join(process.resourcesPath, 'runtime'))) {

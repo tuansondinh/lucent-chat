@@ -216,6 +216,39 @@ test('PaneManager: createPane creates new pane', async (t) => {
   assert.equal(paneManager.getPaneIds().length, 1)
 })
 
+test('PaneManager: createPane forces a fresh session for secondary panes', async () => {
+  const paneManager = createTestPaneManager()
+  const settingsService = new MockSettingsService()
+  const pushEvent = () => {}
+  const originalAttach = AgentBridge.prototype.attach
+  const originalDetach = AgentBridge.prototype.detach
+  const originalGetState = AgentBridge.prototype.getState
+  const originalNewSession = AgentBridge.prototype.newSession
+
+  let newSessionCalls = 0
+  AgentBridge.prototype.attach = function (): void {}
+  AgentBridge.prototype.detach = function (): void {}
+  AgentBridge.prototype.getState = async function (): Promise<any> {
+    return { model: { provider: 'test', id: 'test-model' }, sessionFile: 'fresh-session.jsonl' }
+  }
+  AgentBridge.prototype.newSession = async function (): Promise<any> {
+    newSessionCalls += 1
+    return { cancelled: false }
+  }
+
+  try {
+    const pane = await paneManager.createPane(settingsService as unknown as SettingsService, pushEvent)
+
+    assert.equal(newSessionCalls, 1)
+    assert.equal(pane.sessionService.getActiveSessionId(), 'fresh-session.jsonl')
+  } finally {
+    AgentBridge.prototype.attach = originalAttach
+    AgentBridge.prototype.detach = originalDetach
+    AgentBridge.prototype.getState = originalGetState
+    AgentBridge.prototype.newSession = originalNewSession
+  }
+})
+
 test('PaneManager: destroyPane removes pane', async (t) => {
   const paneManager = createTestPaneManager()
   const settingsService = new MockSettingsService()

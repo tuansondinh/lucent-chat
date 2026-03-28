@@ -17,7 +17,7 @@ import type { PaneManager } from './pane-manager.js'
 import type { SettingsService } from './settings-service.js'
 import type { TerminalManager } from './terminal-manager.js'
 import type { AuthService } from './auth-service.js'
-import type { VoiceService } from './voice-service.js'
+import { getDisabledVoiceStatus, VOICE_SERVICE_DISABLED_REASON, type VoiceService } from './voice-service.js'
 import type { FileService } from './file-service.js'
 import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
@@ -46,6 +46,12 @@ export function registerIpcHandlers(
   broadcast?: (channel: string, data: unknown) => void,
 ): { registerApprovalForwardingForPane: (paneId: string) => void; registerClassifierForwardingForPane: (paneId: string) => void } {
   const approvedPaneRoots = new Set<string>()
+  const isVoiceServiceEnabled = (): boolean => settingsService.get().voiceServiceEnabled !== false
+  const broadcastVoiceStatus = (status: ReturnType<typeof getDisabledVoiceStatus> | Record<string, unknown>): void => {
+    const win = getMainWindow()
+    pushEvent(win, 'event:voice-status', status)
+    broadcast?.('event:voice-status', status)
+  }
 
   for (const paneId of paneManager.getPaneIds()) {
     const root = paneManager.getPane(paneId)?.projectRoot
@@ -113,9 +119,15 @@ export function registerIpcHandlers(
     if (!pane) throw new Error(`Unknown pane: ${paneId}`)
     const result = await pane.agentBridge.newSession()
     if (!result.cancelled) {
-      pane.agentBridge.getState().then((state) => {
+      // Await getState so the active session ID is tracked before the renderer
+      // calls loadSessions() — the session file is written immediately by the
+      // agent (header-only), so it will appear in the list right away.
+      try {
+        const state = await pane.agentBridge.getState()
         if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile)
-      }).catch(() => {})
+      } catch {
+        // Non-fatal — active session tracking is best-effort
+      }
     }
     return result
   })
@@ -191,6 +203,15 @@ export function registerIpcHandlers(
   ipcMain.handle('cmd:set-settings', async (_event, partial: Record<string, unknown>) => {
     const validated = validateSettingsPatch(partial)
     settingsService.save(validated)
+
+    if ('voiceServiceEnabled' in validated) {
+      if (validated.voiceServiceEnabled === false) {
+        await voiceService.stop()
+        broadcastVoiceStatus(getDisabledVoiceStatus())
+      } else {
+        await voiceService.probe()
+      }
+    }
 
     return sanitizeSettingsForRenderer(settingsService.get())
   })
@@ -591,10 +612,12 @@ export function registerIpcHandlers(
   // --------------------------------------------------------------------------
 
   ipcMain.handle('cmd:voice-probe', async () => {
+    if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
     return voiceService.probe()
   })
 
   ipcMain.handle('cmd:voice-start', async () => {
+    if (!isVoiceServiceEnabled()) throw new Error(VOICE_SERVICE_DISABLED_REASON)
     return voiceService.start()
   })
 
@@ -603,6 +626,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('cmd:voice-status', () => {
+    if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
     return voiceService.getStatus()
   })
 

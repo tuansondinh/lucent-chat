@@ -35,7 +35,9 @@ const mockAuthService = {
 
 test('phase3: evaluateRules returns null when rules array is empty', () => {
   const svc = new ClassifierService(mockAuthService)
-  const result = svc.evaluateRules('bash', { command: 'rm -rf /' }, [])
+  // A command that is neither in built-in deny nor built-in allow patterns
+  // (npm run test is not in either list — goes to LLM)
+  const result = svc.evaluateRules('bash', { command: 'npm run test' }, [])
   assert.equal(result, null)
 })
 
@@ -84,7 +86,9 @@ test('phase3: evaluateRules glob wildcard ? matches a single char', () => {
     { toolName: 'bash', pattern: 'ls ?', decision: 'allow' },
   ]
   assert.equal(svc.evaluateRules('bash', { command: 'ls /' }, rules), 'allow')
-  assert.equal(svc.evaluateRules('bash', { command: 'ls /tmp' }, rules), null)
+  // 'ls /tmp' doesn't match 'ls ?' (more than 1 char after 'ls '),
+  // but it DOES match built-in 'ls *' — so result is 'allow' (via built-in), not null
+  assert.equal(svc.evaluateRules('bash', { command: 'ls /tmp' }, rules), 'allow')
 })
 
 test('phase3: evaluateRules for bash uses command arg', () => {
@@ -217,7 +221,7 @@ test('phase3: classifyToolCall returns approved=false when pane is paused', asyn
 // Block tracking
 // ============================================================================
 
-test('phase3: 3 consecutive denials pause the pane', async () => {
+test('phase3: 10 consecutive denials pause the pane', async () => {
   const svc = new ClassifierService(mockAuthService)
   let callCount = 0
   ;(svc as any).callAnthropicClassifier = async () => {
@@ -228,15 +232,15 @@ test('phase3: 3 consecutive denials pause the pane', async () => {
   const context: ClassifierContext = { userMessages: [] }
   const paneId = 'pane-consecutive'
 
-  // 3 denials
-  for (let i = 0; i < 3; i++) {
+  // 10 denials
+  for (let i = 0; i < 10; i++) {
     await svc.classifyToolCall(paneId, 'bash', { command: `cmd-${i}` }, context)
   }
 
   const state = svc.getPaneState(paneId)
-  assert.equal(state.paused, true, 'pane should be paused after 3 consecutive denials')
-  assert.equal(state.consecutive, 3)
-  assert.equal(state.total, 3)
+  assert.equal(state.paused, true, 'pane should be paused after 10 consecutive denials')
+  assert.equal(state.consecutive, 10)
+  assert.equal(state.total, 10)
 })
 
 test('phase3: consecutive count resets on approval', async () => {
@@ -259,23 +263,22 @@ test('phase3: consecutive count resets on approval', async () => {
   assert.equal(svc.getPaneState(paneId).consecutive, 0, 'consecutive should reset after approval')
 })
 
-test('phase3: 20 total denials pause the pane', async () => {
+test('phase3: 50 total denials pause the pane', async () => {
   const svc = new ClassifierService(mockAuthService)
   ;(svc as any).callAnthropicClassifier = async () => false
 
   const context: ClassifierContext = { userMessages: [] }
   const paneId = 'pane-total'
 
-  // Pre-seed with 19 denials but no consecutive pause trigger
-  // We need to avoid 3 consecutive — alternate deny/approve for 18, then 2 more denials
-  ;(svc as any).blockStats.set(paneId, { consecutive: 0, total: 19, paused: false })
+  // Pre-seed with 49 denials but no consecutive pause trigger
+  ;(svc as any).blockStats.set(paneId, { consecutive: 0, total: 49, paused: false })
 
-  // 20th denial
-  await svc.classifyToolCall(paneId, 'bash', { command: 'cmd-20' }, context)
+  // 50th denial
+  await svc.classifyToolCall(paneId, 'bash', { command: 'cmd-50' }, context)
 
   const state = svc.getPaneState(paneId)
-  assert.equal(state.paused, true, 'pane should be paused after 20 total denials')
-  assert.equal(state.total, 20)
+  assert.equal(state.paused, true, 'pane should be paused after 50 total denials')
+  assert.equal(state.total, 50)
 })
 
 // ============================================================================

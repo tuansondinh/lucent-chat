@@ -104,6 +104,7 @@ class MockSettingsService {
     onboardingComplete: false,
     voicePttShortcut: 'space' as const,
     voiceAudioEnabled: true,
+    voiceServiceEnabled: true,
     voiceModelsDownloaded: false,
   }
 
@@ -159,11 +160,11 @@ class MockAuthService {
 
 class MockVoiceService extends EventEmitter {
   async probe() {
-    return { available: true }
+    return { available: true, state: 'stopped', port: null, token: null }
   }
 
   async start() {
-    return true
+    return { port: 8789, token: 'test-token' }
   }
 
   async stop() {
@@ -171,7 +172,7 @@ class MockVoiceService extends EventEmitter {
   }
 
   getStatus() {
-    return { listening: false, speaking: false }
+    return { available: true, state: 'stopped', port: null, token: null }
   }
 
   on(event: string, callback: any) {
@@ -666,6 +667,22 @@ test('IPC: voice commands work', async (t) => {
   // Stop
   const stopResult = await ipcMain.invoke('cmd:voice-stop')
   assert.ok(stopResult)
+})
+
+test('IPC: voice service can be disabled via settings', async () => {
+  setupIpc()
+
+  const settings = await ipcMain.invoke('cmd:set-settings', { voiceServiceEnabled: false })
+  assert.equal(settings.voiceServiceEnabled, false)
+
+  const status = await ipcMain.invoke('cmd:voice-status')
+  assert.equal(status.available, false)
+  assert.equal(status.state, 'unavailable')
+
+  await assert.rejects(
+    () => ipcMain.invoke('cmd:voice-start'),
+    /Voice service disabled in settings/,
+  )
 })
 
 test('IPC: open-external validates URL', async (t) => {

@@ -289,9 +289,8 @@ export class Orchestrator extends EventEmitter {
             typeof amEvent.delta === 'string'
           ) {
             this.callbacks.onThinkingChunk({ turn_id: turn.turn_id, text: amEvent.delta })
-          }
-          // Also handle delta object with thinking property
-          if (
+          } else if (
+            // Also handle delta object with thinking property (legacy format)
             amEvent.type === 'thinking_delta' &&
             amEvent.delta &&
             typeof amEvent.delta.thinking === 'string'
@@ -316,9 +315,8 @@ export class Orchestrator extends EventEmitter {
             fullText += chunk
             this.callbacks.onChunk({ turn_id: turn.turn_id, text: chunk })
             this.emit('chunk', { turn_id: turn.turn_id, text: chunk })
-          }
-          // text_delta via content_block_delta (legacy format fallback)
-          if (
+          } else if (
+            // text_delta via content_block_delta (legacy format fallback — only when text_delta not already handled)
             amEvent.type === 'content_block_delta' &&
             amEvent.delta?.type === 'text_delta' &&
             typeof amEvent.delta.text === 'string'

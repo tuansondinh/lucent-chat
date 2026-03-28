@@ -47,7 +47,7 @@ The GSD CLI is a terminal-based coding agent. It is composed of a thin CLI entry
 ## Repository Layout
 
 ```
-voice-bridge-desktop/
+lucent-code/
 │
 ├── src/                        # CLI entry layer (compiled → dist/)
 │   ├── loader.ts               # Binary entry point (gsd bin)
