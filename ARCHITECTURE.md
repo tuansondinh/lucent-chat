@@ -271,6 +271,57 @@ Images are optional at every layer — text-only prompts are unaffected. The run
 
 ---
 
+### Subagent Tool Call Visibility (Electron)
+
+When a subagent runs, the runtime emits `tool_execution_update` events containing display items (sub-tool calls and text output). These are rendered in real-time in the Electron UI, giving users visibility into subagent progress:
+
+```
+Runtime subprocess (RPC mode)
+      │  session.subscribe(output)
+      ▼
+  tool_execution_update event: {
+    toolCallId, toolName, args,
+    partialResult: { details: { results: [{ messages: [...] }] } }
+  }
+      │
+      ▼
+Main: agent-bridge.ts
+      │  emits 'agent-event' → { type: 'tool_execution_update', ... }
+      │
+      ▼
+Main: orchestrator.ts
+      │  handle onToolUpdate callback
+      │  extract subItems from partialResult.details.results[].messages[]
+      │
+      ▼
+Main: pane-manager.ts
+      │  pushEvent('event:tool-update', { turn_id, toolCallId, subItems })
+      │
+      ▼
+Renderer: preload/ipc bridge
+      │  ipcRenderer.on('event:tool-update')
+      │
+      ▼
+Renderer: ChatPane.tsx
+      │  store.getState().updateToolSubItems(turn_id, toolCallId, subItems)
+      │  replaces full subItems snapshot (not append)
+      │
+      ▼
+Renderer: ChatMessage.tsx / ToolCallItem
+      │  renders subItems as indented activity lines: "→ toolName"
+      │  bounded to last 8 items with "... N earlier" indicator
+      │  collapses to "N tool calls" summary on completion
+```
+
+Key features:
+- **Real-time progress**: Tool calls appear as they execute within the subagent's tool_use block
+- **Concurrent tracking**: Each tool tracked independently by `toolCallId` (not by name)
+- **Ephemeral state**: subItems not persisted to session JSONL; reloaded sessions show no sub-item history
+- **Lifecycle**: On `tool_execution_end`, subItems are cleared (collapsed to summary). On abort/crash, subItems freeze for debugging.
+- **Rolling idle timeout**: Safety timer resets on every event; only fires after 5 minutes of silence (not 5 minutes total)
+
+---
+
 ### CLI Startup
 
 ```

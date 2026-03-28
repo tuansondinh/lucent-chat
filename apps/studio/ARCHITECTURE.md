@@ -227,6 +227,56 @@
                                                        └─────────────┘
 ```
 
+### Subagent Tool Call Visibility Flow
+
+When a subagent runs and executes tools, the agent emits `tool_execution_update` events containing sub-tool calls and text output. These are streamed through IPC to the renderer for real-time display:
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
+│ Agent       │────▶│ AgentBridge      │────▶│ IPC Event    │
+│ Process     │     │ (tool_execution_ │     │ (main)       │
+│             │     │  update event)   │     │              │
+└─────────────┘     └──────────────────┘     └────┬─────────┘
+                                                  │
+                                    ┌─────────────┴────────────────┐
+                                    ▼                              ▼
+                             ┌───────────────────┐         ┌──────────────┐
+                             │ Orchestrator      │         │ PaneManager  │
+                             │ • onToolUpdate    │         │ • pushEvent  │
+                             │ • Extract subItems│         │              │
+                             └─────────┬─────────┘         └──────────────┘
+                                       │                         │
+                                       └────────────┬────────────┘
+                                                    ▼
+                                           ┌─────────────────────┐
+                                           │ IPC: event:tool-    │
+                                           │ update (preload)    │
+                                           └──────────┬──────────┘
+                                                      │
+                                                      ▼
+                                           ┌─────────────────────┐
+                                           │ ChatPane Store      │
+                                           │ updateToolSubItems()│
+                                           │ (replace snapshot)  │
+                                           └──────────┬──────────┘
+                                                      │
+                                                      ▼
+                                           ┌─────────────────────┐
+                                           │ ToolCallItem UI     │
+                                           │ • Render subItems   │
+                                           │ • Last 8 items      │
+                                           │ • "... N earlier"   │
+                                           │ • Collapse summary  │
+                                           └─────────────────────┘
+```
+
+Key characteristics:
+- **Snapshot updates**: Each `tool_execution_update` delivers a full snapshot of subItems (not a delta)
+- **toolCallId-based matching**: Each tool tracked independently by ID, supporting concurrent same-name tools
+- **Bounded display**: UI shows max 8 items with truncation indicator
+- **Ephemeral state**: subItems not persisted; reloaded sessions show no sub-item history
+- **Lifecycle handling**: On tool completion, subItems clear. On abort/crash, subItems freeze for debugging.
+
 ---
 
 ## Voice Service

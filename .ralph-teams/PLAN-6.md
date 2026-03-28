@@ -61,7 +61,7 @@ ChatMessage → ToolCallItem renders subItems as indented activity list
 
 ## Phases
 
-1. [x] Phase 1: Data contract + event pipeline — complexity: standard
+1. [x] Phase 1: Data contract + event pipeline (commit cf59eefc) — complexity: standard
    - **Carry `toolCallId` end-to-end**: Add `toolCallId` field to `tool_use` ContentBlock type. Update `addToolCall` in pane-store.ts and chat.ts to accept and store `toolCallId`. Update `finalizeToolCall` to match by `toolCallId` instead of tool name FIFO. Update orchestrator's `onToolStart`/`onToolEnd` callbacks to pass `toolCallId` from the event. Update IPC payloads, preload listeners, and bridge methods to carry `toolCallId`.
    - **Add `onToolUpdate` callback**: Add to `OrchestratorCallbacks` interface. Handle `tool_execution_update` in Orchestrator's event handler — extract subItems from `partialResult.details.results[].messages[]` using the same display-item extraction logic as the CLI (text items + toolCall items). Forward via `onToolUpdate({ turn_id, tool, toolCallId, subItems })`.
    - **Replace-not-append store action**: Add `subItems` field to `tool_use` ContentBlock: `subItems?: Array<{ type: 'text' | 'toolCall'; text?: string; name?: string; args?: Record<string, any> }>`. Add `updateToolSubItems(turn_id, toolCallId, subItems)` action that **replaces** (not appends) the `subItems` array on the matching block.
@@ -69,7 +69,7 @@ ChatMessage → ToolCallItem renders subItems as indented activity list
    - **Wire through all paths**: PaneManager, index.ts, server.ts callbacks → `pushEvent('event:tool-update', ...)`. Preload `onToolUpdate` IPC listener. web-bridge.ts `onToolUpdate` method. ChatPane subscription calling `store.getState().updateToolSubItems(...)`.
    - **Lifecycle**: On `agent_process_exit` or abort, freeze in-flight subItems as-is and mark tool blocks as errored. On `tool_execution_end`, clear `subItems` (the final output replaces them).
 
-2. [x] Phase 2: Render subagent activity in ToolCallItem UI — complexity: standard
+2. [x] Phase 2: Render subagent activity in ToolCallItem UI (commit 0634d5fb) — complexity: standard
    - Modify `ToolCallItem` in ChatMessage.tsx to render `subItems` when present and tool is running (`!done`)
    - Show each sub-item as an indented line: `→ name` for toolCall items, truncated text preview for text items
    - Only show the last N items (e.g., 8) at render time with a "... N earlier" indicator when truncated
@@ -143,3 +143,35 @@ Verdict: PASS (with self-fixes)
 - [x] Long-running subagents (>5 min) no longer get killed by the safety timeout as long as events are still flowing -- `resetSafetyTimer()` called on every event; timeout message updated to "5 min idle"
 - [x] subItems are ephemeral (not persisted to session JSONL); reopened sessions show completed tools without sub-item history -- subItems exist only in zustand store state; `finalizeToolCall` clears them; `loadHistory` creates plain text blocks with no subItems
 - [x] Abort/crash during subagent: in-flight subItems freeze for debugging, tool block marked as errored -- `markAllToolsErrored` called on `onError`; sets `done: true, isError: true` on all in-flight tool blocks; subItems are not cleared (frozen as-is)
+
+---
+
+## Verification
+
+Date: 2026-03-28
+Verified by: User
+Summary: 6 passed, 0 failed, 0 skipped
+
+- ✓ Scenario 1: Subagent activity renders — PASS
+- ✓ Scenario 2: Activity collapses on completion — PASS
+- ✓ Scenario 3: Non-subagent tools unaffected — PASS
+- ✓ Scenario 4: Concurrent same-name tools (parallel subagents) — PASS
+- ✓ Scenario 5: Abort mid-subagent — PASS (fixed: "0" render bug from subItemCount=0 in JSX && expression)
+- ✓ Scenario 6: Rolling timeout — PASS (verified with 10s timeout; turn stays alive while events flow)
+
+### Post-verification fixes
+- `subItemCount` set to 0 on early empty updates → changed to only update when `toolCallCount > 0`
+- `showSummary = tc.done && tc.subItemCount && ...` → `tc.subItemCount = 0` rendered as literal "0" in JSX; fixed to `(tc.subItemCount ?? 0) > 0`
+- Text colour too grey → bumped `text-text-tertiary` → `text-text-secondary` throughout `ToolCallActivity`
+
+---
+
+## Documentation
+
+Date: 2026-03-28
+Updated by: Scribe
+
+Files updated:
+- **ARCHITECTURE.md** — Added "Subagent Tool Call Visibility (Electron)" data flow section describing the end-to-end pipeline from runtime event through Electron UI
+- **apps/studio/ARCHITECTURE.md** — Added "Subagent Tool Call Visibility Flow" diagram and characteristics explaining the data flow and key design decisions
+- **apps/studio/README.md** — Added "Subagent visibility" to Key Features list
