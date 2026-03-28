@@ -1,6 +1,7 @@
 /**
  * Mock for Electron APIs used in tests.
  * This allows main process code to run without actual Electron runtime.
+ * Uses plain Node.js — no vi/vitest globals.
  */
 
 import { EventEmitter } from 'node:events'
@@ -8,6 +9,7 @@ import { EventEmitter } from 'node:events'
 // Mock ipcMain
 class IpcMainMock extends EventEmitter {
   channels = new Map<string, Set<(event: any, ...args: any[]) => void>>()
+  handlers = new Map<string, (event: any, ...args: any[]) => any>()
 
   on(channel: string, listener: (event: any, ...args: any[]) => void): this {
     if (!this.channels.has(channel)) {
@@ -15,6 +17,19 @@ class IpcMainMock extends EventEmitter {
     }
     this.channels.get(channel)!.add(listener)
     return super.on(channel, listener)
+  }
+
+  handle(channel: string, handler: (event: any, ...args: any[]) => any): void {
+    this.handlers.set(channel, handler)
+  }
+
+  async invoke(channel: string, ...args: any[]): Promise<any> {
+    const handler = this.handlers.get(channel)
+    if (!handler) {
+      throw new Error(`No handler registered for channel: ${channel}`)
+    }
+    const mockEvent = { sender: { send: () => {} } }
+    return handler(mockEvent, ...args)
   }
 
   removeHandler(channel: string, listener: (event: any, ...args: any[]) => void): void {
@@ -26,6 +41,17 @@ class IpcMainMock extends EventEmitter {
       }
     }
     this.removeListener(channel, listener)
+  }
+
+  removeAllListeners(channel?: string): this {
+    if (channel) {
+      this.channels.delete(channel)
+      this.handlers.delete(channel)
+    } else {
+      this.channels.clear()
+      this.handlers.clear()
+    }
+    return super.removeAllListeners(channel)
   }
 
   // Simulate sending an event from renderer to main
@@ -41,14 +67,8 @@ class IpcMainMock extends EventEmitter {
 
 // Mock WebContents
 class WebContentsMock extends EventEmitter {
-  send: (channel: string, ...args: any[]) => void = () => {}
-
-  constructor() {
-    super()
-    this.send = vi.fn((channel: string, ...args: any[]) => {
-      // Emit the event for testing
-      this.emit('send', channel, ...args)
-    })
+  send(channel: string, ...args: any[]): void {
+    this.emit('send', channel, ...args)
   }
 }
 
@@ -62,7 +82,7 @@ class BrowserWindowMock extends EventEmitter {
     super()
   }
 
-  loadURL(url: string): Promise<void> {
+  loadURL(_url: string): Promise<void> {
     return Promise.resolve()
   }
 
@@ -87,53 +107,35 @@ class BrowserWindowMock extends EventEmitter {
     this.destroy()
   }
 
-  focus(): void {
-    // Mock focus
-  }
+  focus(): void {}
 
-  blur(): void {
-    // Mock blur
-  }
+  blur(): void {}
 
   isMinimized(): boolean {
     return false
   }
 
-  maximize(): void {
-    // Mock maximize
-  }
+  maximize(): void {}
 
-  unmaximize(): void {
-    // Mock unmaximize
-  }
+  unmaximize(): void {}
 
-  minimize(): void {
-    // Mock minimize
-  }
+  minimize(): void {}
 
-  restore(): void {
-    // Mock restore
-  }
+  restore(): void {}
 
-  setBounds(bounds: any): void {
-    // Mock setBounds
-  }
+  setBounds(_bounds: any): void {}
 
   getSize(): [number, number] {
     return [800, 600]
   }
 
-  setPosition(x: number, y: number): void {
-    // Mock setPosition
-  }
+  setPosition(_x: number, _y: number): void {}
 
   getPosition(): [number, number] {
     return [100, 100]
   }
 
-  setTitle(title: string): void {
-    // Mock setTitle
-  }
+  setTitle(_title: string): void {}
 }
 
 // Mock Tray
@@ -142,17 +144,11 @@ class TrayMock extends EventEmitter {
     super()
   }
 
-  setToolTip(toolTip: string): void {
-    // Mock setToolTip
-  }
+  setToolTip(_toolTip: string): void {}
 
-  setContextMenu(menu: any): void {
-    // Mock setContextMenu
-  }
+  setContextMenu(_menu: any): void {}
 
-  displayBalloon(options: any): void {
-    // Mock displayBalloon
-  }
+  displayBalloon(_options: any): void {}
 
   destroy(): void {
     this.emit('click')
@@ -162,9 +158,9 @@ class TrayMock extends EventEmitter {
 // Mock app
 class AppMock extends EventEmitter {
   isReady = () => true
-  quit = vi.fn()
-  exit = vi.fn()
-  focus = vi.fn()
+  quit = () => {}
+  exit = () => {}
+  focus = () => {}
   getVersion = () => '0.9.0'
   getName = () => 'Lucent Code'
   getAppPath = () => '/app/path'
@@ -177,42 +173,42 @@ class AppMock extends EventEmitter {
     }
     return paths[name] || '/tmp'
   }
-  setAppUserModelId = vi.fn()
-  setAsDefaultProtocolClient = vi.fn()
-  removeAsDefaultProtocolClient = vi.fn()
+  setAppUserModelId = () => {}
+  setAsDefaultProtocolClient = () => {}
+  removeAsDefaultProtocolClient = () => {}
   isDefaultProtocolClient = () => false
-  setLoginItemSettings = vi.fn()
+  setLoginItemSettings = () => {}
   getLoginItemSettings = () => ({ openAtLogin: false })
-  relaunch = vi.fn()
+  relaunch = () => {}
   isPackaged = false
   requestSingleInstanceLock = () => true
   hasSingleInstanceLock = () => true
-  releaseSingleInstanceLock = vi.fn()
+  releaseSingleInstanceLock = () => {}
   commandLine = {
-    hasSwitch: (name: string) => false,
-    getSwitchValue: (name: string) => '',
+    hasSwitch: (_name: string) => false,
+    getSwitchValue: (_name: string) => '',
   }
-  on = vi.fn((event: string, listener: (...args: any[]) => void) => {
+  on = (event: string, listener: (...args: any[]) => void) => {
     return super.on(event, listener)
-  })
-  once = vi.fn((event: string, listener: (...args: any[]) => void) => {
+  }
+  once = (event: string, listener: (...args: any[]) => void) => {
     return super.once(event, listener)
-  })
+  }
   whenReady = () => Promise.resolve()
 }
 
 // Mock nativeImage
 const nativeImageMock = {
-  createFromPath: (path: string) => ({ path }),
+  createFromPath: (_path: string) => ({ path: _path }),
   createEmpty: () => ({}),
-  createFromBuffer: (buffer: Buffer, size?: any) => ({ buffer }),
+  createFromBuffer: (buffer: Buffer, _size?: any) => ({ buffer }),
   createFromDataURL: (dataURL: string) => ({ dataURL }),
   toPNG: () => Buffer.from(''),
-  toJPEG: (quality: number) => Buffer.from(''),
+  toJPEG: (_quality: number) => Buffer.from(''),
   toDataURL: () => 'data:image/png;base64,',
-  getAspectRatio = () => 1,
-  getSize = () => ({ width: 100, height: 100 }),
-  isEmpty = () => false,
+  getAspectRatio: () => 1,
+  getSize: () => ({ width: 100, height: 100 }),
+  isEmpty: () => false,
 }
 
 // Create mock instances
@@ -226,6 +222,23 @@ export const mockElectron = {
   ipcMain: mockIpcMain,
   Tray: TrayMock,
   nativeImage: nativeImageMock,
+}
+
+// Named exports used by tests: import { ipcMain } from 'electron'
+export const app = mockApp
+export const ipcMain = mockIpcMain
+export const BrowserWindow = BrowserWindowMock
+export const shell = {
+  openExternal: (_url: string) => Promise.resolve(),
+  openPath: (_path: string) => Promise.resolve(''),
+  showItemInFolder: (_path: string) => {},
+  beep: () => {},
+}
+export const dialog = {
+  showOpenDialog: (_options?: any) => Promise.resolve({ canceled: true, filePaths: [] }),
+  showSaveDialog: (_options?: any) => Promise.resolve({ canceled: true, filePath: undefined }),
+  showMessageBox: (_options?: any) => Promise.resolve({ response: 0 }),
+  showErrorBox: (_title: string, _content: string) => {},
 }
 
 // Export for vi.mock usage

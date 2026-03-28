@@ -70,7 +70,9 @@ export const DEFAULT_PERMISSION_MODE = 'auto' as const
 const DEFAULTS: AppSettings = {
   theme: 'dark',
   fontSize: 14,
-  sidebarCollapsed: true,
+  sidebarCollapsed: false,
+  onboardingComplete: false,
+  voiceModelsDownloaded: false,
   voicePttShortcut: 'space',
   voiceAudioEnabled: true,
   remoteAccessEnabled: false,
@@ -95,7 +97,7 @@ export class SettingsService {
   private settings: AppSettings
 
   constructor() {
-    const dir = join(homedir(), '.voice-bridge-desktop')
+    const dir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.voice-bridge-desktop')
     this.settingsPath = join(dir, 'settings.json')
     this.settings = { ...DEFAULTS }
     this.ensureDir(dir)
@@ -123,8 +125,9 @@ export class SettingsService {
         this.save({ voiceModelsDownloaded: false })
       }
     } catch {
-      // File may not exist yet — use defaults
+      // File may not exist yet — use defaults and write them to disk
       this.settings = { ...DEFAULTS }
+      this.save({})
     }
     return this.settings
   }

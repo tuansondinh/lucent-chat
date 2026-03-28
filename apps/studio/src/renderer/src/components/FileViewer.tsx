@@ -21,7 +21,7 @@ import { getPaneStore, type OpenViewerItem, type OpenFile } from '../store/pane-
 import { getFileTreeStore } from '../store/file-tree-store'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
-import { X, Copy, Check, FileText, Search, GitBranch, AlertTriangle, WrapText, ZoomIn, ZoomOut } from 'lucide-react'
+import { X, Copy, Check, FileText, Search, GitBranch, AlertTriangle, WrapText, ZoomIn, ZoomOut, Save, Loader2 } from 'lucide-react'
 import type { GitChangeStatus } from '../../../preload'
 import { getBridge } from '../lib/bridge'
 import { toast } from 'sonner'
@@ -37,7 +37,10 @@ const EDITOR_FONT_SIZE_MIN = 8
 const EDITOR_FONT_SIZE_MAX = 32
 
 function readWordWrap(): boolean {
-  try { return localStorage.getItem(LS_WORD_WRAP_KEY) === 'true' } catch { return false }
+  try {
+    const stored = localStorage.getItem(LS_WORD_WRAP_KEY)
+    return stored === null ? true : stored === 'true'
+  } catch { return true }
 }
 
 function readFontSize(): number {
@@ -682,6 +685,18 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeFilePath, handleSave])
 
+  // ---- Alt+Z — toggle word wrap ----
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'z') {
+        e.preventDefault()
+        handleWordWrapToggle()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleWordWrapToggle])
+
   // ---- Cmd+= / Cmd+- / Cmd+0 font size shortcuts ----
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -962,6 +977,9 @@ export function FileViewer({ paneId, onClose }: FileViewerProps) {
         onSearchOpen={() => { setSearchOpen(true) }}
         fullContent={activeFileAsFile.draftContent ?? content}
         canEdit={canEdit}
+        isDirty={activeFileAsFile.isDirty}
+        isSaving={isSaving}
+        onSave={() => activeFilePath && void handleSave(activeFilePath)}
         wordWrap={wordWrap}
         onWordWrapToggle={handleWordWrapToggle}
         fontSize={fontSize}
@@ -1111,13 +1129,13 @@ function TabStrip({ openFiles, activeFilePath, changedFilesMap, closeFile, setAc
             onMouseDown={(e) => { if (e.button === 1) { e.preventDefault(); closeFile(file.tabKey) } }}
             title={file.relativePath + (isEditorDirty ? ' (unsaved changes)' : '')}
           >
-            {/* Git modification dot */}
-            {isGitModified && (
-              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', fileChange?.status === 'D' ? 'bg-red-400' : fileChange?.status === 'A' || fileChange?.status === '??' ? 'bg-emerald-400' : fileChange?.status === 'R' ? 'bg-sky-400' : 'bg-amber-400')} />
+            {/* Unsaved changes dot — white circle at the start, always shown when dirty */}
+            {isEditorDirty && (
+              <span className="w-2 h-2 rounded-full flex-shrink-0 bg-white/80" aria-label="unsaved changes" />
             )}
-            {/* Editor unsaved changes dot */}
-            {isEditorDirty && !isGitModified && (
-              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 bg-blue-400" aria-label="unsaved changes" />
+            {/* Git modification dot — only shown when not dirty */}
+            {isGitModified && !isEditorDirty && (
+              <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', fileChange?.status === 'D' ? 'bg-red-400' : fileChange?.status === 'A' || fileChange?.status === '??' ? 'bg-emerald-400' : fileChange?.status === 'R' ? 'bg-sky-400' : 'bg-amber-400')} />
             )}
             {file.kind === 'diff' && <GitBranch className="size-3 text-text-tertiary flex-shrink-0" />}
             <span className="truncate">{fileName}</span>
@@ -1150,6 +1168,12 @@ interface FileViewerHeaderProps {
   previousPath?: string
   /** Whether edit mode can be activated for this file. */
   canEdit?: boolean
+  /** Whether the file has unsaved changes. */
+  isDirty?: boolean
+  /** Whether a save is in progress. */
+  isSaving?: boolean
+  /** Callback to save the file. */
+  onSave?: () => void
   /** Whether word wrap is currently enabled (shown only for editable files). */
   wordWrap?: boolean
   /** Callback to toggle word wrap. */
@@ -1172,6 +1196,9 @@ function FileViewerHeader({
   diffStatus,
   previousPath,
   canEdit = false,
+  isDirty = false,
+  isSaving = false,
+  onSave,
   wordWrap = false,
   onWordWrapToggle,
   fontSize = EDITOR_FONT_SIZE_DEFAULT,
@@ -1218,7 +1245,7 @@ function FileViewerHeader({
           {/* Word wrap toggle */}
           <button
             onClick={onWordWrapToggle}
-            title={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}
+            title={wordWrap ? 'Disable word wrap (⌥Z)' : 'Enable word wrap (⌥Z)'}
             className={cn(
               'flex items-center justify-center size-5 rounded transition-colors flex-shrink-0',
               wordWrap
@@ -1267,6 +1294,27 @@ function FileViewerHeader({
           aria-label="Search in file"
         >
           <Search className="size-3.5" />
+        </button>
+      )}
+
+      {/* Save button — shown when file is editable and dirty */}
+      {path && mode === 'file' && canEdit && (
+        <button
+          onClick={onSave}
+          disabled={!isDirty || isSaving}
+          title={isDirty ? 'Save (⌘S)' : 'No unsaved changes'}
+          className={cn(
+            'flex items-center justify-center size-5 rounded transition-colors flex-shrink-0',
+            isDirty && !isSaving
+              ? 'text-white hover:text-white hover:bg-bg-hover cursor-pointer'
+              : 'text-text-tertiary/30 cursor-not-allowed',
+          )}
+          aria-label="Save file"
+        >
+          {isSaving
+            ? <Loader2 className="size-3.5 animate-spin" />
+            : <Save className="size-3.5" />
+          }
         </button>
       )}
 

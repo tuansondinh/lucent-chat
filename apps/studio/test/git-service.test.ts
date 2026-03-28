@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
+import fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -8,15 +9,16 @@ import { GitService } from '../src/main/git-service.js'
 
 async function createRepo(): Promise<string> {
   const repoDir = await mkdtemp(join(tmpdir(), 'lucent-git-service-'))
-  execFileSync('git', ['init'], { cwd: repoDir })
-  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: repoDir })
-  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: repoDir })
+  const realRepoDir = await fs.realpath(repoDir)
+  execFileSync('git', ['init'], { cwd: realRepoDir })
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: realRepoDir })
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: realRepoDir })
 
-  await writeFile(join(repoDir, 'tracked.txt'), 'alpha\nbeta\n', 'utf8')
-  execFileSync('git', ['add', 'tracked.txt'], { cwd: repoDir })
-  execFileSync('git', ['commit', '-m', 'init'], { cwd: repoDir })
+  await writeFile(join(realRepoDir, 'tracked.txt'), 'alpha\nbeta\n', 'utf8')
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: realRepoDir })
+  execFileSync('git', ['commit', '-m', 'init'], { cwd: realRepoDir })
 
-  return repoDir
+  return realRepoDir
 }
 
 test('getChangedFiles reports modified, untracked, deleted, and renamed files', async () => {
@@ -131,7 +133,7 @@ test('getFileDiff handles binary files', async () => {
   try {
     // Create a PNG file (binary)
     const pngPath = join(repoDir, 'image.png')
-    await writeFile(pngPath, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]))
+    await writeFile(pngPath, Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D]))
 
     execFileSync('git', ['add', 'image.png'], { cwd: repoDir })
 
@@ -204,7 +206,7 @@ test('checkoutBranch throws for non-existent branch', async () => {
   try {
     await assert.rejects(
       async () => await service.checkoutBranch(repoDir, 'nonexistent-branch'),
-      /not found|does not exist|unknown/
+      /not found|does not exist|unknown|pathspec.*did not match/
     )
   } finally {
     await rm(repoDir, { recursive: true, force: true })

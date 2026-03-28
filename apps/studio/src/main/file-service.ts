@@ -178,6 +178,39 @@ export class FileService {
   }
 
   /**
+   * Delete a file at `relativePath` within `rootPath`.
+   *
+   * Only files are deletable (not directories) to prevent accidental bulk removal.
+   * Applies the same path-traversal and symlink-escape protections as readFile.
+   */
+  async deleteFile(rootPath: string, relativePath: string): Promise<void> {
+    const rootReal = await fs.realpath(rootPath)
+    const candidate = path.resolve(rootReal, relativePath)
+
+    // Resolve candidate (catches symlink escapes)
+    let candidateReal: string
+    try {
+      candidateReal = await fs.realpath(candidate)
+    } catch {
+      throw new Error(`File not found: ${relativePath}`)
+    }
+
+    // Path traversal check
+    const rel = path.relative(rootReal, candidateReal)
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      throw new Error('Path traversal detected')
+    }
+
+    // Only delete regular files — not directories
+    const stat = await fs.stat(candidateReal)
+    if (stat.isDirectory()) {
+      throw new Error('Cannot delete directories — only individual files can be deleted')
+    }
+
+    await fs.unlink(candidateReal)
+  }
+
+  /**
    * Read the FULL content of a file (no size cap), used when entering edit mode.
    *
    * Same security model as readFile — symlink and path-traversal safe.
@@ -189,6 +222,12 @@ export class FileService {
 
     // Step 2: compute candidate
     const candidate = path.resolve(rootReal, relativePath)
+
+    // Initial path traversal check on candidate BEFORE realpath (handles non-existent paths)
+    const initialRel = path.relative(rootReal, candidate)
+    if (initialRel.startsWith('..') || path.isAbsolute(initialRel)) {
+      throw new Error('Path traversal detected')
+    }
 
     // Step 3: resolve candidate (catches symlink escapes)
     let candidateReal: string
@@ -249,6 +288,12 @@ export class FileService {
 
     // Step 2: compute candidate
     const candidate = path.resolve(rootReal, relativePath)
+
+    // Initial path traversal check on candidate BEFORE realpath (handles non-existent paths)
+    const initialRel = path.relative(rootReal, candidate)
+    if (initialRel.startsWith('..') || path.isAbsolute(initialRel)) {
+      throw new Error('Path traversal detected')
+    }
 
     // Step 3: resolve candidate (catches symlink escapes)
     let candidateReal: string

@@ -16,6 +16,7 @@ import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { app } from 'electron'
 
 type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
 
@@ -47,9 +48,11 @@ export class VoiceService extends EventEmitter {
 
   /** Probe Python availability and voice_bridge package. Returns true if voice is usable. */
   async probe(): Promise<{ available: boolean; reason?: string }> {
-    // Resolve audio service path
+    // Resolve audio service path — differs between dev and packaged build
     const root = this.resolveProjectRoot()
-    const servicePath = path.join(root, 'studio', 'audio-service', 'audio_service.py')
+    const servicePath = app.isPackaged
+      ? path.join(process.resourcesPath, 'audio-service', 'audio_service.py')
+      : path.join(root, 'studio', 'audio-service', 'audio_service.py')
     if (!existsSync(servicePath)) {
       this.state = 'unavailable'
       this.reason = 'audio_service.py not found — ensure studio/audio-service/ exists'
@@ -58,8 +61,12 @@ export class VoiceService extends EventEmitter {
     }
     this.audioServicePath = servicePath
 
-    // Resolve voice-bridge package path (for sys.path injection)
-    const defaultVbPath = path.join(root, '..', 'voice-bridge')
+    // Resolve voice_bridge package path (for sys.path injection)
+    // In packaged build: extraResources copies voice_bridge → Resources/voice_bridge
+    // In dev: voice-bridge lives at repo root (one level above apps/)
+    const defaultVbPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'voice_bridge')
+      : path.join(root, '..', 'voice-bridge')
     this.voiceBridgePath = existsSync(defaultVbPath) ? path.resolve(defaultVbPath) : null
 
     // Try python runtimes in order
@@ -75,6 +82,7 @@ export class VoiceService extends EventEmitter {
 
           const env: Record<string, string> = { ...(process.env as Record<string, string>) }
           if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath
+          env.PATH = expandPath(env.PATH)
 
           const result = await runCommandWithEnv(cmd, importArgs, env, this.getPythonWorkingDirectory(cmd))
           if (result.includes('OK')) {
@@ -132,6 +140,7 @@ export class VoiceService extends EventEmitter {
     this.startPromise = new Promise((resolve, reject) => {
       const env: NodeJS.ProcessEnv = { ...process.env }
       if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath!
+      env.PATH = expandPath(env.PATH as string | undefined)
       const authToken = randomBytes(32).toString('hex')
       env.VOICE_SERVICE_TOKEN = authToken
       this.authToken = authToken
@@ -336,11 +345,35 @@ function runCommand(cmd: string, args: string[]): Promise<string> {
 }
 
 /** Run a command with a custom env and return stdout (trimmed). */
-function runCommandWithEnv(cmd: string, args: string[], env: Record<string, string>): Promise<string> {
+function runCommandWithEnv(cmd: string, args: string[], env: Record<string, string>, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 10_000, env }, (err, stdout) => {
+    execFile(cmd, args, { timeout: 10_000, env, cwd }, (err, stdout) => {
       if (err) reject(err)
       else resolve(stdout.trim())
     })
   })
+}
+
+/**
+ * Expand PATH to include common locations where python/uv live in GUI apps.
+ * macOS apps launched from Finder/Dock don't inherit the user's shell PATH,
+ * so Homebrew (/opt/homebrew/bin), pyenv, and pip user installs are invisible.
+ */
+function expandPath(currentPath: string | undefined): string {
+  const home = process.env.HOME ?? ''
+  const extras = [
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
+    `${home}/.pyenv/shims`,
+    `${home}/.pyenv/bin`,
+    `${home}/.local/bin`,
+  ]
+  const base = currentPath ?? '/usr/bin:/bin:/usr/sbin:/sbin'
+  const parts = base.split(':')
+  // Prepend extras that aren't already present
+  for (const extra of extras.reverse()) {
+    if (!parts.includes(extra)) parts.unshift(extra)
+  }
+  return parts.join(':')
 }

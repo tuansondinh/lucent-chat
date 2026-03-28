@@ -332,6 +332,10 @@ export class WebBridge implements Bridge {
     return this.cmd('fs-write-file', paneId, relativePath, content)
   }
 
+  fsDeleteFile(paneId: string, relativePath: string): Promise<void> {
+    return this.cmd('fs-delete-file', paneId, relativePath)
+  }
+
   onFileChanged(cb: (data: unknown) => void): () => void {
     return this.bus.on('event:file-changed', cb)
   }

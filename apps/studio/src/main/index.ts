@@ -404,6 +404,7 @@ app.whenReady().then(async () => {
         case 'fs-read-file': return root() ? fileService.readFile(root()!, args[1] as string) : null
         case 'fs-read-full': return root() ? fileService.readFileFull(root()!, args[1] as string) : null
         case 'fs-write-file': return root() ? fileService.writeFile(root()!, args[1] as string, args[2] as string) : null
+        case 'fs-delete-file': return root() ? fileService.deleteFile(root()!, args[1] as string) : null
         // Git
         case 'git-branch': return root() ? gitService.getBranch(root()!) : null
         case 'git-list-branches': return root() ? gitService.listBranches(root()!) : { current: null, branches: [] }

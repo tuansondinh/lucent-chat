@@ -25,6 +25,92 @@ export interface ClassifierDecision {
 
 const MAX_CONCURRENT_PER_PANE = 5
 
+/**
+ * Built-in hard deny rules for bash commands.
+ * These are checked against ALL subcommands (same as user deny rules) and
+ * always result in DENY regardless of LLM decision or user context.
+ */
+const BUILT_IN_BASH_DENY_PATTERNS: string[] = [
+  // Remote shell / file transfer
+  'ssh *', 'ssh',
+  'scp *',
+  'sftp *', 'sftp',
+  // Arbitrary remote code execution via pipe
+  'curl * | sh', 'curl * | bash', 'curl * | zsh',
+  'wget * | sh', 'wget * | bash', 'wget * | zsh',
+  'wget -O- *', 'wget --output-document=- *',
+  // Netcat in listen/server mode
+  'nc -l *', 'nc -l', 'ncat -l *', 'ncat -l',
+  // Credential exfiltration patterns
+  'curl * -d @*/.ssh/*', 'curl * --data @*/.ssh/*',
+  'curl * -d @*/.aws/*', 'curl * --data @*/.aws/*',
+  // Privilege escalation
+  'sudo *', 'sudo',
+  // Process termination
+  'kill -9 *', 'killall *',
+  // Scheduled job modification
+  'crontab *',
+  // Disk/filesystem operations
+  'dd *',
+  'mkfs *', 'mkfs.*',
+  // In-place file editing (sed -i can silently corrupt files)
+  'sed -i *', 'sed -i',
+  // Publishing packages (requires explicit user action)
+  'npm publish', 'npm publish *',
+  'pip publish', 'pip publish *', 'twine upload *',
+  // Destructive git remote ops
+  'git push --force *', 'git push --force',
+  'git push -f *', 'git push -f',
+]
+
+/**
+ * Built-in allow rules for read-only bash commands.
+ * These bypass the LLM classifier entirely for known-safe operations.
+ * Deny rules still run first across all subcommands, so chained destructive
+ * commands (e.g. "find /tmp && rm -rf /") are still caught by deny rules.
+ */
+const BUILT_IN_BASH_ALLOW_PATTERNS: string[] = [
+  // File search
+  'find *',
+  // Content search
+  'grep *', 'rg *', 'ripgrep *',
+  // Directory listing
+  'ls', 'ls *',
+  // File reading
+  'cat *', 'head *', 'tail *',
+  // Counting / metadata
+  'wc *', 'file *', 'stat *',
+  // Output / env inspection
+  'echo *', 'printf *', 'pwd', 'env', 'printenv', 'printenv *',
+  // Command lookup
+  'which *', 'type *', 'command *',
+  // Disk usage (read-only)
+  'du *', 'df *',
+  // Read-only git operations
+  'git status', 'git status *',
+  'git log', 'git log *',
+  'git diff', 'git diff *',
+  'git show', 'git show *',
+  'git branch', 'git branch *',
+  'git remote', 'git remote *',
+  'git blame *',
+  'git stash list',
+  'git stash list *',
+  // Package inspection
+  'npm list', 'npm list *',
+  'npm info *',
+  // Version checks
+  'node --version', 'npm --version', 'npx --version',
+  'node -v', 'npm -v', 'npx -v',
+  // Type-check only (no emit)
+  'tsc --noEmit', 'tsc --noEmit *',
+  // Read-only text processing
+  'sort *', 'uniq *', 'cut *',
+  'awk *', 'sed -n *',
+  // Paging / searching through output
+  'less *', 'more *',
+]
+
 interface PaneRateLimitState {
   active: number
   queue: Array<() => void>
@@ -45,7 +131,19 @@ export class ClassifierService {
     const candidates = this.getMatchCandidates(toolName, args)
     if (candidates.length === 0) return null
 
-    // Deny rules checked first — match against ALL candidates (subcommands,
+    // Built-in hard deny rules — checked first, against ALL candidates.
+    // These are never overridden by allow rules or the LLM.
+    if (toolName === 'bash') {
+      for (const pattern of BUILT_IN_BASH_DENY_PATTERNS) {
+        for (const text of candidates) {
+          if (this.matchPattern(pattern, text)) {
+            return 'deny'
+          }
+        }
+      }
+    }
+
+    // User-configured deny rules — match against ALL candidates (subcommands,
     // path-stripped variants, etc.) to catch evasion via command chaining,
     // absolute paths, subshells, and interpreter wrappers.
     for (const rule of rules) {
@@ -64,6 +162,16 @@ export class ClassifierService {
     for (const rule of rules) {
       if (rule.decision === 'allow' && rule.toolName === toolName && this.matchPattern(rule.pattern, candidates[0])) {
         return 'allow'
+      }
+    }
+
+    // Built-in allow rules for known read-only bash commands.
+    // Checked after deny rules so chained destructive commands are still caught.
+    if (toolName === 'bash') {
+      for (const pattern of BUILT_IN_BASH_ALLOW_PATTERNS) {
+        if (this.matchPattern(pattern, candidates[0])) {
+          return 'allow'
+        }
       }
     }
 
@@ -86,7 +194,11 @@ export class ClassifierService {
     }
 
     const argsJson = JSON.stringify(args)
-    const cacheKey = `${toolName}:${this.hash(argsJson)}`
+    // Include the latest user message in the cache key so intent changes
+    // invalidate cached decisions (e.g. ALLOW for a file op that the user
+    // has since asked to cancel or change).
+    const latestMessage = context.userMessages.at(-1) ?? ''
+    const cacheKey = `${toolName}:${this.hash(argsJson)}:${this.hash(latestMessage)}`
     const cached = this.cache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < 30000) {
       return { approved: cached.approved, reason: 'Cached decision', source: 'cache' }
@@ -128,23 +240,37 @@ export class ClassifierService {
     argsJson: string,
     context: ClassifierContext
   ): Promise<boolean> {
-    const systemPrompt = `You are a security classifier for an autonomous coding agent working inside a software project.
+    const systemPrompt = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
 
-The agent's primary job is writing, editing, and managing code files. Most tool calls are routine coding operations and should be ALLOWED.
+DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
 
-ALLOW when:
-- Writing, editing, or creating files inside the project (source code, configs, tests, docs)
-- Running build/test/lint commands (npm, node, git, tsc, etc.)
-- Reading files, searching code, listing directories
-- The operation is aligned with or reasonably implied by the user's recent messages
+ALWAYS ALLOW:
+- Any read-only operation: find, grep, ls, cat, head, tail, wc, stat, file, du, df, echo, pwd, env, which, sort, awk, sed -n
+- Any git read operation: git status, git log, git diff, git show, git branch, git blame, git remote
+- Build/test/lint: npm run *, npx *, tsc, eslint, jest, vitest, cargo, make
+- Writing or editing files inside the project directory
+- Installing packages: npm install, pip install, cargo add
+- Operations clearly implied by the user's recent messages
 
-DENY only when:
-- Modifying files outside the project directory (system files, other projects)
-- Running destructive system commands (rm -rf /, sudo, chmod on system paths)
-- The operation clearly contradicts the user's stated intent
-- Accessing or exfiltrating sensitive credentials not related to the task
+DENY only these specific violations:
+- Deleting files with rm, unlink, rmdir (unless user explicitly said "delete" or "remove" that file)
+- Commands outside the project directory targeting system paths (/etc, /usr, /bin, /System, ~/.ssh)
+- sudo, su, chmod/chown on system paths
+- curl/wget piped directly to sh/bash (arbitrary code execution)
+- curl/wget sending local files or env vars to external hosts (e.g. -d @~/.ssh/id_rsa, -d "$(env)")
+- ssh, scp, sftp — remote shell/file access is out of scope for a coding agent
+- nc/ncat in listen/server mode (-l flag) — reverse shell risk
+- sudo, su — privilege escalation
+- kill -9, killall — terminating arbitrary processes
+- crontab — modifying scheduled jobs
+- dd, mkfs — disk/filesystem writes
+- sed -i — in-place file editing that can silently corrupt files; agent should use proper edit tools
+- npm publish, pip publish, twine upload — publishing packages requires explicit user action
+- git push --force / git push -f — destructive remote history rewrite
+- Accessing credential files unrelated to the current task (~/.aws, ~/.ssh/id_rsa, /etc/passwd)
+- Commands that clearly contradict the user's stated intent
 
-When in doubt, ALLOW. The user chose auto mode because they trust the agent to work autonomously.
+Use the user's recent messages to judge intent. If the user asked for something and the tool call implements it, ALLOW.
 
 Output exactly one word: ALLOW or DENY.`
 

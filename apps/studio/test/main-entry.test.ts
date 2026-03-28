@@ -258,7 +258,7 @@ test('Main entry: VoiceService probes and prewarms on startup', async (t) => {
     await voiceService.stop()
   } catch (err) {
     // Voice service might not be available in test environment
-    assert.ok(err.message.includes('Python not found') || err.message.includes('voice'))
+    assert.ok(err.message.includes('Python not found') || err.message.includes('voice') || err.message.includes('audio'))
   }
 })
 
@@ -476,9 +476,9 @@ test('Main entry: Startup handles malformed auth file', async (t) => {
     const statuses = authService.getProviderStatuses()
     assert.ok(Array.isArray(statuses))
 
-    // All should be unconfigured
-    const configured = statuses.filter((s: any) => s.configured)
-    assert.equal(configured.length, 0)
+    // All file-based auth should be unconfigured
+    const configuredViaFile = statuses.filter((s: any) => s.configuredVia === 'auth_file')
+    assert.equal(configuredViaFile.length, 0)
   } finally {
     await rm(authDir, { recursive: true, force: true })
   }

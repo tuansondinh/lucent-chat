@@ -6,13 +6,13 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
 import { ApprovalCard, type ApprovalRequest } from './ApprovalModal'
-import { getPaneStore } from '../store/pane-store'
+import { getPaneStore, usePanesStore } from '../store/pane-store'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
@@ -935,8 +935,17 @@ export function ChatPane({
 
   // Pane-wide drag-and-drop: accept image/file drops anywhere in the pane
   const [isPaneDragging, setIsPaneDragging] = useState(false)
+  // Pane reorder drag-and-drop
+  const [isPaneDropTarget, setIsPaneDropTarget] = useState(false)
+  const swapPanes = usePanesStore((s) => s.swapPanes)
 
   const handlePaneDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes('application/x-pane-id')) {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsPaneDropTarget(true)
+      return
+    }
     const hasFiles = Array.from(e.dataTransfer.items).some((item) => item.kind === 'file')
     if (!hasFiles) return
     e.preventDefault()
@@ -948,12 +957,21 @@ export function ChatPane({
     // Only clear when leaving the pane root itself (not a child)
     if (e.currentTarget.contains(e.relatedTarget as Node)) return
     setIsPaneDragging(false)
+    setIsPaneDropTarget(false)
   }, [])
 
   const handlePaneDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsPaneDragging(false)
+    setIsPaneDropTarget(false)
+
+    // Pane reorder drop
+    const sourcePaneId = e.dataTransfer.getData('application/x-pane-id')
+    if (sourcePaneId && sourcePaneId !== paneId) {
+      swapPanes(sourcePaneId, paneId)
+      return
+    }
 
     const files = e.dataTransfer?.files
     if (!files || files.length === 0) return
@@ -970,7 +988,12 @@ export function ChatPane({
       }
     }
     reader.readAsDataURL(imageFile)
-  }, [inputRef, isActive, onFocus])
+  }, [inputRef, isActive, onFocus, paneId, swapPanes])
+
+  const handleDragHandleStart = useCallback((e: React.DragEvent) => {
+    e.dataTransfer.setData('application/x-pane-id', paneId)
+    e.dataTransfer.effectAllowed = 'move'
+  }, [paneId])
 
   return (
     <>
@@ -981,12 +1004,38 @@ export function ChatPane({
           isMobile ? 'w-full' : '',
           isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
           isPaneDragging ? 'outline outline-2 outline-accent/60' : '',
+          isPaneDropTarget ? 'outline outline-2 outline-blue-400/70' : '',
         ].join(' ')}
         onClick={!isActive ? onFocus : undefined}
         onDragOver={handlePaneDragOver}
         onDragLeave={handlePaneDragLeave}
         onDrop={handlePaneDrop}
       >
+        {/* Drag handle + close button — shown only when multiple panes exist */}
+        {!isOnlyPane && (
+          <div
+            draggable
+            onDragStart={handleDragHandleStart}
+            className="flex-shrink-0 relative flex items-center justify-center h-5 w-full cursor-grab active:cursor-grabbing group"
+            title="Drag to reorder pane"
+          >
+            <div className="flex gap-0.5 opacity-20 group-hover:opacity-50 transition-opacity">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="w-0.5 h-2 rounded-full bg-text-secondary" />
+              ))}
+            </div>
+            <button
+              draggable={false}
+              onClick={(e) => { e.stopPropagation(); onClose?.() }}
+              onDragStart={(e) => e.stopPropagation()}
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-4 h-4 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-text-secondary/20 text-text-secondary hover:text-text-primary"
+              title="Close pane"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
+
         {/* Messages area */}
         <main
           ref={scrollContainerRef as React.RefObject<HTMLElement | null>}

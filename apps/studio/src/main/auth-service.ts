@@ -78,126 +78,28 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
 // ============================================================================
 
 function getAuthFilePath(): string {
-  return join(homedir(), '.lucent', 'agent', 'auth.json')
+  const configDir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.lucent')
+  return join(configDir, 'agent', 'auth.json')
 }
 
 // ============================================================================
-// HTTP validation
+// HTTP validation (kept here for reference — implementation moved to AuthService)
 // ============================================================================
-
-function validateViaHttp(
-  providerId: string,
-  apiKey: string,
-): Promise<{ ok: boolean; message: string }> {
-  return new Promise((resolve) => {
-    const timeoutId = setTimeout(() => resolve({ ok: false, message: 'Request timed out' }), 15_000)
-
-    const done = (result: { ok: boolean; message: string }) => {
-      clearTimeout(timeoutId)
-      resolve(result)
-    }
-
-    let options: https.RequestOptions
-
-    switch (providerId) {
-      case 'anthropic':
-        options = {
-          hostname: 'api.anthropic.com',
-          path: '/v1/models',
-          method: 'GET',
-          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        }
-        break
-      case 'openai':
-        options = {
-          hostname: 'api.openai.com',
-          path: '/v1/models',
-          method: 'GET',
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-        break
-      case 'google':
-        options = {
-          hostname: 'generativelanguage.googleapis.com',
-          path: `/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-          method: 'GET',
-        }
-        break
-      case 'groq':
-        options = {
-          hostname: 'api.groq.com',
-          path: '/openai/v1/models',
-          method: 'GET',
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-        break
-      case 'xai':
-        options = {
-          hostname: 'api.x.ai',
-          path: '/v1/models',
-          method: 'GET',
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-        break
-      case 'openrouter':
-        options = {
-          hostname: 'openrouter.ai',
-          path: '/api/v1/models',
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://lucent.chat',
-            'X-Title': 'Lucent Code',
-          },
-        }
-        break
-      case 'mistral':
-        options = {
-          hostname: 'api.mistral.ai',
-          path: '/v1/models',
-          method: 'GET',
-          headers: { Authorization: `Bearer ${apiKey}` },
-        }
-        break
-      default:
-        done({ ok: false, message: `Unknown provider: ${providerId}` })
-        return
-    }
-
-    const req = https.request(options, (res) => {
-      const chunks: Buffer[] = []
-      res.on('data', (chunk: Buffer) => chunks.push(chunk))
-      res.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf-8')
-        const status = res.statusCode ?? 0
-        if (status >= 200 && status < 300) {
-          done({ ok: true, message: 'API key validated' })
-        } else {
-          let detail = `HTTP ${status}`
-          try {
-            const parsed = JSON.parse(body) as Record<string, unknown>
-            const errObj = parsed.error as Record<string, unknown> | undefined
-            const msg = (errObj?.message ?? parsed.message) as string | undefined
-            if (msg) detail += `: ${msg}`
-          } catch { /* ignore parse errors */ }
-          done({ ok: false, message: detail })
-        }
-      })
-      res.on('error', (err: Error) => done({ ok: false, message: err.message }))
-    })
-
-    req.on('error', (err: Error) => done({ ok: false, message: err.message }))
-    req.end()
-  })
-}
 
 // ============================================================================
 // AuthService
 // ============================================================================
 
 export class AuthService {
-  private readonly authPath = getAuthFilePath()
-  private readonly authStorage = AuthStorage.create(this.authPath)
+  private authPath: string
+
+  private get authStorage(): ReturnType<typeof AuthStorage.create> {
+    return AuthStorage.create(this.authPath)
+  }
+
+  constructor(customPath?: string) {
+    this.authPath = customPath || getAuthFilePath()
+  }
 
   /** Tracks in-flight OAuth flows by provider ID. */
   private activeFlows = new Map<string, {
@@ -207,6 +109,112 @@ export class AuthService {
 
   getProviderCatalog(): ProviderCatalogEntry[] {
     return PROVIDER_CATALOG
+  }
+
+  protected validateViaHttp(
+    providerId: string,
+    apiKey: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => resolve({ ok: false, message: 'Request timed out' }), 15_000)
+
+      const done = (result: { ok: boolean; message: string }) => {
+        clearTimeout(timeoutId)
+        resolve(result)
+      }
+
+      let options: https.RequestOptions
+
+      switch (providerId) {
+        case 'anthropic':
+          options = {
+            hostname: 'api.anthropic.com',
+            path: '/v1/models',
+            method: 'GET',
+            headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+          }
+          break
+        case 'openai':
+          options = {
+            hostname: 'api.openai.com',
+            path: '/v1/models',
+            method: 'GET',
+            headers: { Authorization: `Bearer ${apiKey}` },
+          }
+          break
+        case 'google':
+          options = {
+            hostname: 'generativelanguage.googleapis.com',
+            path: `/v1beta/models?key=${encodeURIComponent(apiKey)}`,
+            method: 'GET',
+          }
+          break
+        case 'groq':
+          options = {
+            hostname: 'api.groq.com',
+            path: '/openai/v1/models',
+            method: 'GET',
+            headers: { Authorization: `Bearer ${apiKey}` },
+          }
+          break
+        case 'xai':
+          options = {
+            hostname: 'api.x.ai',
+            path: '/v1/models',
+            method: 'GET',
+            headers: { Authorization: `Bearer ${apiKey}` },
+          }
+          break
+        case 'openrouter':
+          options = {
+            hostname: 'openrouter.ai',
+            path: '/api/v1/models',
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'HTTP-Referer': 'https://lucent.chat',
+              'X-Title': 'Lucent Code',
+            },
+          }
+          break
+        case 'mistral':
+          options = {
+            hostname: 'api.mistral.ai',
+            path: '/v1/models',
+            method: 'GET',
+            headers: { Authorization: `Bearer ${apiKey}` },
+          }
+          break
+        default:
+          done({ ok: false, message: `Unknown provider: ${providerId}` })
+          return
+      }
+
+      const req = https.request(options, (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf-8')
+          const status = res.statusCode ?? 0
+          if (status >= 200 && status < 300) {
+            done({ ok: true, message: 'API key validated' })
+          } else {
+            let detail = `HTTP ${status}`
+            try {
+              const parsed = JSON.parse(body) as Record<string, unknown>
+              const errObj = parsed.error as Record<string, unknown> | undefined
+              const msg = (errObj?.message ?? parsed.message) as string | undefined
+              if (msg) detail += `: ${msg}`
+            } catch { /* ignore parse errors */ }
+            done({ ok: false, message: detail })
+          }
+        })
+        res.on('error', (err: Error) => done({ ok: false, message: err.message }))
+      })
+
+      req.on('error', (err: Error) => done({ ok: false, message: err.message }))
+      req.end()
+    })
   }
 
   getProviderStatuses(): ProviderAuthStatus[] {
@@ -235,7 +243,7 @@ export class AuthService {
     providerId: string,
     apiKey: string,
   ): Promise<{ ok: boolean; message: string; providerStatuses: ProviderAuthStatus[] }> {
-    const validation = await validateViaHttp(providerId, apiKey)
+    const validation = await this.validateViaHttp(providerId, apiKey)
     if (!validation.ok) {
       return {
         ok: false,
@@ -274,6 +282,11 @@ export class AuthService {
    * @param pushEvent  - Sends IPC events to the renderer window
    * @param openBrowser - Opens a URL in the system browser (shell.openExternal)
    */
+  // Visible for testing
+  protected getOAuthProvider(providerId: string) {
+    return getOAuthProvider(providerId)
+  }
+
   async startOAuthLogin(
     providerId: string,
     pushEvent: (channel: string, data: unknown) => void,
@@ -300,7 +313,7 @@ export class AuthService {
     })
 
     try {
-      const provider = getOAuthProvider(providerId)
+      const provider = this.getOAuthProvider(providerId)
       if (!provider) throw new Error(`No OAuth provider registered for: ${providerId}`)
 
       const callbacks: OAuthLoginCallbacks = {

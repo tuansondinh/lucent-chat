@@ -325,6 +325,21 @@ export function FileTree({ paneId, onFileOpen, onClose, embedded = false }: File
     setContextMenu(null)
   }, [contextMenu])
 
+  const handleDelete = useCallback(() => {
+    if (!contextMenu) return
+    const { relativePath } = contextMenu
+    setContextMenu(null)
+    if (!window.confirm(`Delete "${relativePath}"?\n\nThis cannot be undone.`)) return
+    getBridge().fsDeleteFile(paneId, relativePath)
+      .then(() => {
+        treeStore.getState().refreshDir('').catch(() => {})
+        toast.success(`Deleted ${relativePath.split('/').pop()}`)
+      })
+      .catch((err: unknown) => {
+        toast.error(err instanceof Error ? err.message : 'Failed to delete file')
+      })
+  }, [contextMenu, paneId, treeStore])
+
   // -------------------------------------------------------------------------
   // Refresh button handler
   // -------------------------------------------------------------------------
@@ -423,6 +438,17 @@ export function FileTree({ paneId, onFileOpen, onClose, embedded = false }: File
           >
             Copy Relative Path
           </button>
+          {!contextMenu.isDir && (
+            <>
+              <div className="my-1 border-t border-border/40" />
+              <button
+                className="w-full text-left px-3 py-1.5 text-[13px] text-red-400 hover:bg-red-500/10 transition-colors"
+                onClick={handleDelete}
+              >
+                Delete
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

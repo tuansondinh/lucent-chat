@@ -137,6 +137,7 @@ async function main(): Promise<void> {
       }
       case 'fs-list-dir': return root(args) ? fileService.listDirectory(root(args)!, args[1] as string) : { entries: [], truncated: false }
       case 'fs-read-file': return root(args) ? fileService.readFile(root(args)!, args[1] as string) : null
+      case 'fs-delete-file': return root(args) ? fileService.deleteFile(root(args)!, args[1] as string) : null
       case 'git-branch': return root(args) ? gitService.getBranch(root(args)!) : null
       case 'git-list-branches': return root(args) ? gitService.listBranches(root(args)!) : { current: null, branches: [] }
       case 'git-checkout-branch': return root(args) ? gitService.checkoutBranch(root(args)!, args[1] as string) : null

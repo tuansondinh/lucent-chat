@@ -19,7 +19,7 @@
 import { useEffect, useCallback, useState, useRef, lazy, Suspense, type ReactNode } from 'react'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
-import { Menu, X, RefreshCw, LogIn } from 'lucide-react'
+import { Menu, X, RefreshCw, LogIn, AlertTriangle } from 'lucide-react'
 import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
 import { getFileTreeStore, deleteFileTreeStore } from './store/file-tree-store'
 import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
@@ -51,31 +51,16 @@ const FileViewer = lazy(() => import('./components/FileViewer').then((m) => ({ d
 // Using dynamic import to avoid circular deps; nonce module is module-level singleton.
 import { consumeSaveNonce } from './components/FileViewer'
 
-const MIN_FILE_VIEWER_WIDTH = 360
+const MIN_FILE_VIEWER_WIDTH = 200
 const MAX_FILE_VIEWER_WIDTH = 840
-const MIN_CHAT_AREA_WIDTH = 420
-const COLLAPSED_SIDEBAR_WIDTH = 40
-const EXPANDED_SIDEBAR_WIDTH = 280
-
-function getMaxFileViewerWidth(viewportWidth: number, paneCount: number, sidebarCollapsed: boolean): number {
-  const sidebarWidth = sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : EXPANDED_SIDEBAR_WIDTH
-  return Math.min(
-    MAX_FILE_VIEWER_WIDTH,
-    viewportWidth - sidebarWidth - paneCount * MIN_CHAT_AREA_WIDTH,
-  )
-}
 
 function clampFileViewerWidth(
   viewportWidth: number,
   requestedWidth: number,
-  paneCount: number,
-  sidebarCollapsed: boolean,
+  _paneCount: number,
+  _sidebarCollapsed: boolean,
 ): number {
-  const maxAllowedWidth = Math.min(
-    MAX_FILE_VIEWER_WIDTH,
-    Math.max(MIN_FILE_VIEWER_WIDTH, getMaxFileViewerWidth(viewportWidth, paneCount, sidebarCollapsed)),
-  )
-  return Math.min(Math.max(requestedWidth, MIN_FILE_VIEWER_WIDTH), maxAllowedWidth)
+  return Math.min(Math.max(requestedWidth, MIN_FILE_VIEWER_WIDTH), Math.min(MAX_FILE_VIEWER_WIDTH, viewportWidth - 300))
 }
 
 // ============================================================================
@@ -189,6 +174,7 @@ export default function App() {
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [fileViewerOpen, setFileViewerOpen] = useState(false)
   const [fileViewerWidth, setFileViewerWidth] = useState(440)
+  const [sidebarWidth, setSidebarWidth] = useState(280)
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
@@ -349,15 +335,9 @@ export default function App() {
 
   useEffect(() => {
     if (!fileViewerOpen) return
-
-    const maxViewerWidth = getMaxFileViewerWidth(window.innerWidth, paneCount, sidebarCollapsed)
-
-    if (maxViewerWidth < MIN_FILE_VIEWER_WIDTH) {
-      setFileViewerOpen(false)
-      return
-    }
-
-    setFileViewerWidth((currentWidth) => Math.min(currentWidth, maxViewerWidth))
+    setFileViewerWidth((currentWidth) =>
+      Math.min(currentWidth, Math.min(MAX_FILE_VIEWER_WIDTH, window.innerWidth - 300))
+    )
   }, [fileViewerOpen, paneCount, sidebarCollapsed])
 
   // -------------------------------------------------------------------------
@@ -469,34 +449,13 @@ export default function App() {
     syncPaneState(activePaneId).catch(() => {})
   }, [activePaneId, syncPaneState])
 
-  const openFileViewer = useCallback(async () => {
-    const sidebarWidth = sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : EXPANDED_SIDEBAR_WIDTH
-    let viewportWidth = window.innerWidth
-
-    const maxViewerWidth = getMaxFileViewerWidth(viewportWidth, paneCount, sidebarCollapsed)
-    if (maxViewerWidth < MIN_FILE_VIEWER_WIDTH) {
-      // Expand the native window to fit: sidebar + panes + file viewer (full desired width)
-      const needed = sidebarWidth + paneCount * MIN_CHAT_AREA_WIDTH + MIN_FILE_VIEWER_WIDTH + MIN_CHAT_AREA_WIDTH
-      await window.bridge.setWindowWidth(needed)
-      // Wait for the renderer's innerWidth to reflect the OS resize before computing widths
-      viewportWidth = await new Promise<number>((resolve) => {
-        const onResize = () => {
-          window.removeEventListener('resize', onResize)
-          resolve(window.innerWidth)
-        }
-        window.addEventListener('resize', onResize)
-        // Fallback: if no resize fires within 400ms, use our computed target
-        setTimeout(() => {
-          window.removeEventListener('resize', onResize)
-          resolve(Math.max(window.innerWidth, needed))
-        }, 400)
-      })
-    }
-
-    const desiredWidth = Math.round((viewportWidth - sidebarWidth) / 2)
+  const openFileViewer = useCallback(() => {
+    const viewportWidth = window.innerWidth
+    const currentSidebarWidth = sidebarCollapsed ? 40 : sidebarWidth
+    const desiredWidth = Math.round((viewportWidth - currentSidebarWidth) / 2)
     setFileViewerWidth(clampFileViewerWidth(viewportWidth, desiredWidth, paneCount, sidebarCollapsed))
     setFileViewerOpen(true)
-  }, [paneCount, sidebarCollapsed])
+  }, [paneCount, sidebarCollapsed, sidebarWidth])
 
   const toggleFileViewer = useCallback(() => {
     if (fileViewerOpen) {
@@ -672,6 +631,29 @@ export default function App() {
     window.addEventListener('mousemove', handlePointerMove)
     window.addEventListener('mouseup', handlePointerUp)
   }, [paneCount, sidebarCollapsed])
+
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+
+    const handlePointerMove = (moveEvent: MouseEvent) => {
+      const next = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 160), 600)
+      setSidebarWidth(next)
+    }
+
+    const handlePointerUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', handlePointerMove)
+      window.removeEventListener('mouseup', handlePointerUp)
+    }
+
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', handlePointerMove)
+    window.addEventListener('mouseup', handlePointerUp)
+  }, [sidebarWidth])
 
   // -------------------------------------------------------------------------
   // Model actions (scoped to active pane)
@@ -966,7 +948,7 @@ export default function App() {
           <div className="bg-bg-secondary border border-border rounded-lg shadow-2xl p-6 max-w-md w-full mx-4">
             <div className="flex items-center gap-3 mb-4">
               <div className="flex-shrink-0 size-8 rounded-full bg-amber-500/15 flex items-center justify-center">
-                <span className="text-amber-400 text-sm">!</span>
+                <AlertTriangle className="size-4 text-amber-400" />
               </div>
               <div>
                 <h2 className="text-sm font-semibold text-text-primary">File changed on disk</h2>
@@ -1181,10 +1163,26 @@ export default function App() {
         {/* Top panel: sidebar | pane group | file viewer */}
         <Panel className="flex min-h-0 min-w-0">
           <div className="flex flex-1 min-h-0 min-w-0">
-            {/* Fixed-width sidebar */}
-            <div className={sidebarCollapsed ? 'w-10 flex-shrink-0' : 'w-72 min-w-[280px] max-w-[320px] flex-shrink-0'}>
+            {/* Sidebar — fixed width when collapsed, draggable when expanded */}
+            <div
+              className="flex-shrink-0"
+              style={sidebarCollapsed ? { width: '40px' } : { width: `${sidebarWidth}px` }}
+            >
               {sidebarEl}
             </div>
+
+            {/* Sidebar drag handle — hidden when collapsed */}
+            {!sidebarCollapsed && (
+              <div
+                role="separator"
+                aria-label="Resize sidebar"
+                aria-orientation="vertical"
+                onMouseDown={handleSidebarResizeStart}
+                className="group flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center bg-transparent"
+              >
+                <div className="w-px bg-border transition-colors group-hover:bg-accent/50" />
+              </div>
+            )}
 
             {/* Unified horizontal PanelGroup */}
             <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -1205,7 +1203,7 @@ export default function App() {
                   </div>
                   <div
                     className="flex min-h-0 border-l border-border bg-bg-secondary"
-                    style={{ width: `${fileViewerWidth}px`, minWidth: `${MIN_FILE_VIEWER_WIDTH}px`, maxWidth: '60%', flexShrink: 1 }}
+                    style={{ width: `${fileViewerWidth}px`, minWidth: `${MIN_FILE_VIEWER_WIDTH}px`, maxWidth: '80%', flexShrink: 1 }}
                   >
                     <Suspense fallback={null}>
                       <FileViewer paneId={activePaneId} onClose={() => setFileViewerOpen(false)} />

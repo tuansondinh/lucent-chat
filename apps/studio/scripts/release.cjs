@@ -21,15 +21,16 @@ const { join } = require('path')
 const STUDIO_DIR  = join(__dirname, '..')
 const RELEASE_DIR = join(STUDIO_DIR, 'release')
 const IDENTITY    = 'B13085D091A12F7B4F11805BFE9E52C8FEDF730B'
-const REPO        = 'tuansondinh/lucent-chat'
+const REPO        = 'tuansondinh/lucent-code'
 
 const args      = process.argv.slice(2)
 const DRY_RUN   = args.includes('--dry-run')
 const NOTARIZE  = args.includes('--notarize')
+const NO_SIGN   = args.includes('--no-sign')
 
 const pkg     = JSON.parse(readFileSync(join(STUDIO_DIR, 'package.json'), 'utf-8'))
 const version = pkg.version
-const appName = 'Lucent Chat'
+const appName = 'Lucent Code'
 const appPath = join(RELEASE_DIR, 'mac-arm64', `${appName}.app`)
 const zipPath = join(RELEASE_DIR, `${appName}-${version}-arm64-mac.zip`)
 
@@ -46,15 +47,19 @@ const skipNotarize = NOTARIZE ? '' : 'SKIP_NOTARIZE=true'
 run(`${skipNotarize} CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder -m --arm64 --config.mac.identity=null`)
 
 // ─── Step 2: Sign ─────────────────────────────────────────────────────────────
-console.log('\n[release] Signing app...')
-if (!existsSync(appPath)) {
-  console.error(`[release] ERROR: App not found at ${appPath}`)
-  process.exit(1)
-}
-run(`codesign --sign "${IDENTITY}" --deep --force \
+if (NO_SIGN) {
+  console.log('\n[release] Skipping signing (--no-sign).')
+} else {
+  console.log('\n[release] Signing app...')
+  if (!existsSync(appPath)) {
+    console.error(`[release] ERROR: App not found at ${appPath}`)
+    process.exit(1)
+  }
+  run(`codesign --sign "${IDENTITY}" --deep --force \
   --entitlements "${join(STUDIO_DIR, 'entitlements.mac.plist')}" \
   "${appPath}"`)
-run(`codesign --verify --verbose=1 "${appPath}"`)
+  run(`codesign --verify --verbose=1 "${appPath}"`)
+}
 
 // ─── Step 3: Notarize (optional) ──────────────────────────────────────────────
 if (NOTARIZE) {

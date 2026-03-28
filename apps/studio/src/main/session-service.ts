@@ -159,8 +159,12 @@ export class SessionService {
    * Get the message history for the current session, formatted for the renderer.
    */
   async getMessages(): Promise<FormattedMessage[]> {
-    const raw = await this.agentBridge.getMessages()
-    return this.formatMessages(raw)
+    try {
+      const raw = await this.agentBridge.getMessages()
+      return this.formatMessages(raw)
+    } catch {
+      return []
+    }
   }
 
   // =========================================================================

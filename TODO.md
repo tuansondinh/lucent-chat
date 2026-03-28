@@ -1,5 +1,24 @@
 # TODO
 
+## UI — Terminal
+
+- [ ] **Embedded terminal pane** — Add a terminal to the app (e.g. using `node-pty` + `xterm.js`) so users can run commands without leaving Lucent Code. Should integrate with the existing pane layout and respect the project root as the working directory.
+
+## Agent Behavior
+
+- [ ] **Copy CLAUDE.md and memory behavior into Lucent Code** — Replicate Claude Code's global `Claude.md` instruction system and auto-memory (per-project `MEMORY.md` index + typed memory files) so the built-in agent follows the same behavior rules and persists knowledge across sessions.
+
+- [ ] **User-defined subagents via `~/.lc/`** — Allow users to drop custom subagent definitions into their `~/.lc/` folder (similar to how skills/agents work in the skill system). The app discovers these at runtime and makes them available alongside built-in subagents. Each subagent definition specifies its system prompt, model, and any tool restrictions.
+
+- [ ] **`lucent-code-guide` skill** — Add a built-in skill that explains how to use Lucent Code, similar to Claude Code's `/help` command. This should cover:
+  - App overview and architecture
+  - How to use the chat interface and tool calls
+  - Pane navigation and keyboard shortcuts
+  - Session management and persistence
+  - How to configure providers, models, and settings
+  - How to use skills and agents
+  - Where to find documentation (ARCHITECTURE.md, codebase.md, etc.)
+
 ## Security Review (2026-03-28)
 
 ### CRITICAL
@@ -49,6 +68,10 @@
 - [x] **`remoteAccessToken` validation accepts empty string** — `validateSettingsPatch` only checks `typeof === 'string'`. Add minimum length check (≥16 chars).
   - Fixed: minimum length of 16 chars enforced in `validateSettingsPatch`
 
+## UI — Chat
+
+- [ ] **Clickable file references** — File references in chat messages (e.g., `src/main/index.ts:42`) should be clickable. When clicked, they should open the file editor and navigate to the specified file and line number. This involves parsing file paths/line refs in `ChatMessage.tsx` and wiring them to the existing file open logic (similar to how the file tree already opens files).
+
 ## UI — Tool Integration
 
 - [x] **`ask_user_questions` tool not rendered in Studio UI** — The GSD runtime's `ask_user_questions` extension sends questions with selectable options, but the Studio frontend renders it as a generic tool call ("ask_user_questions running") with no interactive UI. Need to intercept this tool in `ChatMessage.tsx`, render the questions and answer options as clickable buttons, and send the user's selections back to the runtime so the tool can resolve.
@@ -76,3 +99,16 @@
 
 - [x] Replace `CLAUDE.md` with `LUCENT.md` as the project instructions file read by the classifier.
   - Fixed: changed `CLAUDE.md` → `LUCENT.md` in `apps/studio/src/main/ipc-handlers.ts`
+
+- [ ] **Configurable classifier model** — The classifier is hardcoded to `claude-haiku-4-5-20251001`. Any model configured as a chat provider should also be selectable as the classifier model. This includes:
+  - A `classifierModel` field in app settings (provider + model ID)
+  - Settings UI to pick the classifier model from the same model list used in the chat model picker
+  - `ClassifierService` reads this setting at call time instead of hardcoding the model/API
+  - Multi-provider support: route to Anthropic or Google AI (or others) based on the selected model's provider
+  - Goal: allow using e.g. Gemini 3 Flash as classifier while keeping a different model for chat
+
+- [ ] **Configurable subagent model (internal)** — Internal subagents (e.g., `lucent-code-guide`) are currently hardcoded to specific models. Allow per-subagent model configuration so users can override the default model for any built-in subagent. This includes:
+  - A `subagentModels` map in app settings (subagent name → provider + model ID)
+  - Settings UI to configure models for each internal subagent
+  - Subagent spawning reads this setting to override defaults
+  - Goal: allow using faster/cheaper models for utility subagents while keeping high-quality models for main chat

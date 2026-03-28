@@ -42,11 +42,9 @@ test('AuthService: getProviderCatalog returns all providers', () => {
 
 test('AuthService: getProviderStatuses returns correct status', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   // Override auth path to use test directory
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Set an environment variable for testing
@@ -81,10 +79,8 @@ test('AuthService: getProviderStatuses returns correct status', async () => {
 
 test('AuthService: validateAndSaveApiKey stores valid key', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Mock the HTTP validation to succeed
@@ -113,10 +109,8 @@ test('AuthService: validateAndSaveApiKey stores valid key', async () => {
 
 test('AuthService: validateAndSaveApiKey rejects invalid key', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Mock the HTTP validation to fail
@@ -140,10 +134,8 @@ test('AuthService: validateAndSaveApiKey rejects invalid key', async () => {
 
 test('AuthService: validateAndSaveApiKey handles timeout', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Mock timeout
@@ -167,10 +159,8 @@ test('AuthService: validateAndSaveApiKey handles timeout', async () => {
 
 test('AuthService: validateAndSaveApiKey does not duplicate existing keys', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Mock validation to succeed
@@ -199,10 +189,8 @@ test('AuthService: validateAndSaveApiKey does not duplicate existing keys', asyn
 
 test('AuthService: removeApiKey removes provider credentials', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Create initial auth data with API key
@@ -230,10 +218,8 @@ test('AuthService: removeApiKey removes provider credentials', async () => {
 
 test('AuthService: startOAuthLogin handles concurrent flows', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     let eventCount = 0
@@ -256,10 +242,9 @@ test('AuthService: startOAuthLogin handles concurrent flows', async () => {
       },
     }
 
-    // Import and mock getOAuthProvider
-    const piAi = await import('@gsd/pi-ai/oauth')
-    const originalGet = piAi.getOAuthProvider
-    piAi.getOAuthProvider = () => mockProvider
+    // Mock the provider
+    const originalGet = (service as any).getOAuthProvider
+    ;(service as any).getOAuthProvider = () => mockProvider
 
     try {
       // Start a flow
@@ -276,7 +261,7 @@ test('AuthService: startOAuthLogin handles concurrent flows', async () => {
       const progressEvents = events.filter((e) => e.channel === 'event:oauth-progress')
       assert.ok(progressEvents.length > 0)
     } finally {
-      piAi.getOAuthProvider = originalGet
+      ;(service as any).getOAuthProvider = originalGet
     }
   } finally {
     await rm(base, { recursive: true, force: true })
@@ -303,10 +288,8 @@ test('AuthService: cancelOAuthFlow aborts in-flight flow', async () => {
 
 test('AuthService: token storage creates secure file', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Mock validation
@@ -335,10 +318,8 @@ test('AuthService: token storage creates secure file', async () => {
 
 test('AuthService: handles corrupted auth.json gracefully', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   const authPath = join(base, 'agent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Write corrupted JSON
@@ -348,9 +329,9 @@ test('AuthService: handles corrupted auth.json gracefully', async () => {
     const statuses = service.getProviderStatuses()
     assert.ok(Array.isArray(statuses))
 
-    // All providers should be unconfigured
-    const configured = statuses.filter((s) => s.configured)
-    assert.equal(configured.length, 0)
+    // All providers should be unconfigured via file (env vars may still be set)
+    const configuredViaFile = statuses.filter((s) => s.configuredVia === 'auth_file')
+    assert.equal(configuredViaFile.length, 0)
   } finally {
     await rm(base, { recursive: true, force: true })
   }
@@ -358,11 +339,9 @@ test('AuthService: handles corrupted auth.json gracefully', async () => {
 
 test('AuthService: handles missing auth.json directory', async () => {
   const base = await createAuthDir()
-  const service = new AuthService()
-
   // Use a path that doesn't exist
   const authPath = join(base, 'nonexistent', 'auth.json')
-  ;(service as any).authPath = authPath
+  const service = new AuthService(authPath)
 
   try {
     // Should create the directory and file

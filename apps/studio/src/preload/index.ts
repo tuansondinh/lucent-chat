@@ -224,6 +224,10 @@ const bridge = {
   fsWriteFile: (paneId: string, relativePath: string, content: string): Promise<{ bytesWritten: number }> =>
     ipcRenderer.invoke('cmd:fs-write-file', paneId, relativePath, content),
 
+  /** Delete a file within the pane's project root. Directories are not deletable. */
+  fsDeleteFile: (paneId: string, relativePath: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:fs-delete-file', paneId, relativePath),
+
   /** Subscribe to filesystem changes under a pane's current project root. */
   onFileChanged: (
     cb: (data: {

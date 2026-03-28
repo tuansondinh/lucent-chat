@@ -835,6 +835,19 @@ export function splitNode(
  */
 export const splitLeaf = splitNode
 
+/**
+ * Swap the positions of two leaf nodes in the layout tree.
+ * The tree structure (splits/sizes) is preserved — only the paneIds move.
+ */
+export function swapLeaves(root: LayoutNode, paneIdA: string, paneIdB: string): LayoutNode {
+  if (root.type === 'leaf') {
+    if (root.paneId === paneIdA) return { ...root, paneId: paneIdB }
+    if (root.paneId === paneIdB) return { ...root, paneId: paneIdA }
+    return root
+  }
+  return { ...root, children: root.children.map((c) => swapLeaves(c, paneIdA, paneIdB)) }
+}
+
 function findFirstLeaf(node: LayoutNode): string {
   if (node.type === 'leaf') return node.paneId
   return findFirstLeaf(node.children[0])
@@ -894,6 +907,7 @@ interface PanesLayoutState {
 
   splitPane: (targetPaneId: string, newPaneId: string, orientation: PaneOrientation) => boolean
   removePane: (paneId: string) => void
+  swapPanes: (paneIdA: string, paneIdB: string) => void
   setActivePane: (paneId: string) => void
   setSplitPending: (v: boolean) => void
 }
@@ -921,6 +935,12 @@ export const usePanesStore = create<PanesLayoutState>((set, get) => ({
       ? (siblingPaneId ?? 'pane-0')
       : activePaneId
     set({ layout: newLayout, activePaneId: newActiveId })
+  },
+
+  swapPanes: (paneIdA, paneIdB) => {
+    if (paneIdA === paneIdB) return
+    const { layout } = get()
+    set({ layout: swapLeaves(layout, paneIdA, paneIdB) })
   },
 
   setActivePane: (paneId) => set({ activePaneId: paneId }),
