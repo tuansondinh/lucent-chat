@@ -13,10 +13,10 @@
 import path from 'node:path'
 import { ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
+import { accessSync, constants, existsSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { app } from 'electron'
+import { createRequire } from 'node:module'
 
 export type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
 
@@ -47,6 +47,7 @@ export class VoiceService extends EventEmitter {
   private reason: string | undefined
   private startPromise: Promise<{ port: number; token: string }> | null = null
   private pythonCmd: string | null = null
+  private audioServiceDir: string | null = null
   private audioServicePath: string | null = null
   private voiceBridgePath: string | null = null
   private startupTimeoutMs = 300_000
@@ -62,15 +63,14 @@ export class VoiceService extends EventEmitter {
   async probe(): Promise<{ available: boolean; reason?: string }> {
     // Resolve audio service path — differs between dev and packaged build
     const root = this.resolveProjectRoot()
-    const servicePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'audio-service', 'audio_service.py')
-      : path.join(root, 'studio', 'audio-service', 'audio_service.py')
-    if (!existsSync(servicePath)) {
+    const servicePath = resolveAudioServicePath(root)
+    if (!servicePath) {
       this.state = 'unavailable'
-      this.reason = 'audio_service.py not found — ensure studio/audio-service/ exists'
+      this.reason = 'audio_service.py not found — ensure audio-service/ exists'
       this.emitStatus()
       return { available: false, reason: this.reason }
     }
+    this.audioServiceDir = path.dirname(servicePath)
     this.audioServicePath = servicePath
 
     // Optional override for local debugging; normal operation uses the installed package.
@@ -83,18 +83,21 @@ export class VoiceService extends EventEmitter {
     const candidates = ['uv', 'python3', 'python']
     for (const cmd of candidates) {
       try {
-        const version = await runCommand(cmd, this.getVersionArgs(cmd))
+        const env = this.getCommandEnv(cmd)
+        const runtimeCmd = resolveExecutable(cmd, env.PATH)
+        const version = await runCommandWithEnv(
+          runtimeCmd,
+          this.getVersionArgs(cmd),
+          env,
+          this.getPythonWorkingDirectory(cmd),
+        )
         if (version) {
           // Check the actual audio-service import surface, not just the top-level package name.
           const importArgs = cmd === 'uv'
             ? this.getUvPythonArgs(['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")'])
             : ['-c', 'import numpy, uvicorn, fastapi, voice_bridge; print("OK")']
 
-          const env: Record<string, string> = { ...(process.env as Record<string, string>) }
-          if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath
-          env.PATH = expandPath(env.PATH)
-
-          const result = await runCommandWithEnv(cmd, importArgs, env, this.getPythonWorkingDirectory(cmd))
+          const result = await runCommandWithEnv(runtimeCmd, importArgs, env, this.getPythonWorkingDirectory(cmd))
           if (result.includes('OK')) {
             this.pythonCmd = cmd
             this.state = 'stopped'
@@ -148,9 +151,7 @@ export class VoiceService extends EventEmitter {
     this.emitStatus()
 
     this.startPromise = new Promise((resolve, reject) => {
-      const env: NodeJS.ProcessEnv = { ...process.env }
-      if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath!
-      env.PATH = expandPath(env.PATH as string | undefined)
+      const env: NodeJS.ProcessEnv = this.getCommandEnv(this.pythonCmd!)
       const authToken = randomBytes(32).toString('hex')
       env.VOICE_SERVICE_TOKEN = authToken
       this.authToken = authToken
@@ -159,10 +160,10 @@ export class VoiceService extends EventEmitter {
       let cmd: string
       let args: string[]
       if (this.pythonCmd === 'uv') {
-        cmd = 'uv'
+        cmd = resolveExecutable('uv', env.PATH)
         args = this.getUvPythonArgs([this.audioServicePath!])
       } else {
-        cmd = this.pythonCmd!
+        cmd = resolveExecutable(this.pythonCmd!, env.PATH)
         args = [this.audioServicePath!]
       }
 
@@ -306,21 +307,81 @@ export class VoiceService extends EventEmitter {
     return cmd === 'uv' ? ['--version'] : ['--version']
   }
 
+  private getCommandEnv(cmd: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath
+    env.PATH = expandPath(env.PATH as string | undefined)
+
+    if (cmd === 'uv' && this.audioServiceDir) {
+      env.UV_PROJECT_ENVIRONMENT = path.join(this.audioServiceDir, '.venv')
+    }
+
+    return env
+  }
+
   private getUvPythonArgs(pythonArgs: string[]): string[] {
     const args = ['run']
-    if (this.voiceBridgePath) {
-      args.push('--project', this.voiceBridgePath)
+    const projectDir = this.voiceBridgePath ?? this.audioServiceDir
+    if (projectDir) {
+      args.push('--project', projectDir)
     }
     args.push('python', ...pythonArgs)
     return args
   }
 
   private getPythonWorkingDirectory(cmd: string): string | undefined {
-    if (cmd === 'uv' && this.voiceBridgePath) {
-      return this.voiceBridgePath
+    if (cmd === 'uv') {
+      return this.voiceBridgePath ?? this.audioServiceDir ?? undefined
     }
     return undefined
   }
+}
+
+const require = createRequire(import.meta.url)
+
+function resolveAudioServicePath(root: string): string | null {
+  if (isElectronAppPackaged()) {
+    const packagedPath = path.join(process.resourcesPath, 'audio-service', 'audio_service.py')
+    return existsSync(packagedPath) ? packagedPath : null
+  }
+
+  const candidates = [
+    path.join(root, 'audio-service', 'audio_service.py'),
+    path.join(root, 'studio', 'audio-service', 'audio_service.py'),
+    path.join(root, 'apps', 'studio', 'audio-service', 'audio_service.py'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+function isElectronAppPackaged(): boolean {
+  try {
+    const electron = require('electron') as { app?: { isPackaged?: boolean } }
+    return electron.app?.isPackaged === true
+  } catch {
+    return false
+  }
+}
+
+function resolveExecutable(cmd: string, pathEnv: string | undefined): string {
+  if (cmd.includes(path.sep)) return cmd
+  const searchPath = pathEnv ?? process.env.PATH ?? ''
+
+  for (const dir of searchPath.split(path.delimiter)) {
+    if (!dir) continue
+    const candidate = path.join(dir, cmd)
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      // Continue scanning PATH.
+    }
+  }
+
+  return cmd
 }
 
 function normalizeProbeError(error: unknown): string {
@@ -344,16 +405,6 @@ function normalizeProbeError(error: unknown): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Run a command and return stdout (trimmed). Rejects on non-zero exit. */
-function runCommand(cmd: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 5_000 }, (err, stdout) => {
-      if (err) reject(err)
-      else resolve(stdout.trim())
-    })
-  })
-}
-
 /** Run a command with a custom env and return stdout (trimmed). */
 function runCommandWithEnv(cmd: string, args: string[], env: Record<string, string>, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -372,12 +423,13 @@ function runCommandWithEnv(cmd: string, args: string[], env: Record<string, stri
 function expandPath(currentPath: string | undefined): string {
   const home = process.env.HOME ?? ''
   const extras = [
-    '/opt/homebrew/bin',
-    '/opt/homebrew/sbin',
-    '/usr/local/bin',
+    `${home}/.cargo/bin`,
     `${home}/.pyenv/shims`,
     `${home}/.pyenv/bin`,
     `${home}/.local/bin`,
+    '/opt/homebrew/bin',
+    '/opt/homebrew/sbin',
+    '/usr/local/bin',
   ]
   const base = currentPath ?? '/usr/bin:/bin:/usr/sbin:/sbin'
   const parts = base.split(':')

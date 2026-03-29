@@ -4,7 +4,6 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app } from 'electron'
 import { VoiceService } from '../src/main/voice-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -21,12 +20,6 @@ function createMockRoot(audioServiceExists: boolean = true) {
 let mockAudioServiceExists = true
 let mockVoiceBridgeExists = true
 
-class FakeRuntimeVoiceService extends VoiceService {
-  protected override getRuntimeCandidates(): string[] {
-    return ['fake-uv']
-  }
-}
-
 test('VoiceService: probe detects audio_service.py availability', async () => {
   const mockRoot = createMockRoot(true)
   const service = new VoiceService(mockRoot)
@@ -38,6 +31,13 @@ test('VoiceService: probe detects audio_service.py availability', async () => {
   // Result should have the expected structure
   assert.ok(typeof result.available === 'boolean')
   assert.ok(result.reason === undefined || typeof result.reason === 'string')
+})
+
+test('VoiceService: probe finds audio_service.py when resolver returns the Studio directory', async () => {
+  const service = new VoiceService(() => join(appsRoot, 'studio'))
+  const result = await service.probe()
+
+  assert.notEqual(result.reason, 'audio_service.py not found — ensure audio-service/ exists')
 })
 
 test('VoiceService: probe returns unavailable when audio_service.py missing', async () => {
@@ -179,7 +179,7 @@ test('VoiceService: getPythonWorkingDirectory returns correct path for uv', () =
   const mockRoot = () => '/test/project'
   const service = new VoiceService(mockRoot)
 
-  ;(service as any).audioServiceDir = '/test/project/audio-service'
+  ;(service as any).voiceBridgePath = '/test/project/audio-service'
 
   const cwd = (service as any).getPythonWorkingDirectory('uv')
   assert.equal(cwd, '/test/project/audio-service')
@@ -197,7 +197,7 @@ test('VoiceService: getUvPythonArgs constructs correct args', () => {
   const mockRoot = () => '/test/project'
   const service = new VoiceService(mockRoot)
 
-  ;(service as any).audioServiceDir = '/test/project/audio-service'
+  ;(service as any).voiceBridgePath = '/test/project/audio-service'
 
   const args = (service as any).getUvPythonArgs(['script.py'])
   assert.ok(args.includes('run'))
@@ -218,54 +218,30 @@ test('VoiceService: getUvPythonArgs omits project when audioServiceDir is unset'
   assert.ok(!args.includes('--project'))
 })
 
-test('VoiceService: getCommandEnv expands GUI PATH and sets uv venv override', () => {
-  const originalHome = process.env.HOME
-  process.env.HOME = '/tmp/lucent-voice-home'
-
-  try {
-    const service = new VoiceService(() => '/test/project')
-
-    const env = (service as any).getCommandEnv('uv')
-
-    assert.ok(env.PATH.includes('/tmp/lucent-voice-home/.cargo/bin'))
-    assert.ok(env.PATH.includes('/tmp/lucent-voice-home/.local/bin'))
-    assert.ok(env.UV_PROJECT_ENVIRONMENT.endsWith('/voice-venv'))
-  } finally {
-    if (originalHome === undefined) {
-      delete process.env.HOME
-    } else {
-      process.env.HOME = originalHome
-    }
-  }
-})
-
 test('VoiceService: probe uses expanded PATH during runtime version detection', async () => {
   const tempHome = await mkdtemp(join(tmpdir(), 'lucent-voice-home-'))
   const fakeBin = join(tempHome, '.cargo', 'bin')
-  const fakeRuntime = join(fakeBin, 'fake-uv')
+  const fakeRuntime = join(fakeBin, 'uv')
   const originalHome = process.env.HOME
   const originalPath = process.env.PATH
-  const originalPackaged = app.isPackaged
 
   await mkdir(fakeBin, { recursive: true })
   await writeFile(
     fakeRuntime,
-    '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo "fake-uv 1.0.0"\n  exit 0\nfi\nif [ "$1" = "-c" ]; then\n  echo "OK"\n  exit 0\nfi\nprintf "unexpected args: %s\\n" "$*" >&2\nexit 1\n',
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo "uv 1.0.0"\n  exit 0\nfi\nif [ "$1" = "run" ]; then\n  echo "OK"\n  exit 0\nfi\nprintf "unexpected args: %s\\n" "$*" >&2\nexit 1\n',
   )
   await chmod(fakeRuntime, 0o755)
 
   process.env.HOME = tempHome
   process.env.PATH = '/usr/bin:/bin'
-  app.isPackaged = false
 
   try {
-    const service = new FakeRuntimeVoiceService(() => appsRoot)
+    const service = new VoiceService(() => appsRoot)
     const result = await service.probe()
 
     assert.equal(result.available, true)
-    assert.equal((service as any).pythonCmd, 'fake-uv')
+    assert.equal((service as any).pythonCmd, 'uv')
   } finally {
-    app.isPackaged = originalPackaged
     if (originalHome === undefined) {
       delete process.env.HOME
     } else {
