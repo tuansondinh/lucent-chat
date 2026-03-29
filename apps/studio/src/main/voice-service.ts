@@ -80,7 +80,7 @@ export class VoiceService extends EventEmitter {
       : null
 
     // Try python runtimes in order
-    const candidates = ['uv', 'python3', 'python']
+    const candidates = this.getRuntimeCandidates()
     for (const cmd of candidates) {
       try {
         const env = this.getCommandEnv(cmd)
@@ -334,6 +334,17 @@ export class VoiceService extends EventEmitter {
       return this.voiceBridgePath ?? this.audioServiceDir ?? undefined
     }
     return undefined
+  }
+
+  private getRuntimeCandidates(): string[] {
+    const bundledPython = this.getBundledPythonPath()
+    return bundledPython ? [bundledPython, 'uv', 'python3', 'python'] : ['uv', 'python3', 'python']
+  }
+
+  private getBundledPythonPath(): string | null {
+    if (!this.audioServiceDir) return null
+    const candidate = path.join(this.audioServiceDir, '.venv', 'bin', 'python')
+    return existsSync(candidate) ? candidate : null
   }
 }
 
