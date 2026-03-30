@@ -4,7 +4,7 @@
  * Shows: current model name | voice indicator | session name | file viewer toggle | permission mode | health dot + status
  */
 
-import { Mic, FileText } from 'lucide-react'
+import { Mic, FileText, MessageSquare } from 'lucide-react'
 import { formatModelDisplay } from '../lib/models'
 import { btn, chrome } from '../lib/theme'
 
@@ -69,17 +69,22 @@ export function StatusBar({
       </button>
 
       {/* Center: voice indicator (when active) + session name + context usage + file viewer toggle */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center gap-3 min-w-0">
         {voiceActive && (
-          <div className="flex items-center gap-1 text-accent">
-            <Mic className={`w-3 h-3 ${voiceSpeaking ? 'animate-pulse' : ''}`} />
-            <span className="text-[10px]">
-              {voiceTtsPlaying ? 'Speaking' : voiceSpeaking ? 'Listening...' : 'Voice'}
-            </span>
+          <div 
+            className="flex items-center gap-1 text-accent cursor-help"
+            title={voiceTtsPlaying ? 'Speaking' : voiceSpeaking ? 'Listening...' : 'Voice active'}
+          >
+            <Mic className={`w-3.5 h-3.5 ${voiceSpeaking ? 'animate-pulse' : ''}`} />
           </div>
         )}
         {!isMobile && (
-          <span className="truncate max-w-[180px] text-center">{sessionName || 'New session'}</span>
+          <div 
+            className="flex items-center text-text-primary/80 cursor-help"
+            title={sessionName || 'New session'}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+          </div>
         )}
         {contextUsagePct != null && (
           <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-mono text-text-primary/90">
@@ -89,23 +94,19 @@ export function StatusBar({
         {!isMobile && (
           <button
             onClick={onToggleFileViewer}
-            title="Toggle file viewer (⌘⇧F)"
-            className={`${btn.ghost} flex items-center gap-1 cursor-pointer disabled:cursor-default mobile-status-bar-file-toggle`}
+            title={fileViewerOpen ? 'Hide Files (⌘⇧F)' : 'Show Files (⌘⇧F)'}
+            className={`${btn.ghost} flex items-center justify-center p-1 cursor-pointer disabled:cursor-default mobile-status-bar-file-toggle`}
             disabled={!onToggleFileViewer}
           >
-            <FileText className="w-2.5 h-2.5" />
-            <span>{fileViewerOpen ? 'Files On' : 'Files'}</span>
+            <FileText className="w-3.5 h-3.5" />
           </button>
         )}
 
       </div>
 
       {/* Right: health */}
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 cursor-help" title={healthLabel}>
         <HealthDot health={health} />
-        {!isMobile && (
-          <span className={`capitalize ${health === 'ready' ? 'text-accent-gray' : ''}`}>{healthLabel}</span>
-        )}
       </div>
     </div>
   )

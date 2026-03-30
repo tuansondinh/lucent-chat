@@ -55,6 +55,28 @@ export function Terminal({ terminalId = 'main' }: TerminalProps) {
     if (!containerRef.current) return
 
     const bridge = getBridge()
+    const container = containerRef.current
+    let disposed = false
+    let frameId: number | null = null
+
+    const syncTerminalSize = () => {
+      if (disposed) return
+      if (!container.isConnected) return
+      if (container.clientWidth === 0 || container.clientHeight === 0) return
+      if (!xtermRef.current || !fitAddonRef.current) return
+
+      try {
+        fitAddonRef.current.fit()
+        const { cols, rows } = xtermRef.current
+        if (cols > 0 && rows > 0) {
+          bridge.terminalResize(terminalId, cols, rows).catch((err: unknown) => {
+            console.error('[Terminal] terminalResize failed:', err)
+          })
+        }
+      } catch {
+        // Ignore transient xterm layout races; a later resize will retry.
+      }
+    }
 
     // -------------------------------------------------------------------------
     // Initialise xterm
@@ -72,11 +94,13 @@ export function Terminal({ terminalId = 'main' }: TerminalProps) {
     const fitAddon = new FitAddon()
     xterm.loadAddon(fitAddon)
 
-    xterm.open(containerRef.current)
-    fitAddon.fit()
-
     xtermRef.current = xterm
     fitAddonRef.current = fitAddon
+    xterm.open(container)
+    frameId = window.requestAnimationFrame(() => {
+      frameId = null
+      syncTerminalSize()
+    })
 
     // -------------------------------------------------------------------------
     // Spawn the pty, subscribe to output
@@ -101,24 +125,19 @@ export function Terminal({ terminalId = 'main' }: TerminalProps) {
     // Resize observer — refit xterm and notify pty
     // -------------------------------------------------------------------------
     const resizeObserver = new ResizeObserver(() => {
-      // fitAddon.fit() can throw if the terminal is not yet open/has zero size
-      try {
-        fitAddon.fit()
-        const { cols, rows } = xterm
-        bridge.terminalResize(terminalId, cols, rows).catch((err: unknown) => {
-          console.error('[Terminal] terminalResize failed:', err)
-        })
-      } catch {
-        // Ignore — will be retried on next resize event
-      }
+      syncTerminalSize()
     })
 
-    resizeObserver.observe(containerRef.current)
+    resizeObserver.observe(container)
 
     // -------------------------------------------------------------------------
     // Cleanup on unmount
     // -------------------------------------------------------------------------
     return () => {
+      disposed = true
+      if (frameId != null) {
+        window.cancelAnimationFrame(frameId)
+      }
       resizeObserver.disconnect()
       unsubData()
       bridge.terminalDestroy(terminalId).catch(() => {})

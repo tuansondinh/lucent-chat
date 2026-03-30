@@ -282,6 +282,9 @@ export class ClassifierService {
     argsJson: string,
     context: ClassifierContext
   ): Promise<boolean> {
+    const userMessagesContext = this.buildClassifierUserMessages(context.userMessages)
+    const projectContext = this.buildClassifierProjectContext(context.projectInstructions)
+    const compactArgsJson = this.limitClassifierText(argsJson, 4_000)
     const systemPrompt = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
 
 DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
@@ -316,15 +319,12 @@ Use the user's recent messages to judge intent. If the user asked for something 
 
 Output exactly one word: ALLOW or DENY.`
 
-    const userMessagesContext = context.userMessages.join('\n\n')
-    const projectContext = context.projectInstructions ? `PROJECT INSTRUCTIONS:\n${context.projectInstructions}\n\n` : ''
-
     const userPrompt = `${projectContext}RECENT USER MESSAGES:
 ${userMessagesContext}
 
 PENDING TOOL CALL:
 Tool: ${toolName}
-Args: ${argsJson}
+Args: ${compactArgsJson}
 
 Decision (ALLOW/DENY)?`
 
@@ -400,6 +400,9 @@ Decision (ALLOW/DENY)?`
     argsJson: string,
     context: ClassifierContext
   ): Promise<boolean> {
+    const userMessagesContext = this.buildClassifierUserMessages(context.userMessages)
+    const projectContext = this.buildClassifierProjectContext(context.projectInstructions)
+    const compactArgsJson = this.limitClassifierText(argsJson, 4_000)
     const systemPrompt = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
 
 DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
@@ -431,15 +434,12 @@ DENY only these specific violations:
 
 Use the user's recent messages to judge intent. Output exactly one word: ALLOW or DENY.`
 
-    const userMessagesContext = context.userMessages.join('\n\n')
-    const projectContext = context.projectInstructions ? `PROJECT INSTRUCTIONS:\n${context.projectInstructions}\n\n` : ''
-
     const userPrompt = `${projectContext}RECENT USER MESSAGES:
 ${userMessagesContext}
 
 PENDING TOOL CALL:
 Tool: ${toolName}
-Args: ${argsJson}
+Args: ${compactArgsJson}
 
 Decision (ALLOW/DENY)?`
 
@@ -451,7 +451,7 @@ Decision (ALLOW/DENY)?`
         contents: [
           { role: 'user', parts: [{ text: userPrompt }] }
         ],
-        generationConfig: { maxOutputTokens: 32, temperature: 0 }
+        generationConfig: { maxOutputTokens: 128, temperature: 0 }
       })
 
       const req = request({
@@ -523,6 +523,26 @@ Decision (ALLOW/DENY)?`
 
     this.logModelResult(text || 'EMPTY')
     return false
+  }
+
+  private buildClassifierUserMessages(messages: string[]): string {
+    const trimmed = messages
+      .slice(-6)
+      .map((message) => this.limitClassifierText(message, 1_200))
+    return this.limitClassifierText(trimmed.join('\n\n'), 3_500)
+  }
+
+  private buildClassifierProjectContext(projectInstructions?: string): string {
+    if (!projectInstructions) return ''
+    const trimmed = this.limitClassifierText(projectInstructions, 1_500)
+    return `PROJECT INSTRUCTIONS:\n${trimmed}\n\n`
+  }
+
+  private limitClassifierText(value: string, maxChars: number): string {
+    if (value.length <= maxChars) return value
+    const head = value.slice(0, Math.floor(maxChars * 0.7))
+    const tail = value.slice(-(maxChars - head.length - 25))
+    return `${head}\n...[truncated]...\n${tail}`
   }
 
   /**

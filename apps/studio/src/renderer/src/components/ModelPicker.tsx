@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog'
@@ -210,6 +211,9 @@ export function ModelPicker({ open, onOpenChange, paneId, isMobile = false }: Pr
               </button>
             )}
           </DialogTitle>
+          <DialogDescription>
+            Search available models and switch the active model for this pane.
+          </DialogDescription>
         </DialogHeader>
 
         {/* Search */}

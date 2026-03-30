@@ -37,7 +37,6 @@ import { useVoiceStore } from './store/voice-store'
 import { CommandPalette } from './components/CommandPalette'
 import { Settings } from './components/Settings'
 import { Onboarding } from './components/Onboarding'
-import { StatusBar } from './components/StatusBar'
 import { formatModelDisplay, getModelRefFromState } from './lib/models'
 import { chrome } from './lib/theme'
 import { useSwipeGesture } from './lib/useSwipeGesture'
@@ -1460,7 +1459,7 @@ export default function App() {
             <PanelResizeHandle className="h-0.5 bg-accent/70 hover:bg-accent transition-colors cursor-row-resize" />
             <Panel defaultSize={30} minSize={10} className="flex flex-col min-h-0">
               <Suspense fallback={null}>
-                <Terminal />
+                <Terminal terminalId={activePaneId} />
               </Suspense>
             </Panel>
           </>

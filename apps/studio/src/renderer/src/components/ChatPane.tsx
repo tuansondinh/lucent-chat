@@ -5,7 +5,7 @@
  * submit/abort handlers, session state, and the full chat column UI.
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, type ReactNode } from 'react'
 import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
@@ -20,6 +20,7 @@ import { useNotificationSound } from '../lib/useNotificationSound'
 import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
 import { Kbd, KbdGroup } from './ui/kbd'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { getBridge } from '../lib/bridge'
 import { getCapabilities } from '../lib/capabilities'
 import { chrome } from '../lib/theme'
@@ -104,6 +105,25 @@ function ThinkingBubble() {
   )
 }
 
+function FooterTooltip({
+  content,
+  children,
+}: {
+  content: string
+  children: ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6}>
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 // ============================================================================
 // PaneFooter — shows git branch + project root + model picker, supports changing root
 // ============================================================================
@@ -133,9 +153,7 @@ function PaneFooter({
   const bridge = getBridge()
   const footerRef = useRef<HTMLDivElement>(null)
   const [footerWidth, setFooterWidth] = useState(0)
-  const [branchListLoading, setBranchListLoading] = useState(false)
-  const [branches, setBranches] = useState<string[]>([])
-  const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null)
+  const [branchLoading, setBranchLoading] = useState(false)
 
   // Track footer width to conditionally collapse footer badges sooner on narrow panes.
   useEffect(() => {
@@ -148,56 +166,39 @@ function PaneFooter({
     return () => observer.disconnect()
   }, [])
 
-  const showThinkingLabel = footerWidth > 760
-  const showModeLabel = footerWidth > 720
+  const showThinkingLabel = footerWidth > 940
+  const showModeLabel = footerWidth > 880
+  const branchBadgeMaxWidth = footerWidth > 1100 ? 'max-w-[160px]' : 'max-w-[120px]'
   const thinkingBadgeLabel = thinkingLevel === 'medium' ? 'med' : thinkingLevel
 
   const shortRoot = projectRoot
     ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
     : '-'
+  const contextUsageLabel = contextUsagePct !== null
+    ? `Context usage: ${Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%`
+    : null
+  const thinkingTooltip = `Thinking level: ${thinkingLevel} — click or press Shift+T to cycle`
+  const permissionTooltip =
+    permissionMode === 'auto'
+      ? 'Permission mode: Auto Mode — classifier filters tool calls. Press Shift+Tab to cycle.'
+      : permissionMode === 'accept-on-edit'
+        ? 'Permission mode: Accept Edits — prompt before each change. Press Shift+Tab to cycle.'
+        : 'Permission mode: Bypass Permissions — no approval prompts. Press Shift+Tab to cycle.'
+  const modelTooltip = `Model: ${formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })} — click to change`
 
-  const loadBranches = useCallback(async () => {
-    setBranchListLoading(true)
+  const loadCurrentBranch = useCallback(async () => {
+    setBranchLoading(true)
     try {
-      const result = await bridge.gitListBranches(paneId)
-      setBranches(result.branches)
-      getPaneStore(paneId).getState().setGitBranch(result.current)
-    } catch {
-      setBranches(gitBranch ? [gitBranch] : [])
+      const branch = await bridge.gitBranch(paneId)
+      getPaneStore(paneId).getState().setGitBranch(branch)
     } finally {
-      setBranchListLoading(false)
+      setBranchLoading(false)
     }
-  }, [bridge, gitBranch, paneId])
+  }, [bridge, paneId])
 
   useEffect(() => {
-    void loadBranches()
-  }, [loadBranches, projectRoot])
-
-  const handleCheckoutBranch = useCallback(async (branch: string) => {
-    if (!branch || branch === gitBranch) {
-      return
-    }
-
-    setCheckoutTarget(branch)
-    try {
-      const nextBranch = await bridge.gitCheckoutBranch(paneId, branch)
-      if (!nextBranch) {
-        throw new Error(`Failed to switch to ${branch}`)
-      }
-
-      getPaneStore(paneId).getState().setGitBranch(nextBranch)
-      setBranches((current) => {
-        if (current.includes(nextBranch)) return current
-        return [...current, nextBranch].sort((a, b) => a.localeCompare(b))
-      })
-      toast.success(`Switched to ${nextBranch}`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : `Failed to switch to ${branch}`
-      toast.error(message)
-    } finally {
-      setCheckoutTarget(null)
-    }
-  }, [bridge, gitBranch, paneId])
+    void loadCurrentBranch()
+  }, [loadCurrentBranch, projectRoot])
 
   const handleChangeRoot = useCallback(async () => {
     try {
@@ -208,7 +209,6 @@ function PaneFooter({
         getPaneStore(paneId).getState().setProjectRoot(info.projectRoot)
         const branch = await bridge.gitBranch(paneId)
         getPaneStore(paneId).getState().setGitBranch(branch)
-        setBranches([])
       }
     } catch {
       // ignore picker errors
@@ -218,139 +218,133 @@ function PaneFooter({
   return (
     <div ref={footerRef} className={`flex items-center justify-between gap-3 px-3 py-1 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none`}>
       <div className="flex min-w-0 items-center gap-3">
-        {/* Git branch selector */}
-        <div className="flex min-w-0 items-center gap-1">
-          {checkoutTarget || branchListLoading ? (
-            <Loader2 className="size-3 flex-shrink-0 animate-spin" />
-          ) : (
-            <GitBranch className="size-3 flex-shrink-0" />
-          )}
-          <div className="relative min-w-0">
-            <select
-              value={gitBranch ?? ''}
-              onChange={(event) => {
-                void handleCheckoutBranch(event.target.value)
-              }}
-              title="Switch git branch"
-              disabled={Boolean(checkoutTarget) || (branches.length === 0 && branchListLoading)}
-              className="max-w-[180px] cursor-pointer appearance-none rounded-md border border-white/10 bg-white/10 py-1 pl-2 pr-6 text-[10px] text-text-primary transition-colors hover:border-white/20 focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-default disabled:opacity-60"
+        {/* Current git branch */}
+        <FooterTooltip content={branchLoading ? 'Loading current git branch…' : gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}>
+          <div
+            className="flex min-w-0 items-center gap-1"
+            title={branchLoading ? 'Loading current git branch…' : gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}
+          >
+            {branchLoading ? (
+              <Loader2 className="size-3 flex-shrink-0 animate-spin" />
+            ) : (
+              <GitBranch className="size-3 flex-shrink-0" />
+            )}
+            <div
+              className={`${branchBadgeMaxWidth} truncate rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] text-text-primary`}
+              title={gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}
             >
-              {gitBranch && !branches.includes(gitBranch) ? (
-                <option value={gitBranch}>{gitBranch}</option>
-              ) : null}
-              {branches.length === 0 ? (
-                <option value="">{branchListLoading ? 'Loading branches...' : 'No branches'}</option>
-              ) : (
-                branches.map((branch) => (
-                  <option key={branch} value={branch}>
-                    {branch}
-                  </option>
-                ))
-              )}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-1 top-1/2 size-3 -translate-y-1/2 opacity-60" />
+              {gitBranch ?? 'No branch'}
+            </div>
           </div>
-        </div>
+        </FooterTooltip>
 
         {/* Project root */}
-        <button
-          onClick={() => void handleChangeRoot()}
-          className="flex items-center gap-1 min-w-0 opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
-          title="Change project root"
-        >
-          <Folder className="size-3 flex-shrink-0" />
-          <span className="truncate max-w-[200px]">{shortRoot}</span>
-        </button>
+        <FooterTooltip content={projectRoot ? `Project root: ${projectRoot} — click to change` : 'Choose project root'}>
+          <button
+            onClick={() => void handleChangeRoot()}
+            className="flex min-w-0 items-center gap-1 opacity-70 transition-opacity hover:opacity-100 cursor-pointer"
+            title={projectRoot ? `Project root: ${projectRoot} — click to change` : 'Choose project root'}
+          >
+            <Folder className="size-3 flex-shrink-0" />
+            <span className="truncate max-w-[200px]">{shortRoot}</span>
+          </button>
+        </FooterTooltip>
       </div>
 
       {/* Right side: context usage + permission mode indicator + model picker */}
       <div className="flex items-center gap-1">
-      {contextUsagePct !== null && (
-        <div
-          className="rounded-full px-2 py-0.5 text-[10px] font-mono text-text-primary opacity-80"
-          title="Approximate context window usage"
-        >
-          ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
-        </div>
-      )}
-      <button
-        onClick={onToggleThinkingLevel}
-        className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100 opacity-80 cursor-pointer"
-        title={`Thinking level: ${thinkingLevel} — click or press Shift+T to cycle`}
-      >
-        <Cpu className="h-3 w-3 flex-shrink-0 text-accent" />
-        <span className="uppercase tracking-[0.08em]">
-          {showThinkingLabel ? `thinking ${thinkingBadgeLabel}` : thinkingBadgeLabel}
-        </span>
-      </button>
-      {/* Permission mode indicator */}
-      <button
-        onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
-        title={
-          permissionMode === 'auto'
-            ? 'Auto Mode — classifier filters tool calls'
-            : permissionMode === 'accept-on-edit'
-            ? 'Accept Edits — prompt before each change'
-            : 'Bypass Permissions — no approval prompts'
-        }
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
-        data-permission-mode={permissionMode}
-      >
-        {permissionMode === 'auto' ? (
-          <ShieldCheck className="h-3 w-3 text-yellow-400 flex-shrink-0" />
-        ) : permissionMode === 'accept-on-edit' ? (
-          <ShieldAlert className="h-3 w-3 text-green-500 flex-shrink-0" />
-        ) : (
-          <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
+        {contextUsagePct !== null && (
+          <FooterTooltip content={contextUsageLabel ?? 'Context usage unavailable'}>
+            <div
+              className="rounded-full px-2 py-0.5 text-[10px] font-mono text-text-primary opacity-80"
+              title={contextUsageLabel ?? 'Context usage unavailable'}
+            >
+              ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
+            </div>
+          </FooterTooltip>
         )}
-        {showModeLabel && (
-          <span
-            className={`text-[10px] font-medium ${
-              permissionMode === 'auto'
-                ? 'text-yellow-400'
-                : permissionMode === 'accept-on-edit'
-                ? 'text-green-500'
-                : 'text-red-400'
-            }`}
+
+        <FooterTooltip content={thinkingTooltip}>
+          <button
+            onClick={onToggleThinkingLevel}
+            className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100 opacity-80 cursor-pointer"
+            title={thinkingTooltip}
           >
-            {permissionMode === 'auto'
-              ? 'Auto Mode'
-              : permissionMode === 'accept-on-edit'
-              ? 'Accept Edits'
-              : 'Bypass Permissions'}
-            <span className="ml-1 opacity-50 font-normal">⇧Tab</span>
-          </span>
+            <Cpu className="h-3 w-3 flex-shrink-0 text-accent" />
+            <span className="uppercase tracking-[0.08em]">
+              {showThinkingLabel ? `thinking ${thinkingBadgeLabel}` : thinkingBadgeLabel}
+            </span>
+          </button>
+        </FooterTooltip>
+
+        {/* Permission mode indicator */}
+        <FooterTooltip content={permissionTooltip}>
+          <button
+            onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
+            title={permissionTooltip}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+            data-permission-mode={permissionMode}
+          >
+            {permissionMode === 'auto' ? (
+              <ShieldCheck className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+            ) : permissionMode === 'accept-on-edit' ? (
+              <ShieldAlert className="h-3 w-3 text-green-500 flex-shrink-0" />
+            ) : (
+              <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
+            )}
+            {showModeLabel && (
+              <span
+                className={`text-[10px] font-medium ${
+                  permissionMode === 'auto'
+                    ? 'text-yellow-400'
+                    : permissionMode === 'accept-on-edit'
+                      ? 'text-green-500'
+                      : 'text-red-400'
+                }`}
+              >
+                {permissionMode === 'auto'
+                  ? 'Auto Mode'
+                  : permissionMode === 'accept-on-edit'
+                    ? 'Accept Edits'
+                    : 'Bypass Permissions'}
+                <span className="ml-1 opacity-50 font-normal">⇧Tab</span>
+              </span>
+            )}
+          </button>
+        </FooterTooltip>
+
+        {onSwitchToTerminal && (
+          <FooterTooltip content="Terminal mode — switch this pane to terminal">
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                if (!isActive) onFocus()
+                onSwitchToTerminal()
+              }}
+              title="Terminal mode — switch this pane to terminal"
+              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
+            >
+              <span className="font-medium">Term</span>
+            </button>
+          </FooterTooltip>
         )}
-      </button>
 
-      {onSwitchToTerminal && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            if (!isActive) onFocus()
-            onSwitchToTerminal()
-          }}
-          title="Switch this pane to terminal"
-          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
-        >
-          <span className="font-medium">Term</span>
-        </button>
-      )}
-
-      {/* Model picker */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation()
-          if (!isActive) onFocus()
-          onOpenModelPicker()
-        }}
-        title={formatModelDisplay(currentModel, { includeProvider: true, fallback: 'Select model' })}
-        className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
-      >
-        <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
-        <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
-        <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
-      </button>
+        {/* Model picker */}
+        <FooterTooltip content={modelTooltip}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!isActive) onFocus()
+              onOpenModelPicker()
+            }}
+            title={modelTooltip}
+            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
+          >
+            <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
+            <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
+            <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
+          </button>
+        </FooterTooltip>
       </div>
     </div>
   )

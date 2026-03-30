@@ -39,6 +39,7 @@ import packageJson from '../../../../package.json'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog'
@@ -443,7 +444,6 @@ export function Settings({
         className="p-0 gap-0 overflow-hidden"
         style={{ width: '900px', maxWidth: 'calc(100vw - 2rem)' }}
         showCloseButton={true}
-        aria-describedby={undefined}
       >
         <DialogHeader className="px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base">
@@ -459,6 +459,9 @@ export function Settings({
               </button>
             )}
           </DialogTitle>
+          <DialogDescription>
+            Configure app behavior, models, permissions, shortcuts, and remote access.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex" style={{ height: 'min(680px, 80vh)' }}>
