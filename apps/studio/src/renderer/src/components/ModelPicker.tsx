@@ -43,6 +43,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function normalizeLatestModelId(modelId: string): string {
+  return modelId
+    .replace(/[-_]?latest$/i, '')
+    .replace(/[-_]?\d{4}-\d{2}-\d{2}$/i, '')
+    .replace(/[-_]?\d{8}$/i, '')
+}
+
+function dedupeToLatestModels(models: Model[]): Model[] {
+  const byBaseKey = new Map<string, Model>()
+
+  for (const model of models) {
+    const normalizedId = normalizeLatestModelId(model.id)
+    const baseKey = `${model.provider}/${normalizedId || model.id}`
+    const existing = byBaseKey.get(baseKey)
+
+    if (!existing) {
+      byBaseKey.set(baseKey, model)
+      continue
+    }
+
+    if (model.id.localeCompare(existing.id, undefined, { numeric: true, sensitivity: 'base' }) > 0) {
+      byBaseKey.set(baseKey, model)
+    }
+  }
+
+  return Array.from(byBaseKey.values())
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -107,8 +135,9 @@ export function ModelPicker({ open, onOpenChange, paneId, isMobile = false }: Pr
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return models
-    return models.filter(
+    const latestModels = dedupeToLatestModels(models)
+    if (!q) return latestModels
+    return latestModels.filter(
       (m) =>
         m.id.toLowerCase().includes(q) ||
         m.provider.toLowerCase().includes(q),

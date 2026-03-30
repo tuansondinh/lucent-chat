@@ -16,6 +16,8 @@ import { homedir } from 'node:os'
 export interface AppSettings {
   /** Default model to use when starting the app. */
   defaultModel?: { provider: string; modelId: string }
+  /** Runtime thinking/reasoning level exposed by Pi/GSD. */
+  thinkingLevel?: 'low' | 'medium' | 'high'
   /** UI theme — only dark for now. */
   theme: 'dark'
   /** Editor/chat font size in px. */
@@ -81,6 +83,7 @@ export const DEFAULT_PERMISSION_MODE = 'auto' as const
 const DEFAULTS: AppSettings = {
   theme: 'dark',
   fontSize: 14,
+  thinkingLevel: 'medium',
   sidebarCollapsed: false,
   onboardingComplete: false,
   voiceModelsDownloaded: false,

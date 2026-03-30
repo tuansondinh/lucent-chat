@@ -18,6 +18,37 @@ import { getOAuthProvider, type OAuthLoginCallbacks } from '@gsd/pi-ai/oauth'
 import { AuthStorage } from '@gsd/pi-coding-agent'
 
 // ============================================================================
+// External CLI auth readers
+// ============================================================================
+
+/**
+ * Read OpenAI Codex CLI credentials from ~/.codex/auth.json.
+ * Returns an access token if valid credentials are found, undefined otherwise.
+ */
+function readCodexCliAuth(): { access: string; refresh: string; accountId: string } | undefined {
+  try {
+    const codexAuthPath = join(homedir(), '.codex', 'auth.json')
+    if (!existsSync(codexAuthPath)) return undefined
+    const raw = readFileSync(codexAuthPath, 'utf-8')
+    const data = JSON.parse(raw) as {
+      tokens?: { access_token?: string; refresh_token?: string; account_id?: string }
+      OPENAI_API_KEY?: string | null
+    }
+    const tokens = data.tokens
+    if (tokens?.access_token && tokens?.refresh_token && tokens?.account_id) {
+      return {
+        access: tokens.access_token,
+        refresh: tokens.refresh_token,
+        accountId: tokens.account_id,
+      }
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -221,9 +252,10 @@ export class AuthService {
     this.authStorage.reload()
 
     // Provider alias map: if the primary provider has no auth, check these fallbacks.
-    // google-gemini-cli can use a plain Gemini API key (same as the 'google' provider).
+    // CLI/OAuth-oriented providers can reuse the corresponding global user auth source.
     const PROVIDER_FALLBACKS: Record<string, string> = {
       'google-gemini-cli': 'google',
+      'openai-codex': 'openai',
     }
 
     return PROVIDER_CATALOG.map((entry) => {
@@ -239,9 +271,15 @@ export class AuthService {
         ? (PROVIDER_ENV_VARS[fallbackId] ?? []).some((v) => Boolean(process.env[v]))
         : false
 
-      const configured = hasFileAuth || hasEnvAuth || hasFallbackFileAuth || hasFallbackEnvAuth
+      // Check external CLI auth sources (e.g. ~/.codex/auth.json for openai-codex)
+      const hasExternalCliAuth = entry.id === 'openai-codex' ? Boolean(readCodexCliAuth()) : false
+
+      const configured = hasFileAuth || hasEnvAuth || hasFallbackFileAuth || hasFallbackEnvAuth || hasExternalCliAuth
       const configuredVia: ProviderAuthStatus['configuredVia'] =
-        hasFileAuth || hasFallbackFileAuth ? 'auth_file' : hasEnvAuth || hasFallbackEnvAuth ? 'environment' : null
+        hasFileAuth || hasFallbackFileAuth ? 'auth_file'
+        : hasExternalCliAuth ? 'auth_file'
+        : hasEnvAuth || hasFallbackEnvAuth ? 'environment'
+        : null
 
       return {
         id: entry.id,

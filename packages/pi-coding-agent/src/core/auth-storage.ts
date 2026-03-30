@@ -17,6 +17,7 @@ import {
 } from "@gsd/pi-ai";
 import { getOAuthApiKey, getOAuthProvider, getOAuthProviders } from "@gsd/pi-ai/oauth";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, join } from "path";
 import { getAgentDir } from "../config.js";
 import { AUTH_LOCK_STALE_MS } from "./constants.js";
@@ -399,6 +400,21 @@ export class AuthStorage {
 		if (this.data[provider]) return true;
 		if (getEnvApiKey(provider)) return true;
 		if (this.fallbackResolver?.(provider)) return true;
+		// Mirror getApiKey()'s ~/.codex/auth.json fallback for openai-codex
+		if (provider === 'openai-codex') {
+			try {
+				const codexAuthPath = join(homedir(), '.codex', 'auth.json');
+				if (existsSync(codexAuthPath)) {
+					const raw = readFileSync(codexAuthPath, 'utf-8');
+					const data = JSON.parse(raw) as {
+						tokens?: { access_token?: string };
+					};
+					if (data.tokens?.access_token) return true;
+				}
+			} catch {
+				// Silently ignore
+			}
+		}
 		return false;
 	}
 
@@ -748,6 +764,26 @@ export class AuthStorage {
 				if (index >= 0) {
 					return this.resolveCredentialApiKey('google', googleCredentials[index]);
 				}
+			}
+		}
+
+		// External CLI auth fallback: openai-codex can use ~/.codex/auth.json credentials
+		if (providerId === 'openai-codex') {
+			try {
+				const { existsSync, readFileSync } = await import('fs');
+				const { join } = await import('path');
+				const { homedir } = await import('os');
+				const codexAuthPath = join(homedir(), '.codex', 'auth.json');
+				if (existsSync(codexAuthPath)) {
+					const raw = readFileSync(codexAuthPath, 'utf-8');
+					const data = JSON.parse(raw) as {
+						tokens?: { access_token?: string; refresh_token?: string; account_id?: string };
+					};
+					const token = data.tokens?.access_token;
+					if (token) return token;
+				}
+			} catch {
+				// Silently ignore — file may not exist or be malformed
 			}
 		}
 

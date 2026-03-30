@@ -64,6 +64,8 @@ interface SettingsProps {
   onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
   voiceAudioEnabled: boolean
   onVoiceAudioEnabledChange: (enabled: boolean) => void
+  thinkingLevel: 'low' | 'medium' | 'high'
+  onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
   /** When true, renders with a close button suitable for full-screen mobile overlay. */
   isMobile?: boolean
 }
@@ -133,6 +135,7 @@ const SHORTCUTS = [
   { shortcut: '⌘P', action: 'Model picker' },
   { shortcut: '⌘K', action: 'Command palette' },
   { shortcut: '⌘,', action: 'Settings' },
+  { shortcut: '⇧T', action: 'Cycle thinking level' },
   { shortcut: 'Esc', action: 'Stop generation / close modal' },
 ]
 
@@ -176,6 +179,8 @@ export function Settings({
   onVoicePttShortcutChange,
   voiceAudioEnabled,
   onVoiceAudioEnabledChange,
+  thinkingLevel,
+  onThinkingLevelChange,
   isMobile = false,
 }: SettingsProps) {
   const bridge = getBridge()
@@ -190,6 +195,7 @@ export function Settings({
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
+  const [localThinkingLevel, setLocalThinkingLevel] = useState<'low' | 'medium' | 'high'>(thinkingLevel)
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
   const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(true)
   const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(false)
@@ -285,6 +291,11 @@ export function Settings({
         } else {
           setDefaultModel('')
         }
+        if (s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
+          setLocalThinkingLevel(s.thinkingLevel)
+        } else {
+          setLocalThinkingLevel(thinkingLevel)
+        }
         if (Array.isArray(s.autoModeRules)) {
           setAutoModeRules(s.autoModeRules as ClassifierRule[])
         }
@@ -309,7 +320,7 @@ export function Settings({
         setSkills(list)
       }).catch(() => {}).finally(() => setLoadingSkills(false))
     }
-  }, [open, bridge, refreshModels, refreshProviderStatuses, voiceAudioEnabled, voicePttShortcut])
+  }, [open, bridge, refreshModels, refreshProviderStatuses, thinkingLevel, voiceAudioEnabled, voicePttShortcut])
 
   // -------------------------------------------------------------------------
   // Save helpers
@@ -342,6 +353,11 @@ export function Settings({
     const modelId = rest.join('/')
     bridge.setSettings({ defaultModel: { provider, modelId } }).catch(() => {})
   }, [bridge])
+
+  const handleThinkingLevelChange = useCallback((value: 'low' | 'medium' | 'high') => {
+    setLocalThinkingLevel(value)
+    onThinkingLevelChange(value)
+  }, [onThinkingLevelChange])
 
   const handleVoicePttShortcutChange = useCallback((value: 'space' | 'alt+space' | 'cmd+shift+space') => {
     setLocalVoicePttShortcut(value)
@@ -489,6 +505,8 @@ export function Settings({
                 loading={loadingModels}
                 defaultModel={defaultModel}
                 onDefaultModelChange={handleDefaultModelChange}
+                thinkingLevel={localThinkingLevel}
+                onThinkingLevelChange={handleThinkingLevelChange}
               />
             )}
             {activeTab === 'permissions' && (
@@ -1365,9 +1383,18 @@ interface ModelsTabProps {
   loading: boolean
   defaultModel: string
   onDefaultModelChange: (v: string) => void
+  thinkingLevel: 'low' | 'medium' | 'high'
+  onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
 }
 
-function ModelsTab({ models, loading, defaultModel, onDefaultModelChange }: ModelsTabProps) {
+function ModelsTab({
+  models,
+  loading,
+  defaultModel,
+  onDefaultModelChange,
+  thinkingLevel,
+  onThinkingLevelChange,
+}: ModelsTabProps) {
   return (
     <div className="p-6 space-y-6">
       <Section title="Default Model">
@@ -1396,6 +1423,24 @@ function ModelsTab({ models, loading, defaultModel, onDefaultModelChange }: Mode
               </SelectContent>
             </Select>
           )}
+        </Field>
+      </Section>
+
+      <Section title="Reasoning">
+        <Field
+          label="Thinking level"
+          hint="Controls the runtime thinking/reasoning level when supported by the current Pi/GSD runtime and selected model."
+        >
+          <Select value={thinkingLevel} onValueChange={(value) => onThinkingLevelChange(value as 'low' | 'medium' | 'high')}>
+            <SelectTrigger className="w-72 h-8 text-sm">
+              <SelectValue placeholder="Select a thinking level..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+            </SelectContent>
+          </Select>
         </Field>
       </Section>
     </div>

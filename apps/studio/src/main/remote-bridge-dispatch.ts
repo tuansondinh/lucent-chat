@@ -91,8 +91,30 @@ export function createRemoteBridgeDispatcher({
       case 'switch-model':
         return pane(args)?.agentBridge.setModel(args[1] as string, args[2] as string)
 
-      case 'new-session':
-        return pane(args)?.agentBridge.newSession()
+      case 'new-session': {
+        const targetPane = pane(args)
+        if (!targetPane) return null
+        const result = await targetPane.agentBridge.newSession()
+        if (!result.cancelled) {
+          try {
+            const state = await targetPane.agentBridge.getState()
+            if (state.sessionFile) {
+              targetPane.sessionService.setActiveSessionId(state.sessionFile)
+              targetPane.sessionService.setProjectSession(targetPane.projectRoot, state.sessionFile, {
+                sessionName: typeof state.sessionName === 'string' && state.sessionName.length > 0
+                  ? state.sessionName
+                  : null,
+              })
+            }
+          } catch {
+            // best-effort only
+          }
+        }
+        return result
+      }
+
+      case 'compact':
+        return pane(args)?.agentBridge.compact(args[1] as string | undefined)
 
       case 'get-health':
         return pane(args)?.processManager.getStates() ?? {}

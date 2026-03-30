@@ -16,6 +16,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
 import type { ChatMessage as ChatMsg, ContentBlock, SubItem } from '../store/chat'
+import { MSG_GAP, MSG_BLOCK_MB, MSG_BLOCK_MT } from '../lib/chat-spacing'
 import { getMessageText } from '../store/chat'
 import { getHighlighter } from '../lib/highlighter'
 import { cn } from '../lib/utils'
@@ -234,7 +235,7 @@ function ThinkingBlock({ block }: { block: ThinkingBlockData }) {
   }, [block.isStreaming])
 
   return (
-    <div className="mb-2 rounded-md overflow-hidden border border-border/40">
+    <div className={`${MSG_BLOCK_MB} rounded-md overflow-hidden border border-border/40`}>
       <button
         className={cn(
           'flex items-center gap-2 w-full px-2.5 py-1.5 text-xs text-left transition-colors',
@@ -315,7 +316,7 @@ function ToolCallActivity({ subItems }: { subItems: SubItem[] }) {
   const visibleItems = subItems.slice(-MAX_SUB_ITEMS)
 
   return (
-    <div className="px-2.5 py-1.5 bg-bg-primary/30 border-t border-border/30">
+    <div className="px-3 py-1.5 bg-bg-primary/30 border-t border-border/30">
       {hiddenCount > 0 && (
         <div className="text-[10px] text-text-secondary/50 font-mono leading-5 mb-0.5">
           ... {hiddenCount} earlier
@@ -494,13 +495,13 @@ function extractDiff(output: unknown): string | null {
 }
 
 function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
+  const isEdit = isFileEditTool(tc.tool)
   const [expanded, setExpanded] = useState(false)
 
-  const isEdit = isFileEditTool(tc.tool)
   const diff = tc.done && !tc.isError ? extractDiff(tc.output) : null
   const isWrite = tc.tool.toLowerCase() === 'write'
 
-  // Edit tools default to collapsed — user can expand to see the diff
+  // All tool calls default to collapsed until manually expanded
   const [userToggled, setUserToggled] = useState(false)
   const effectiveExpanded = userToggled ? expanded : false
 
@@ -548,7 +549,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
         {/* Header row */}
         <button
           className={cn(
-            'flex items-center gap-2 w-full px-2.5 py-1.5 text-left transition-colors',
+            'flex items-center gap-2 w-full px-3 py-1.5 text-left transition-colors',
             'hover:bg-bg-hover',
             tc.isError ? 'bg-red-900/20' : 'bg-bg-tertiary',
           )}
@@ -626,7 +627,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     <div className="rounded-md overflow-hidden border border-border/50">
       <button
         className={cn(
-          'flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] leading-5 font-mono font-medium text-left transition-colors',
+          'flex items-center gap-2 w-full px-3 py-1.5 text-[13px] leading-5 font-mono font-medium text-left transition-colors',
           'hover:bg-bg-hover',
           tc.done
             ? tc.isError
@@ -1003,7 +1004,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
 
   return (
     <div
-      className={cn('flex w-full mb-2', isUser ? 'justify-end' : 'justify-start')}
+      className={cn(`flex w-full ${MSG_GAP}`, isUser ? 'justify-end' : 'justify-start')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -1041,7 +1042,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
 
         {/* User messages: plain text */}
         {isUser && (
-          <p className="whitespace-pre-wrap break-words text-sm leading-5 pr-6">
+          <p className="whitespace-pre-wrap break-words text-sm leading-5">
             {plainText}
             {isStreaming && <StreamingCursor />}
           </p>
@@ -1049,7 +1050,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
 
         {/* Assistant messages: ordered content blocks */}
         {!isUser && !isError && (
-          <div className={cn(copyText ? 'pr-6' : '')}>
+          <div>
             {message.contentBlocks.map((block) => {
               switch (block.type) {
                 case 'thinking':
@@ -1066,7 +1067,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
                   ) : null
                 case 'tool_use':
                   return (
-                    <div key={block.id} className="mt-2 mb-1">
+                    <div key={block.id} className={`${MSG_BLOCK_MT} ${MSG_BLOCK_MB}`}>
                       <ToolCallItem tc={block} />
                     </div>
                   )

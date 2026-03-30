@@ -34,6 +34,17 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.theme = 'dark'
   }
 
+  if ('thinkingLevel' in partial) {
+    if (
+      partial.thinkingLevel !== 'low'
+      && partial.thinkingLevel !== 'medium'
+      && partial.thinkingLevel !== 'high'
+    ) {
+      throw new Error('Invalid thinkingLevel setting')
+    }
+    validated.thinkingLevel = partial.thinkingLevel
+  }
+
   if ('fontSize' in partial) {
     if (typeof partial.fontSize !== 'number' || !Number.isFinite(partial.fontSize)) {
       throw new Error('Invalid fontSize setting')

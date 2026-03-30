@@ -25,6 +25,11 @@ export interface AgentState {
   messageCount: number
   pendingMessageCount: number
   extensionsReady: boolean
+  contextUsage?: {
+    tokens: number | null
+    contextWindow: number
+    percent: number | null
+  }
 }
 
 export interface ModelInfo {
@@ -205,6 +210,11 @@ export class AgentBridge extends EventEmitter {
     await this.send({ type: 'set_session_name', name })
   }
 
+  /** Trigger context compaction. */
+  async compact(customInstructions?: string): Promise<void> {
+    await this.send({ type: 'compact', ...(customInstructions ? { customInstructions } : {}) })
+  }
+
   /** List available models. */
   async getAvailableModels(): Promise<ModelInfo[]> {
     const resp = await this.send({ type: 'get_available_models' })
@@ -214,6 +224,11 @@ export class AgentBridge extends EventEmitter {
   /** Change the permission mode on the live agent without restarting. */
   async setPermissionMode(mode: 'danger-full-access' | 'accept-on-edit' | 'auto'): Promise<void> {
     await this.send({ type: 'set_permission_mode', mode })
+  }
+
+  /** Change the runtime thinking/reasoning level on the live agent without restarting. */
+  async setThinkingLevel(level: 'low' | 'medium' | 'high'): Promise<void> {
+    await this.send({ type: 'set_thinking_level', level })
   }
 
   // =========================================================================

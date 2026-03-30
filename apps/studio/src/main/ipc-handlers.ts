@@ -153,7 +153,14 @@ export function registerIpcHandlers(
       // agent (header-only), so it will appear in the list right away.
       try {
         const state = await pane.agentBridge.getState()
-        if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile)
+        if (state.sessionFile) {
+          pane.sessionService.setActiveSessionId(state.sessionFile)
+          pane.sessionService.setProjectSession(pane.projectRoot, state.sessionFile, {
+            sessionName: typeof state.sessionName === 'string' && state.sessionName.length > 0
+              ? state.sessionName
+              : null,
+          })
+        }
       } catch {
         // Non-fatal — active session tracking is best-effort
       }
@@ -169,6 +176,12 @@ export function registerIpcHandlers(
 
   ipcMain.handle('cmd:rename-session', (_event, paneId: string, name: string) => {
     return paneManager.getPane(paneId)?.sessionService.renameSession(name)
+  })
+
+  ipcMain.handle('cmd:compact', async (_event, paneId: string, customInstructions?: string) => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+    return pane.agentBridge.compact(customInstructions)
   })
 
   ipcMain.handle('cmd:get-sessions', (_event, paneId: string) => {
@@ -189,6 +202,13 @@ export function registerIpcHandlers(
 
   ipcMain.handle('cmd:get-state', (_event, paneId: string) => {
     return paneManager.getPane(paneId)?.agentBridge.getState()
+  })
+
+  ipcMain.handle('cmd:set-thinking-level', async (_event, paneId: string, level: 'low' | 'medium' | 'high') => {
+    const pane = paneManager.getPane(paneId)
+    if (!pane) throw new Error(`Unknown pane: ${paneId}`)
+    settingsService.save({ thinkingLevel: level })
+    await pane.agentBridge.setThinkingLevel(level)
   })
 
   ipcMain.handle('cmd:get-health', (_event, paneId: string) => {

@@ -518,6 +518,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 					messageCount: session.messages.length,
 					pendingMessageCount: session.pendingMessageCount,
 					extensionsReady,
+					contextUsage: session.getContextUsage(),
 				};
 				return success(id, "get_state", state);
 			}

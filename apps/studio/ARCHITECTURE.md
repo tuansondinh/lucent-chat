@@ -282,6 +282,31 @@ Key characteristics:
 - **Ephemeral state**: subItems not persisted; reloaded sessions show no sub-item history
 - **Lifecycle handling**: On tool completion, subItems clear. On abort/crash, subItems freeze for debugging.
 
+### Context Usage and Compaction Flow
+
+The chat UI now uses structured context state from the runtime and exposes the compaction controls directly in the composer:
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
+│ Agent       │────▶│ RPC get_state    │────▶│ ChatPane     │
+│ Runtime     │     │ contextUsage     │     │ • ctx % UI   │
+└─────────────┘     └──────────────────┘     │ • /clear     │
+                                               │ • /compact   │
+                                               └────┬─────────┘
+                                                    │
+                                                    ▼
+                                           ┌──────────────────┐
+                                           │ Main Process     │
+                                           │ bridge.newSession│
+                                           │ bridge.compact   │
+                                           └──────────────────┘
+```
+
+Key characteristics:
+- **Structured context usage**: `get_state` returns `contextUsage { tokens, contextWindow, percent }`, which the renderer prefers over heuristics
+- **Composer commands**: `/clear` starts a fresh session; `/compact [instructions]` requests context compaction with optional guidance
+- **Session name refresh**: When generation ends, the sidebar reloads sessions so auto-named sessions appear without manual refresh
+
 ---
 
 ## Voice Service
@@ -489,6 +514,7 @@ interface BridgeAPI {
   getMessages(paneId: string): Promise<Message[]>
   getState(paneId: string): Promise<AgentState>
   abort(paneId: string): Promise<void>
+  compact(paneId: string, customInstructions?: string): Promise<void>
 
   // Sessions
   getSessions(paneId: string): Promise<Session[]>

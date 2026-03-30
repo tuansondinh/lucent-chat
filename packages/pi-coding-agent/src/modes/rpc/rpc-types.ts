@@ -119,6 +119,12 @@ export interface RpcSessionState {
 	pendingMessageCount: number;
 	/** Whether extension loading has completed. Commands from `get_commands` may be incomplete until true. */
 	extensionsReady: boolean;
+	/** Context window usage — populated from getContextUsage(). null percent means unknown (e.g. right after compaction). */
+	contextUsage?: {
+		tokens: number | null;
+		contextWindow: number;
+		percent: number | null;
+	};
 }
 
 // ============================================================================

@@ -49,6 +49,24 @@ export class PaneManager {
   }
 
   /**
+   * Attach a persistent agent event listener that forwards compaction state
+   * changes to the renderer. Shared by initPane0 and createPane.
+   */
+  private attachCompactionForwarding(
+    agentBridge: AgentBridge,
+    paneId: string,
+    pushEvent: (channel: string, data: unknown) => void,
+  ): void {
+    agentBridge.onAgentEvent((event: any) => {
+      if (event.type === 'auto_compaction_start') {
+        pushEvent('event:compaction-state', { paneId, isCompacting: true, autoCompactionEnabled: true })
+      } else if (event.type === 'auto_compaction_end') {
+        pushEvent('event:compaction-state', { paneId, isCompacting: false, autoCompactionEnabled: true })
+      }
+    })
+  }
+
+  /**
    * Initialize pane-0 from existing services (called from index.ts at startup).
    * This wraps the already-created services so pane-0 is not a cold start.
    */
@@ -59,6 +77,7 @@ export class PaneManager {
     sessionService: SessionService,
     attachBridge: () => void,
     projectRoot: string = process.cwd(),
+    pushEvent?: (channel: string, data: unknown) => void,
   ): PaneRuntime {
     const pane: PaneRuntime = {
       id: 'pane-0',
@@ -73,6 +92,9 @@ export class PaneManager {
       permissionMode: this.settingsService?.get().permissionMode ?? DEFAULT_PERMISSION_MODE,
     }
     this.panes.set('pane-0', pane)
+    if (pushEvent) {
+      this.attachCompactionForwarding(agentBridge, 'pane-0', pushEvent)
+    }
     return pane
   }
 
@@ -97,6 +119,7 @@ export class PaneManager {
     }
     // Pass permission mode so the agent registers the stdio approval handler
     agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
+    agentEnv.GSD_STUDIO_THINKING_LEVEL = settings.thinkingLevel ?? 'medium'
 
     const processManager = this.processManagerFactory()
     const agentBridge = new AgentBridge()
@@ -188,6 +211,7 @@ export class PaneManager {
     processManager.on('health', (states: Record<string, string>) => {
       pushEvent('event:health', { paneId: id, states })
     })
+    this.attachCompactionForwarding(agentBridge, id, pushEvent)
 
     // Background: wait for agent ready, then init fresh session.
     // Errors are non-fatal — health events will reflect the final state.

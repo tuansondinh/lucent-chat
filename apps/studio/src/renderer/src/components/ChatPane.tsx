@@ -13,6 +13,7 @@ import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
 import { ApprovalCard, type ApprovalRequest } from './ApprovalModal'
 import { getPaneStore, usePanesStore } from '../store/pane-store'
+import { MSG_GAP, MSG_LIST_PB, MSG_BLOCK_MB } from '../lib/chat-spacing'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
 import { useVoiceStore } from '../store/voice-store'
@@ -92,7 +93,7 @@ function UiSelectCard({
 
 function ThinkingBubble() {
   return (
-    <div className="flex w-full mb-4 justify-start">
+    <div className={`flex w-full ${MSG_BLOCK_MB} justify-start`}>
       <div className="flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-3 py-2 bg-bg-secondary border border-border">
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:0ms]" />
         <span className="w-2 h-2 rounded-full bg-accent opacity-60 animate-bounce [animation-delay:150ms]" />
@@ -111,13 +112,17 @@ function PaneFooter({
   isActive,
   onFocus,
   onOpenModelPicker,
+  onToggleThinkingLevel,
   contextUsagePct,
+  thinkingLevel,
 }: {
   paneId: string
   isActive: boolean
   onFocus: () => void
   onOpenModelPicker: () => void
+  onToggleThinkingLevel: () => void
   contextUsagePct: number | null
+  thinkingLevel: 'low' | 'medium' | 'high'
 }) {
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
@@ -130,7 +135,7 @@ function PaneFooter({
   const [branches, setBranches] = useState<string[]>([])
   const [checkoutTarget, setCheckoutTarget] = useState<string | null>(null)
 
-  // Track footer width to conditionally show full permission mode label
+  // Track footer width to conditionally collapse footer badges sooner on narrow panes.
   useEffect(() => {
     const el = footerRef.current
     if (!el) return
@@ -141,7 +146,9 @@ function PaneFooter({
     return () => observer.disconnect()
   }, [])
 
-  const showModeLabel = footerWidth > 320
+  const showThinkingLabel = footerWidth > 760
+  const showModeLabel = footerWidth > 720
+  const thinkingBadgeLabel = thinkingLevel === 'medium' ? 'med' : thinkingLevel
 
   const shortRoot = projectRoot
     ? projectRoot.replace(/^\/Users\/[^/]+/, '~')
@@ -264,6 +271,16 @@ function PaneFooter({
           ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
         </div>
       )}
+      <button
+        onClick={onToggleThinkingLevel}
+        className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100 opacity-80 cursor-pointer"
+        title={`Thinking level: ${thinkingLevel} — click or press Shift+T to cycle`}
+      >
+        <Cpu className="h-3 w-3 flex-shrink-0 text-accent" />
+        <span className="uppercase tracking-[0.08em]">
+          {showThinkingLabel ? `thinking ${thinkingBadgeLabel}` : thinkingBadgeLabel}
+        </span>
+      </button>
       {/* Permission mode indicator */}
       <button
         onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
@@ -278,9 +295,9 @@ function PaneFooter({
         data-permission-mode={permissionMode}
       >
         {permissionMode === 'auto' ? (
-          <ShieldCheck className="h-3 w-3 text-green-500 flex-shrink-0" />
+          <ShieldCheck className="h-3 w-3 text-yellow-400 flex-shrink-0" />
         ) : permissionMode === 'accept-on-edit' ? (
-          <ShieldAlert className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+          <ShieldAlert className="h-3 w-3 text-green-500 flex-shrink-0" />
         ) : (
           <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
         )}
@@ -288,9 +305,9 @@ function PaneFooter({
           <span
             className={`text-[10px] font-medium ${
               permissionMode === 'auto'
-                ? 'text-green-500'
-                : permissionMode === 'accept-on-edit'
                 ? 'text-yellow-400'
+                : permissionMode === 'accept-on-edit'
+                ? 'text-green-500'
                 : 'text-red-400'
             }`}
           >
@@ -338,6 +355,10 @@ interface ChatPaneProps {
   voiceAudioEnabled: boolean
   /** When true, all text responses are spoken (TTS-only mode). */
   textToSpeechMode: boolean
+  /** App-level default reasoning level shown in the pane footer. */
+  thinkingLevel: 'low' | 'medium' | 'high'
+  /** Cycle the app-level thinking level shown in the pane footer. */
+  onToggleThinkingLevel: () => void
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
   /** Called to close this pane — undefined if this is the only pane. */
@@ -358,6 +379,7 @@ const keyboardShortcuts = [
   { key: <><Kbd>⌘</Kbd><Kbd>E</Kbd></>, label: 'File explorer' },
   { key: <><Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd></>, label: 'File viewer' },
   { key: <><Kbd>⌘</Kbd><Kbd>B</Kbd></>, label: 'Toggle sidebar' },
+  { key: <><Kbd>⇧</Kbd><Kbd>T</Kbd></>, label: 'Cycle thinking level' },
   { key: <><Kbd>⌘</Kbd><Kbd>D</Kbd></>, label: 'Split pane' },
   { key: <><Kbd>⌘</Kbd><Kbd>⌥</Kbd><Kbd>←</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd><Kbd>→</Kbd></>, label: 'Navigate panes' },
   { key: <><Kbd>⇧</Kbd><Kbd>⇥</Kbd></>, label: 'Toggle permission mode' },
@@ -376,6 +398,8 @@ export function ChatPane({
   voicePttShortcut,
   voiceAudioEnabled,
   textToSpeechMode,
+  thinkingLevel,
+  onToggleThinkingLevel,
   onFocus,
   onClose,
   onOpenFile,
@@ -456,49 +480,15 @@ export function ChatPane({
     const asNumber = (value: unknown): number | null =>
       typeof value === 'number' && Number.isFinite(value) ? value : null
 
-    const directPctKeys = [
-      'contextUsagePct',
-      'contextPercent',
-      'context_percentage',
-      'contextWindowPercent',
-      'context_window_percent',
-    ] as const
-
-    for (const key of directPctKeys) {
-      const value = asNumber((state as Record<string, unknown>)[key])
-      if (value !== null) return value <= 1 ? value * 100 : value
-    }
-
-    const usage = (state as Record<string, unknown>).usage
-    if (usage && typeof usage === 'object') {
-      const usageObj = usage as Record<string, unknown>
-      for (const key of directPctKeys) {
-        const value = asNumber(usageObj[key])
-        if (value !== null) return value <= 1 ? value * 100 : value
-      }
-
-      const used = asNumber(usageObj.inputTokens ?? usageObj.promptTokens ?? usageObj.tokens ?? usageObj.usedTokens)
-      const max = asNumber(usageObj.maxInputTokens ?? usageObj.maxTokens ?? usageObj.contextWindow ?? usageObj.contextWindowTokens)
-      if (used !== null && max !== null && max > 0) return (used / max) * 100
-    }
-
-    const used = asNumber((state as Record<string, unknown>).inputTokens ?? (state as Record<string, unknown>).promptTokens)
-    const max = asNumber((state as Record<string, unknown>).maxInputTokens ?? (state as Record<string, unknown>).contextWindow)
-    if (used !== null && max !== null && max > 0) return (used / max) * 100
-
-    const modelRef = getModelRefFromState(state)
-    if (modelRef) {
-      const modelWindowGuess = (() => {
-        const lower = modelRef.toLowerCase()
-        if (lower.includes('gpt-5') || lower.includes('gpt-4.1') || lower.includes('gpt-4o')) return 128000
-        if (lower.includes('sonnet') || lower.includes('claude')) return 200000
-        if (lower.includes('gemini')) return 1000000
-        return null
-      })()
-      if (modelWindowGuess && typeof (state as Record<string, unknown>).messageCount === 'number') {
-        const roughUsed = Math.max(0, ((state as Record<string, unknown>).messageCount as number) * 1500)
-        return (roughUsed / modelWindowGuess) * 100
-      }
+    // Primary: use the structured contextUsage field from the RPC get_state response
+    const contextUsage = (state as Record<string, unknown>).contextUsage
+    if (contextUsage && typeof contextUsage === 'object') {
+      const cu = contextUsage as Record<string, unknown>
+      const pct = asNumber(cu.percent)
+      if (pct !== null) return pct
+      const tokens = asNumber(cu.tokens)
+      const window = asNumber(cu.contextWindow)
+      if (tokens !== null && window !== null && window > 0) return (tokens / window) * 100
     }
 
     return null
@@ -763,10 +753,6 @@ export function ChatPane({
         void bridge.getState(paneId)
           .then((sessionState) => {
             store.getState().setPendingMessageCount(typeof sessionState.pendingMessageCount === 'number' ? sessionState.pendingMessageCount : 0)
-            store.getState().setCompactionState(
-              sessionState.isCompacting === true,
-              sessionState.autoCompactionEnabled !== false,
-            )
             // Sync session name so the sidebar can reflect auto-naming after the first prompt
             if (typeof sessionState.sessionName === 'string' && sessionState.sessionName) {
               store.getState().setSessionName(sessionState.sessionName)
@@ -818,6 +804,13 @@ export function ChatPane({
         bridge.onAutoModeResumed((data) => {
           if (data.paneId !== paneId) return
           bridge.getAutoModeState?.(paneId).then(applyAutoModeState).catch(() => {})
+        }),
+      ] : []),
+      // Real-time compaction state updates (auto-compaction start/end from agent)
+      ...(bridge.onCompactionState ? [
+        bridge.onCompactionState((data) => {
+          if (data.paneId !== paneId) return
+          store.getState().setCompactionState(data.isCompacting, data.autoCompactionEnabled)
         }),
       ] : []),
     ]
@@ -892,7 +885,6 @@ export function ChatPane({
         const state = await bridge.getState(paneId)
         if (cancelled) return
         store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
-        store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
         store.getState().setContextUsagePct(computeContextUsagePct(state))
       } catch {
         // Ignore transient git state failures.
@@ -917,39 +909,9 @@ export function ChatPane({
   }, [bridge, paneId, store, computeContextUsagePct])
 
   const isReplyAudioPlaying = voiceOwnedByThisPane && voiceStore.ttsPlaying
-  const isAssistantBusy = isGenerating || isReplyAudioPlaying
+  const isAssistantBusy = isGenerating || isReplyAudioPlaying || isCompacting
 
   // Submit handler
-  const handleSubmit = useCallback(async (text: string, imageDataUrl?: string, force = false) => {
-    const displayText = text || '[image]'
-
-    if (!force && isAssistantBusy) {
-      if (queuedPrompt) return
-      setQueuedPrompt({ label: displayText, text, imageDataUrl })
-      return
-    }
-
-    try {
-      const turn_id = await bridge.prompt(paneId, text, imageDataUrl)
-      store.getState().addUserMessage(displayText, turn_id)
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to send message'
-      store.getState().addErrorMessage(msg)
-    }
-  }, [paneId, bridge, store, isAssistantBusy, queuedPrompt])
-
-  useEffect(() => {
-    if (!queuedPrompt || isAssistantBusy) return
-
-    const nextPrompt = queuedPrompt
-    setQueuedPrompt(null)
-    void handleSubmit(nextPrompt.text, nextPrompt.imageDataUrl)
-  }, [queuedPrompt, isAssistantBusy, handleSubmit])
-
-  useEffect(() => {
-    setQueuedPrompt(null)
-  }, [currentSessionPath])
-
   const handleClearContext = useCallback(async () => {
     setQueuedPrompt(null)
     stopTts()
@@ -965,6 +927,62 @@ export function ChatPane({
       toast.error(msg)
     }
   }, [bridge, paneId, store, stopTts])
+
+  const handleCompact = useCallback(async (customInstructions?: string) => {
+    if (isAssistantBusy) {
+      toast.error('Cannot compact while generating')
+      return
+    }
+    try {
+      await bridge.compact(paneId, customInstructions || undefined)
+      toast.success('Compacting context…')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to compact context'
+      toast.error(msg)
+    }
+  }, [bridge, paneId, isAssistantBusy])
+
+  const handleSubmit = useCallback(async (text: string, imageDataUrl?: string, force = false) => {
+    const displayText = text || '[image]'
+
+    // Intercept built-in slash commands
+    const trimmed = text.trim()
+    if (trimmed === '/clear') {
+      void handleClearContext()
+      return
+    }
+    if (trimmed.startsWith('/compact')) {
+      const instructions = trimmed.slice('/compact'.length).trim()
+      void handleCompact(instructions || undefined)
+      return
+    }
+
+    if (!force && isAssistantBusy) {
+      if (queuedPrompt) return
+      setQueuedPrompt({ label: displayText, text, imageDataUrl })
+      return
+    }
+
+    try {
+      const turn_id = await bridge.prompt(paneId, text, imageDataUrl)
+      store.getState().addUserMessage(displayText, turn_id)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send message'
+      store.getState().addErrorMessage(msg)
+    }
+  }, [paneId, bridge, store, isAssistantBusy, queuedPrompt, handleClearContext, handleCompact])
+
+  useEffect(() => {
+    if (!queuedPrompt || isAssistantBusy) return
+
+    const nextPrompt = queuedPrompt
+    setQueuedPrompt(null)
+    void handleSubmit(nextPrompt.text, nextPrompt.imageDataUrl)
+  }, [queuedPrompt, isAssistantBusy, handleSubmit])
+
+  useEffect(() => {
+    setQueuedPrompt(null)
+  }, [currentSessionPath])
 
   const handleAbort = useCallback(() => {
     setQueuedPrompt(null)
@@ -1195,10 +1213,10 @@ export function ChatPane({
           <div
             draggable
             onDragStart={handleDragHandleStart}
-            className="flex-shrink-0 relative flex items-center justify-center h-5 w-full cursor-grab active:cursor-grabbing group"
+            className="flex-shrink-0 relative flex items-center justify-center h-0 hover:h-5 overflow-hidden w-full cursor-grab active:cursor-grabbing group transition-all duration-150"
             title="Drag to reorder pane"
           >
-            <div className="flex gap-0.5 opacity-20 group-hover:opacity-50 transition-opacity">
+            <div className="flex gap-0.5 opacity-0 group-hover:opacity-50 transition-opacity">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="w-0.5 h-2 rounded-full bg-text-secondary" />
               ))}
@@ -1218,7 +1236,7 @@ export function ChatPane({
         {/* Messages area */}
         <main
           ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
-          className="flex-1 overflow-y-auto px-3 py-2 min-h-0"
+          className={`flex-1 overflow-y-auto px-3 pt-2 ${MSG_LIST_PB} min-h-0`}
         >
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -1269,7 +1287,7 @@ export function ChatPane({
               const showThinking = !last || last.role === 'user' || (last.role === 'assistant' && last.contentBlocks.length === 0)
               return showThinking ? <ThinkingBubble /> : (
                 // Show subtle streaming indicator when assistant has content
-                <div className="flex w-full mb-4 justify-start">
+                <div className={`flex w-full ${MSG_BLOCK_MB} justify-start`}>
                   <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-accent/10 border border-accent/30">
                     <Loader2 className="size-3 animate-spin text-accent" />
                     <span className="text-xs text-accent font-medium">Streaming...</span>
@@ -1277,6 +1295,14 @@ export function ChatPane({
                 </div>
               )
             })()}
+            {isCompacting && (
+              <div className={`flex w-full ${MSG_BLOCK_MB} justify-start`}>
+                <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-bg-tertiary border border-border">
+                  <Loader2 className="size-3 animate-spin text-text-tertiary" />
+                  <span className="text-xs text-text-secondary font-medium">Compacting context…</span>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -1369,7 +1395,9 @@ export function ChatPane({
             isActive={isActive}
             onFocus={onFocus}
             onOpenModelPicker={() => setModelPickerOpen(true)}
+            onToggleThinkingLevel={onToggleThinkingLevel}
             contextUsagePct={contextUsagePct}
+            thinkingLevel={thinkingLevel}
           />
         )}
       </div>

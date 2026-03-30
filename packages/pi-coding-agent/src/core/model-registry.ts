@@ -508,8 +508,11 @@ export class ModelRegistry {
 	/**
 	 * Get only models that have auth configured.
 	 * This is a fast check that doesn't refresh OAuth tokens.
+	 * Reloads auth from disk first so newly-added credentials (e.g. after OAuth)
+	 * are reflected without requiring an agent restart.
 	 */
 	getAvailable(): Model<Api>[] {
+		this.authStorage.reload();
 		return this.models.filter((m) => this.authStorage.hasAuth(m.provider));
 	}
 

@@ -179,7 +179,7 @@ Glue layer that assembles all packages into a usable runtime. This is the only p
 **`modes/`** — execution modes:
 - `interactive/` — full TUI interactive session
 - `print-mode.ts` — single-shot `-p` mode
-- `rpc/` — JSON-RPC mode for programmatic use
+- `rpc/` — JSON-RPC mode for programmatic use; `get_state` now includes structured `contextUsage`, and the runtime accepts compaction requests from the Electron UI
 
 **`resources/`** — bundled skills, extensions, agent resources
 
@@ -319,6 +319,15 @@ Key features:
 - **Ephemeral state**: subItems not persisted to session JSONL; reloaded sessions show no sub-item history
 - **Lifecycle**: On `tool_execution_end`, subItems are cleared (collapsed to summary). On abort/crash, subItems freeze for debugging.
 - **Rolling idle timeout**: Safety timer resets on every event; only fires after 5 minutes of silence (not 5 minutes total)
+
+### Context Usage / Compaction (Electron)
+
+The Electron UI consumes structured context usage from RPC state and exposes explicit compaction controls:
+
+- `rpc-mode.ts` includes `contextUsage` in `get_state` so the renderer can display a real context percentage instead of guessing from message counts
+- `ChatPane.tsx` prefers `contextUsage.percent` and falls back to `tokens / contextWindow` when needed
+- The chat composer intercepts `/clear` to start a fresh session and `/compact [instructions]` to request context compaction through `agent-bridge.ts`
+- The sidebar reloads sessions when generation transitions from active to idle so auto-named sessions appear without a manual refresh
 
 ---
 

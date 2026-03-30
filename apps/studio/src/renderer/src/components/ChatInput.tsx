@@ -6,7 +6,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle, type KeyboardEvent, type ClipboardEvent } from 'react'
-import { Mic, MicOff, Volume2, Zap } from 'lucide-react'
+import { Mic, MicOff, Volume2, Zap, Terminal } from 'lucide-react'
 import { btn } from '../lib/theme'
 import { cn } from '../lib/utils'
 
@@ -14,6 +14,7 @@ export interface SkillSuggestion {
   trigger: string
   name: string
   description: string
+  kind?: 'builtin' | 'skill'
 }
 
 interface Props {
@@ -129,15 +130,22 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     el.style.height = Math.min(el.scrollHeight, 128) + 'px'
   }, [value])
 
+  // Built-in slash commands always available regardless of installed skills
+  const BUILTIN_COMMANDS: SkillSuggestion[] = [
+    { trigger: 'compact', name: 'compact', description: 'Compact conversation context (optionally add instructions)', kind: 'builtin' },
+    { trigger: 'clear', name: 'clear', description: 'Clear context and start a fresh session', kind: 'builtin' },
+  ]
+
   // Skill autocomplete: filter by text after `/`
   // Only show dropdown while typing the trigger — not after a space (skill already selected)
   const filteredSkills = (() => {
-    if (!value.startsWith('/') || !skills.length) return []
+    if (!value.startsWith('/')) return []
     const afterSlash = value.slice(1)
     if (afterSlash.includes(' ')) return [] // skill selected, stop suggesting
     const typed = afterSlash.toLowerCase()
-    if (!typed) return skills
-    return skills.filter((s) => s.trigger.toLowerCase().startsWith(typed))
+    const allCommands = [...BUILTIN_COMMANDS, ...skills]
+    if (!typed) return allCommands
+    return allCommands.filter((s) => s.trigger.toLowerCase().startsWith(typed))
   })()
 
   // Open dropdown when value starts with `/`
@@ -151,10 +159,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [value, filteredSkills.length])
 
   const selectSkill = useCallback((skill: SkillSuggestion) => {
+    if (skill.kind === 'builtin' && skill.trigger === 'clear') {
+      // /clear has no arguments — submit immediately
+      setSkillDropdownOpen(false)
+      setValue('')
+      onSubmit(`/${skill.trigger}`)
+      return
+    }
+    // /compact and all skills: fill with trailing space so the user can add arguments
     setValue(`/${skill.trigger} `)
     setSkillDropdownOpen(false)
     textareaRef.current?.focus()
-  }, [])
+  }, [onSubmit])
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Skill dropdown navigation
@@ -299,7 +315,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   })()
 
   return (
-    <div className="relative border-t border-border bg-bg-secondary px-2 py-1.5">
+    <div
+      className={cn(
+        "relative border-t px-2 py-0.5 flex items-center gap-2 transition-colors",
+        isDragging
+          ? "border-accent bg-accent/10"
+          : "border-border bg-bg-secondary"
+      )}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
         <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
@@ -354,7 +380,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
               )}
             >
-              <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
+              {skill.kind === 'builtin'
+                ? <Terminal className="h-3 w-3 flex-shrink-0 text-text-tertiary" />
+                : <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
+              }
               <span className="font-medium text-text-primary whitespace-nowrap">/{skill.trigger}</span>
               <span className="text-xs text-text-tertiary truncate">{skill.description}</span>
             </button>
@@ -384,113 +413,102 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       )}
 
-      <div 
-        className={cn(
-          "flex items-center gap-2 rounded-lg border px-2 py-0.5 focus-within:border-accent/50 transition-colors",
-          isDragging 
-            ? "border-accent bg-accent/10" 
-            : "border-border bg-bg-secondary"
-        )}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        placeholder={
+          disabled
+            ? 'Waiting for agent...'
+            : hasQueuedMessage
+              ? 'One queued message already waiting...'
+            : isGenerating
+                ? 'Type a follow-up and press Enter to queue it...'
+                : 'Ask anything...'
+        }
+        disabled={disabled}
+        readOnly={queueLocked}
+        rows={1}
+        className={[
+          'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
+          'outline-none leading-4 min-h-[28px] max-h-[100px] py-1.5',
+          'disabled:opacity-50 disabled:cursor-not-allowed',
+          queueLocked ? 'opacity-60 cursor-default select-none' : '',
+          isMobile ? 'mobile-chat-input' : '',
+        ].join(' ')}
+      />
+
+      {/* Mic / TTS button */}
+      <button
+        onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
+        disabled={!voiceAvailable || isVoiceStarting}
+        aria-label={
+          !voiceAvailable
+            ? (unavailableReason ?? 'Voice unavailable')
+            : isVoiceStarting
+              ? 'Starting voice service...'
+            : isTtsPlaying
+              ? 'Stop speaking'
+              : voiceActive
+                ? 'Stop voice mode'
+                : 'Start voice mode'
+        }
+        title={
+          !voiceAvailable
+            ? (unavailableReason ?? 'Voice unavailable')
+            : isVoiceStarting
+              ? 'Starting voice service...'
+            : isTtsPlaying
+              ? 'Stop speaking'
+              : voiceActive
+                ? isMobile ? 'Tap to stop mic' : 'Stop voice mode'
+                : isMobile ? 'Tap to start mic' : 'Start voice mode'
+        }
+        className={micButtonClass}
       >
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder={
-            disabled
-              ? 'Waiting for agent...'
-              : hasQueuedMessage
-                ? 'One queued message already waiting...'
-              : isGenerating
-                  ? 'Type a follow-up and press Enter to queue it...'
-                  : 'Ask anything... (Enter to send, Shift+Enter for newline)'
-          }
-          disabled={disabled}
-          readOnly={queueLocked}
-          rows={1}
-          className={[
-            'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
-            'outline-none leading-4 min-h-[18px] max-h-[100px]',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
-            queueLocked ? 'opacity-60 cursor-default select-none' : '',
-            isMobile ? 'mobile-chat-input' : '',
-          ].join(' ')}
-        />
-        {/* Mic / TTS button — tap-to-toggle on mobile, hold-space PTT gated on desktop */}
-        <button
-          onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
-          disabled={!voiceAvailable || isVoiceStarting}
-          aria-label={
-            !voiceAvailable
-              ? (unavailableReason ?? 'Voice unavailable')
-              : isVoiceStarting
-                ? 'Starting voice service...'
-              : isTtsPlaying
-                ? 'Stop speaking'
-                : voiceActive
-                  ? 'Stop voice mode'
-                  : 'Start voice mode'
-          }
-          title={
-            !voiceAvailable
-              ? (unavailableReason ?? 'Voice unavailable')
-              : isVoiceStarting
-                ? 'Starting voice service...'
-              : isTtsPlaying
-                ? 'Stop speaking'
-                : voiceActive
-                  ? isMobile ? 'Tap to stop mic' : 'Stop voice mode'
-                  : isMobile ? 'Tap to start mic' : 'Start voice mode'
-          }
-          className={micButtonClass}
-        >
-          {isVoiceStarting ? (
-            <svg className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
-              <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          ) : isTtsPlaying ? (
-            <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-          ) : voiceActive ? (
-            <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-          ) : (
-            <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-          )}
-        </button>
-
-        {isGenerating && (
-          <button
-            onClick={onAbort}
-            title="Stop generation"
-            className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-7 w-7')}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-              <rect x="2" y="2" width="8" height="8" rx="1" />
-            </svg>
-          </button>
+        {isVoiceStarting ? (
+          <svg className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+            <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        ) : isTtsPlaying ? (
+          <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+        ) : voiceActive ? (
+          <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+        ) : (
+          <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
         )}
+      </button>
 
+      {isGenerating && (
         <button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          title={isGenerating ? (hasQueuedMessage ? 'One queued follow-up already pending' : 'Queue follow-up message') : 'Send message'}
-          className={cn(
-            'flex-shrink-0 flex items-center justify-center h-7 w-7',
-            canSubmit
-              ? btn.primary
-              : 'rounded-lg bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
-          )}
+          onClick={onAbort}
+          title="Stop generation"
+          className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-7 w-7')}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <path d="M6 1L11 6L6 11M1 6H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <rect x="2" y="2" width="8" height="8" rx="1" />
           </svg>
         </button>
-      </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={!canSubmit}
+        title={isGenerating ? (hasQueuedMessage ? 'One queued follow-up already pending' : 'Queue follow-up message') : 'Send message'}
+        className={cn(
+          'flex-shrink-0 flex items-center justify-center h-7 w-7',
+          canSubmit
+            ? btn.primary
+            : 'rounded-lg bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
+        )}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <path d="M6 1L11 6L6 11M1 6H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      </button>
     </div>
   )
 })

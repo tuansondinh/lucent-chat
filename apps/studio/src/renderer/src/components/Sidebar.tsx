@@ -5,7 +5,7 @@
  * Supports rename (dialog) and delete (confirmation dialog) via right-click context menu.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Plus,
   Settings,
@@ -78,6 +78,8 @@ interface Props {
   onRefresh: () => void
   isCompacting?: boolean
   autoCompactionEnabled?: boolean
+  /** When generation transitions from true → false, reload sessions to pick up auto-named sessions. */
+  isGenerating?: boolean
   voiceAudioEnabled: boolean
   onVoiceAudioEnabledChange: (enabled: boolean) => void
   onOpenModelPicker?: () => void
@@ -102,6 +104,7 @@ export function Sidebar({
   onRefresh,
   isCompacting = false,
   autoCompactionEnabled = true,
+  isGenerating = false,
   voiceAudioEnabled,
   onVoiceAudioEnabledChange,
   onOpenModelPicker,
@@ -113,6 +116,7 @@ export function Sidebar({
   const changedFiles = getFileTreeStore(activePaneId)((s) => s.changedFiles)
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = getBridge()
+  const prevIsGeneratingRef = useRef(false)
 
   // -- Rename dialog state
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
@@ -129,7 +133,22 @@ export function Sidebar({
   const loadSessions = useCallback(async () => {
     try {
       const list = await bridge.getSessions(activePaneId)
-      setSessions(list)
+      const normalized = Array.isArray(list)
+        ? list.map((session) => {
+            const fallbackName = session.project?.sessionName
+              || session.project?.firstPrompt
+              || (session.path ? session.path.split(/[\\/]/).pop()?.replace(/\.jsonl$/, '') : '')
+              || 'New session'
+
+            return {
+              ...session,
+              name: typeof session.name === 'string' && session.name.trim().length > 0
+                ? session.name
+                : fallbackName,
+            }
+          })
+        : []
+      setSessions(normalized)
     } catch {
       // silently ignore
     }
@@ -138,6 +157,20 @@ export function Sidebar({
   useEffect(() => {
     void loadSessions()
   }, [loadSessions, currentSessionPath, currentSessionName])
+
+  // Reload sessions when generation ends — the agent may have just auto-named
+  // the session (first prompt), and the sidebar needs to pick up the new name.
+  useEffect(() => {
+    const wasGenerating = prevIsGeneratingRef.current
+    prevIsGeneratingRef.current = isGenerating
+    if (wasGenerating && !isGenerating) {
+      // Small delay to allow the agent to flush the session name to disk
+      const timer = setTimeout(() => {
+        void loadSessions()
+      }, 400)
+      return () => clearTimeout(timer)
+    }
+  }, [isGenerating, loadSessions])
 
   // -------------------------------------------------------------------------
   // Actions
@@ -150,10 +183,14 @@ export function Sidebar({
 
   const handleSwitchSession = async (path: string) => {
     if (path === currentSessionPath) return
-    const result = await bridge.switchSession(activePaneId, path)
-    if (!result.cancelled) {
-      await loadSessions()
-      onSwitchSession(path)
+    try {
+      const result = await bridge.switchSession(activePaneId, path)
+      if (!result.cancelled) {
+        await loadSessions()
+        onSwitchSession(path)
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -201,7 +238,7 @@ export function Sidebar({
 
   if (collapsed) {
     return (
-      <div className={`flex h-full w-10 flex-shrink-0 flex-col overflow-hidden border-r border-border ${chrome.bar}`}>
+      <div className={`flex h-full w-10 flex-shrink-0 flex-col overflow-hidden ${chrome.bar}`}>
         <div className="flex flex-1 flex-col items-center gap-1.5 px-1 py-2">
           <button
             onClick={onToggleCollapse}
@@ -279,7 +316,7 @@ export function Sidebar({
 
   return (
     <>
-      <div className={`flex flex-col h-full w-full min-w-0 border-r border-border ${chrome.bar} overflow-hidden`}>
+      <div className={`flex flex-col h-full w-full min-w-0 ${chrome.bar} overflow-hidden`}>
         {/* Header actions */}
         <div className="px-3 py-2 flex-shrink-0 flex items-center gap-2">
           <button
@@ -364,6 +401,7 @@ export function Sidebar({
                           onSelect={() => void handleSwitchSession(session.path)}
                           onRename={() => handleRenameOpen(session)}
                           onDelete={() => setDeleteTarget(session)}
+                          projectLabel={session.project?.projectRoot}
                         />
                       )
                     })}
@@ -525,10 +563,11 @@ function groupSessionsByProject(sessions: Session[]): Array<{ key: string; label
 
   for (const session of sessions) {
     const project = session.project
-    const key = project?.projectRoot ?? '__ungrouped__'
-    const label = project?.projectRoot
-      ? project.projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? project.projectRoot
-      : 'Other sessions'
+    const derivedRoot = project?.projectRoot
+    const key = (derivedRoot ?? session.path.split(/[\\/]/).slice(0, -1).join('/')) || '__ungrouped__'
+    const label = derivedRoot
+      ? derivedRoot.split(/[\\/]/).filter(Boolean).pop() ?? derivedRoot
+      : (session.path.split(/[\\/]/).slice(0, -1).filter(Boolean).pop() ?? 'Other sessions')
 
     const existing = groups.get(key)
     if (existing) {
@@ -571,10 +610,17 @@ interface SessionItemProps {
   onSelect: () => void
   onRename: () => void
   onDelete: () => void
+  projectLabel?: string
 }
 
-function SessionItem({ session, isActive, onSelect, onRename, onDelete }: SessionItemProps) {
+function SessionItem({ session, isActive, onSelect, onRename, onDelete, projectLabel }: SessionItemProps) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const shortProjectLabel = projectLabel
+    ? projectLabel.split(/[\\/]/).filter(Boolean).pop() ?? projectLabel
+    : null
+  const displayName = (typeof session.name === 'string' && session.name.trim().length > 0
+    ? session.name
+    : session.project?.sessionName || session.project?.firstPrompt || 'New session')
 
   return (
     <div
@@ -585,16 +631,24 @@ function SessionItem({ session, isActive, onSelect, onRename, onDelete }: Sessio
           : 'text-text-secondary hover:bg-accent/10 hover:text-accent active:bg-accent/20',
       )}
       onClick={onSelect}
+      title={displayName}
     >
       <MessageSquare
         className={cn('w-3.5 h-3.5 flex-shrink-0', isActive ? 'text-accent' : 'text-text-tertiary')}
       />
 
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium truncate leading-tight">{session.name}</p>
-        <p className="text-[10px] text-text-tertiary leading-tight mt-0.5">
-          {relativeTime(session.modified)}
-        </p>
+        <p className="text-xs font-medium truncate leading-tight text-text-primary">{displayName}</p>
+        <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+          {shortProjectLabel && (
+            <span className="truncate text-[10px] text-text-tertiary/90">
+              {shortProjectLabel}
+            </span>
+          )}
+          <span className="text-[10px] text-text-tertiary leading-tight truncate">
+            {relativeTime(session.modified)}
+          </span>
+        </div>
       </div>
 
       {/* Context menu trigger — visible on hover or when menu is open */}

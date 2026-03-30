@@ -291,6 +291,7 @@ app.whenReady().then(async () => {
   }
   // Pass permission mode so the agent can register the stdio approval handler
   agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
+  agentEnv.GSD_STUDIO_THINKING_LEVEL = settings.thinkingLevel ?? 'medium'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
 
@@ -323,7 +324,7 @@ app.whenReady().then(async () => {
     },
   }, { workspaceLabel: initialProjectRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace' })
 
-  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
+  paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot, broadcast)
 
   // Forward health events for pane-0 to renderer and PWA clients (with paneId)
   processManager.on('health', (states: Record<string, string>) => {

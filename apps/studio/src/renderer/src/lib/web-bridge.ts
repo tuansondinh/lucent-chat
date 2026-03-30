@@ -201,6 +201,10 @@ export class WebBridge implements Bridge {
     return this.cmd('new-session', paneId)
   }
 
+  compact(paneId: string, customInstructions?: string): Promise<void> {
+    return this.cmd('compact', paneId, customInstructions)
+  }
+
   switchSession(paneId: string, sessionPath: string): Promise<{ cancelled: boolean }> {
     return this.cmd('switch-session', paneId, sessionPath)
   }
@@ -522,6 +526,10 @@ export class WebBridge implements Bridge {
 
   onAutoModeResumed(cb: (data: unknown) => void): () => void {
     return this.bus.on('event:auto-mode-resumed', cb)
+  }
+
+  onCompactionState(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:compaction-state', cb)
   }
 
   togglePanePermissionMode(paneId: string): Promise<'danger-full-access' | 'accept-on-edit' | 'auto'> {

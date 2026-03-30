@@ -30,6 +30,7 @@ export interface GitFileDiff {
 
 export interface RendererSettings {
   defaultModel?: { provider: string; modelId: string }
+  thinkingLevel?: 'low' | 'medium' | 'high'
   theme: 'dark'
   fontSize: number
   sidebarCollapsed: boolean
@@ -84,6 +85,9 @@ const bridge = {
   /** Start a new session in a specific pane. */
   newSession: (paneId: string): Promise<{ cancelled: boolean }> =>
     ipcRenderer.invoke('cmd:new-session', paneId),
+
+  compact: (paneId: string, customInstructions?: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:compact', paneId, customInstructions),
 
   /** Switch to a saved session by file path in a specific pane. */
   switchSession: (paneId: string, sessionPath: string): Promise<{ cancelled: boolean }> =>
@@ -144,6 +148,10 @@ const bridge = {
   /** Persist a partial settings update. Returns the full updated settings. */
   setSettings: (settings: Record<string, unknown>): Promise<RendererSettings> =>
     ipcRenderer.invoke('cmd:set-settings', settings),
+
+  /** Change the runtime thinking/reasoning level for a specific pane. */
+  setThinkingLevel: (paneId: string, level: 'low' | 'medium' | 'high'): Promise<void> =>
+    ipcRenderer.invoke('cmd:set-thinking-level', paneId, level),
 
   /** Open a URL in the system's default browser. Only http/https allowed. */
   openExternal: (url: string): Promise<void> =>
@@ -412,6 +420,13 @@ const bridge = {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:text-block-end', handler)
     return () => ipcRenderer.removeListener('event:text-block-end', handler)
+  },
+
+  /** Auto-compaction state changed (start/end). Returns unsubscribe function. */
+  onCompactionState: (cb: (data: { paneId: string; isCompacting: boolean; autoCompactionEnabled: boolean }) => void): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:compaction-state', handler)
+    return () => ipcRenderer.removeListener('event:compaction-state', handler)
   },
 
 

@@ -23,6 +23,7 @@ Lucent Code is a desktop AI chat application with voice input/output capabilitie
 - **Model switching** — Support for multiple AI providers (Claude, OpenAI, local models)
 - **Integrated terminal** — On-demand terminal panel for command-line operations
 - **Subagent visibility** — Real-time tool call progress for subagents (bounded display with collapsible summary)
+- **Context controls** — Built-in `/clear` and `/compact` chat commands, plus context usage shown in the UI
 - **Command palette** — Quick access to all features via Cmd+K
 
 ---

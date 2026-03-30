@@ -38,6 +38,6 @@ export const btn = { icon, ghost, outline, primary, danger }
  * Change values here to retheme all chrome surfaces at once.
  */
 export const chrome = {
-  bar: 'bg-bg-primary',
+  bar: 'bg-[var(--color-bg-chrome)]',
   text: 'text-[11px] font-sans text-text-secondary tracking-wide',
 }

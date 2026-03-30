@@ -13,6 +13,7 @@
  *   Cmd+E       → toggle explorer in sidebar
  *   Cmd+Shift+F → toggle file viewer
  *   Cmd+T       → toggle terminal panel
+ *   Shift+T     → cycle thinking level
  *   Voice PTT   → configurable in Settings (default: hold Space)
  */
 
@@ -75,6 +76,8 @@ function renderLayoutNode(
   paneCount: number,
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
   voiceAudioEnabled: boolean,
+  thinkingLevel: 'low' | 'medium' | 'high',
+  onToggleThinkingLevel: () => void,
   textToSpeechMode: boolean,
   setActivePane: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
@@ -89,6 +92,8 @@ function renderLayoutNode(
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
         voiceAudioEnabled={voiceAudioEnabled}
+        thinkingLevel={thinkingLevel}
+        onToggleThinkingLevel={onToggleThinkingLevel}
         textToSpeechMode={textToSpeechMode}
         onFocus={() => setActivePane(node.paneId)}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
@@ -100,8 +105,8 @@ function renderLayoutNode(
   const isHorizontal = node.orientation === 'horizontal'
   const minSize = isHorizontal ? 10 : 15
   const handleClass = isHorizontal
-    ? 'w-0.5 bg-border hover:bg-accent/60 transition-colors cursor-col-resize flex-shrink-0'
-    : 'h-0.5 bg-border hover:bg-accent/60 transition-colors cursor-row-resize flex-shrink-0'
+    ? 'w-0.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors cursor-col-resize flex-shrink-0'
+    : 'h-0.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors cursor-row-resize flex-shrink-0'
 
   const panels: ReactNode[] = []
   node.children.forEach((child, idx) => {
@@ -117,7 +122,7 @@ function renderLayoutNode(
     const childKey = child.type === 'leaf' ? child.paneId : child.id
     panels.push(
       <Panel key={childKey} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, textToSpeechMode, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, thinkingLevel, onToggleThinkingLevel, textToSpeechMode, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>,
     )
   })
@@ -179,9 +184,10 @@ export default function App() {
   const [fileViewerOpen, setFileViewerOpen] = useState(false)
   const [fileViewerWidth, setFileViewerWidth] = useState(440)
   const [sidebarWidth, setSidebarWidth] = useState(280)
-  const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
+  const [sidebarView, setSidebarView] = useState<SidebarView>('sessions')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
+  const [thinkingLevel, setThinkingLevel] = useState<'low' | 'medium' | 'high'>('medium')
   const [textToSpeechMode, setTextToSpeechMode] = useState(false)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
   // Reconnect banner state (PWA only)
@@ -204,11 +210,13 @@ export default function App() {
   const modelPickerOpenRef = useRef(modelPickerOpen)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
   const sidebarViewRef = useRef(sidebarView)
+  const thinkingLevelRef = useRef(thinkingLevel)
   useEffect(() => { commandPaletteOpenRef.current = commandPaletteOpen }, [commandPaletteOpen])
   useEffect(() => { settingsOpenRef.current = settingsOpen }, [settingsOpen])
   useEffect(() => { modelPickerOpenRef.current = modelPickerOpen }, [modelPickerOpen])
   useEffect(() => { sidebarCollapsedRef.current = sidebarCollapsed }, [sidebarCollapsed])
   useEffect(() => { sidebarViewRef.current = sidebarView }, [sidebarView])
+  useEffect(() => { thinkingLevelRef.current = thinkingLevel }, [thinkingLevel])
 
   // -------------------------------------------------------------------------
   // Load persisted settings on mount
@@ -227,6 +235,9 @@ export default function App() {
         }
         if (s.voiceAudioEnabled === false) {
           setVoiceAudioEnabled(false)
+        }
+        if (s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
+          setThinkingLevel(s.thinkingLevel)
         }
         if (s.textToSpeechMode === true) {
           setTextToSpeechMode(true)
@@ -423,13 +434,28 @@ export default function App() {
     bridge.setSettings({ voiceAudioEnabled: enabled }).catch(() => {})
   }, [bridge])
 
+  const handleThinkingLevelChange = useCallback((level: 'low' | 'medium' | 'high') => {
+    setThinkingLevel(level)
+    bridge.setSettings({ thinkingLevel: level }).catch(() => {})
+  }, [bridge])
+
+  const cycleThinkingLevel = useCallback(() => {
+    const currentLevel = thinkingLevelRef.current
+    const nextLevel = currentLevel === 'low'
+      ? 'medium'
+      : currentLevel === 'medium'
+        ? 'high'
+        : 'low'
+    handleThinkingLevelChange(nextLevel)
+  }, [handleThinkingLevelChange])
+
   const handleToggleExplorer = useCallback(() => {
     if (sidebarCollapsedRef.current) {
       setSidebarCollapsed(false)
       setSidebarView('explorer')
       return
     }
-    setSidebarView(sidebarViewRef.current === 'explorer' ? 'sessions' : 'explorer')
+    setSidebarView((current) => (current === 'explorer' ? 'sessions' : 'explorer'))
   }, [])
 
   const handleNewSession = useCallback(async () => {
@@ -442,6 +468,7 @@ export default function App() {
   }, [bridge, activePaneId, syncPaneState])
 
   const handleSwitchSession = useCallback(async (path: string) => {
+    await syncPaneState(activePaneId).catch(() => {})
     const history = await bridge.getMessages(activePaneId).catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
     getPaneStore(activePaneId).getState().loadHistory(history)
     getPaneStore(activePaneId).getState().setSessionPath(path)
@@ -813,6 +840,13 @@ export default function App() {
         }
       }
 
+      // Shift+T — cycle the app thinking level
+      if (!isModalOpen && !e.metaKey && !e.ctrlKey && !e.altKey && e.shiftKey && e.code === 'KeyT') {
+        e.preventDefault()
+        cycleThinkingLevel()
+        return
+      }
+
       // Cmd+Option+Arrow — spatial pane navigation (desktop only)
       if (!mobile && e.metaKey && e.altKey) {
         if (!isModalOpen) {
@@ -884,6 +918,8 @@ export default function App() {
     paneCount,
     voicePttShortcut,
     voiceAudioEnabled,
+    thinkingLevel,
+    cycleThinkingLevel,
     textToSpeechMode,
     setActivePane,
     handleClosePane,
@@ -955,6 +991,8 @@ export default function App() {
           onVoicePttShortcutChange={setVoicePttShortcut}
           voiceAudioEnabled={voiceAudioEnabled}
           onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+          thinkingLevel={thinkingLevel}
+          onThinkingLevelChange={handleThinkingLevelChange}
           isMobile={isMobile}
         />
       </div>
@@ -1098,6 +1136,9 @@ export default function App() {
             sidebarCollapsed
             voicePttShortcut={voicePttShortcut}
             voiceAudioEnabled={voiceAudioEnabled}
+            thinkingLevel={thinkingLevel}
+            onToggleThinkingLevel={cycleThinkingLevel}
+            textToSpeechMode={textToSpeechMode}
             onFocus={() => {}}
             onOpenFile={handleOpenFile}
             isMobile
