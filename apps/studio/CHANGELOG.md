@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.60.0 / Studio 0.9.10 — 2026-03-30
+## v2.60.0 / Studio 1.0.0 — 2026-03-30
 
 ### Added
 - Added SplashScreen for initial application load.

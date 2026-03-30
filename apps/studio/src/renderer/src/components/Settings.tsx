@@ -65,6 +65,8 @@ interface SettingsProps {
   onVoicePttShortcutChange: (value: 'space' | 'alt+space' | 'cmd+shift+space') => void
   voiceAudioEnabled: boolean
   onVoiceAudioEnabledChange: (enabled: boolean) => void
+  textToSpeechMode: boolean
+  onTextToSpeechModeChange: (enabled: boolean) => void
   thinkingLevel: 'low' | 'medium' | 'high'
   onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
   notificationSoundEnabled: boolean
@@ -182,6 +184,8 @@ export function Settings({
   onVoicePttShortcutChange,
   voiceAudioEnabled,
   onVoiceAudioEnabledChange,
+  textToSpeechMode,
+  onTextToSpeechModeChange,
   thinkingLevel,
   onThinkingLevelChange,
   notificationSoundEnabled,
@@ -203,7 +207,7 @@ export function Settings({
   const [localThinkingLevel, setLocalThinkingLevel] = useState<'low' | 'medium' | 'high'>(thinkingLevel)
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
   const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(true)
-  const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(false)
+  const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(textToSpeechMode)
   const [localNotificationSoundEnabled, setLocalNotificationSoundEnabled] = useState(notificationSoundEnabled)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
@@ -384,8 +388,8 @@ export function Settings({
 
   const handleTextToSpeechModeChange = useCallback((enabled: boolean) => {
     setLocalTextToSpeechMode(enabled)
-    bridge.setSettings({ textToSpeechMode: enabled }).catch(() => {})
-  }, [bridge])
+    onTextToSpeechModeChange(enabled)
+  }, [onTextToSpeechModeChange])
 
   const handleNotificationSoundEnabledChange = useCallback((enabled: boolean) => {
     setLocalNotificationSoundEnabled(enabled)

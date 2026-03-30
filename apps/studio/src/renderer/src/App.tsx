@@ -565,6 +565,11 @@ export default function App() {
     bridge.setSettings({ voiceAudioEnabled: enabled }).catch(() => {})
   }, [bridge])
 
+  const handleTextToSpeechModeChange = useCallback((enabled: boolean) => {
+    setTextToSpeechMode(enabled)
+    bridge.setSettings({ textToSpeechMode: enabled }).catch(() => {})
+  }, [bridge])
+
   const handleNotificationSoundEnabledChange = useCallback((enabled: boolean) => {
     setNotificationSoundEnabled(enabled)
     bridge.setSettings({ notificationSoundEnabled: enabled }).catch(() => {})
@@ -1138,6 +1143,8 @@ export default function App() {
           onVoicePttShortcutChange={setVoicePttShortcut}
           voiceAudioEnabled={voiceAudioEnabled}
           onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
+          textToSpeechMode={textToSpeechMode}
+          onTextToSpeechModeChange={handleTextToSpeechModeChange}
           thinkingLevel={thinkingLevel}
           onThinkingLevelChange={handleThinkingLevelChange}
           notificationSoundEnabled={notificationSoundEnabled}
