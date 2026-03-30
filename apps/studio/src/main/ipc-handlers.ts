@@ -207,7 +207,6 @@ export function registerIpcHandlers(
   ipcMain.handle('cmd:set-thinking-level', async (_event, paneId: string, level: 'low' | 'medium' | 'high') => {
     const pane = paneManager.getPane(paneId)
     if (!pane) throw new Error(`Unknown pane: ${paneId}`)
-    settingsService.save({ thinkingLevel: level })
     await pane.agentBridge.setThinkingLevel(level)
   })
 
@@ -455,20 +454,20 @@ export function registerIpcHandlers(
   // Terminal — not pane-specific
   // --------------------------------------------------------------------------
 
-  ipcMain.handle('cmd:terminal-create', () => {
-    terminalManager.create('main')
+  ipcMain.handle('cmd:terminal-create', (_event, data: { terminalId: string }) => {
+    terminalManager.create(data.terminalId)
   })
 
-  ipcMain.handle('cmd:terminal-input', (_event, data: { data: string }) => {
-    terminalManager.write('main', data.data)
+  ipcMain.handle('cmd:terminal-input', (_event, data: { terminalId: string; data: string }) => {
+    terminalManager.write(data.terminalId, data.data)
   })
 
-  ipcMain.handle('cmd:terminal-resize', (_event, data: { cols: number; rows: number }) => {
-    terminalManager.resize('main', data.cols, data.rows)
+  ipcMain.handle('cmd:terminal-resize', (_event, data: { terminalId: string; cols: number; rows: number }) => {
+    terminalManager.resize(data.terminalId, data.cols, data.rows)
   })
 
-  ipcMain.handle('cmd:terminal-destroy', () => {
-    terminalManager.destroy('main')
+  ipcMain.handle('cmd:terminal-destroy', (_event, data: { terminalId: string }) => {
+    terminalManager.destroy(data.terminalId)
   })
 
 

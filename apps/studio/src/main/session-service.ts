@@ -54,6 +54,9 @@ export class SessionService {
   /** In-memory cache of the current active session path. */
   private activeSessionId: string | null = null
 
+  /** Serializes concurrent writes to the per-project session map file. */
+  private writeQueue: Promise<void> = Promise.resolve()
+
   constructor(private agentBridge: AgentBridge) {}
 
   // =========================================================================
@@ -232,8 +235,9 @@ export class SessionService {
 
   setProjectSession(projectRoot: string, sessionPath: string, metadata?: { sessionName?: string | null; firstPrompt?: string | null }): void {
     const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
-    mkdir(dirname(this.perProjectSessionFile), { recursive: true })
-      .then(async () => {
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        await mkdir(dirname(this.perProjectSessionFile), { recursive: true })
         const map = await this.readPerProjectSessionMap()
         map[normalizedProjectRoot] = {
           projectRoot: normalizedProjectRoot,
@@ -242,13 +246,14 @@ export class SessionService {
           ...(metadata?.firstPrompt ? { firstPrompt: metadata.firstPrompt } : {}),
         }
         await writeFile(this.perProjectSessionFile, JSON.stringify(map, null, 2), 'utf8')
-      })
-      .catch((err: Error) => {
-        console.warn('[session-service] failed to persist per-project session:', err.message)
-      })
+      } catch (err) {
+        console.warn('[session-service] failed to persist per-project session:', (err as Error).message)
+      }
+    })
   }
 
   async getProjectSession(projectRoot: string): Promise<string | null> {
+    await this.writeQueue
     const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
     const map = await this.readPerProjectSessionMap()
     const entry = map[normalizedProjectRoot]
@@ -257,6 +262,7 @@ export class SessionService {
   }
 
   async getProjectSessionState(projectRoot: string): Promise<SessionProjectState | null> {
+    await this.writeQueue
     const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
     const map = await this.readPerProjectSessionMap()
     return map[normalizedProjectRoot] ?? null
@@ -297,15 +303,20 @@ export class SessionService {
   }
 
   async syncProjectSessionFromAgent(projectRoot: string, firstPrompt?: string): Promise<string | null> {
-    const sessionFile = await this.syncActiveSessionFromAgent()
-    if (sessionFile) {
-      const state = await this.agentBridge.getState().catch(() => null)
-      const sessionName = typeof state?.sessionName === 'string' && state.sessionName.length > 0
-        ? state.sessionName
-        : undefined
-      this.setProjectSession(projectRoot, sessionFile, { sessionName, firstPrompt })
+    try {
+      const state = await this.agentBridge.getState()
+      const sessionFile = typeof state.sessionFile === 'string' ? state.sessionFile : null
+      if (sessionFile) {
+        this.setActiveSessionId(sessionFile)
+        const sessionName = typeof state?.sessionName === 'string' && state.sessionName.length > 0
+          ? state.sessionName
+          : undefined
+        this.setProjectSession(projectRoot, sessionFile, { sessionName, firstPrompt })
+      }
+      return sessionFile
+    } catch {
+      return this.activeSessionId
     }
-    return sessionFile
   }
 
   // =========================================================================

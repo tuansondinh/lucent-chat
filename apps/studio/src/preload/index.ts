@@ -293,21 +293,21 @@ const bridge = {
   // Terminal commands — not pane-specific
   // -------------------------------------------------------------------------
 
-  /** Spawn (or re-spawn) the main terminal process. */
-  terminalCreate: (): Promise<void> =>
-    ipcRenderer.invoke('cmd:terminal-create'),
+  /** Spawn (or re-spawn) a terminal process for the given id. */
+  terminalCreate: (terminalId: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-create', { terminalId }),
 
   /** Send raw input data to the terminal. */
-  terminalInput: (data: string): Promise<void> =>
-    ipcRenderer.invoke('cmd:terminal-input', { data }),
+  terminalInput: (terminalId: string, data: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-input', { terminalId, data }),
 
   /** Notify the pty of a terminal resize. */
-  terminalResize: (cols: number, rows: number): Promise<void> =>
-    ipcRenderer.invoke('cmd:terminal-resize', { cols, rows }),
+  terminalResize: (terminalId: string, cols: number, rows: number): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-resize', { terminalId, cols, rows }),
 
-  /** Kill the main terminal process. */
-  terminalDestroy: (): Promise<void> =>
-    ipcRenderer.invoke('cmd:terminal-destroy'),
+  /** Kill the terminal process for the given id. */
+  terminalDestroy: (terminalId: string): Promise<void> =>
+    ipcRenderer.invoke('cmd:terminal-destroy', { terminalId }),
 
   // -------------------------------------------------------------------------
   // Events (main → renderer) — all pane-specific events include paneId
@@ -374,8 +374,8 @@ const bridge = {
   },
 
   /** Terminal output data from the pty. Returns unsubscribe function. */
-  onTerminalData: (cb: (data: string) => void): (() => void) => {
-    const handler = (_e: any, payload: { data: string }) => cb(payload.data)
+  onTerminalData: (cb: (payload: { terminalId: string; data: string }) => void): (() => void) => {
+    const handler = (_e: any, payload: { terminalId: string; data: string }) => cb(payload)
     ipcRenderer.on('event:terminal-data', handler)
     return () => ipcRenderer.removeListener('event:terminal-data', handler)
   },

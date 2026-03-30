@@ -4,6 +4,11 @@ Lucent Code is a desktop chat app for coding workflows with built-in voice input
 
 ## Development
 
+## Runtime docs
+
+- [Runtime Tools Guide](docs/runtime-tools.md) — how tool awareness works, and when to use `async_bash` / `await_job` vs `bg_shell`
+
+
 Run the Electron app:
 
 ```bash

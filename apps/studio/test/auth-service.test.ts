@@ -330,7 +330,8 @@ test('AuthService: handles corrupted auth.json gracefully', async () => {
     assert.ok(Array.isArray(statuses))
 
     // All providers should be unconfigured via file (env vars may still be set)
-    const configuredViaFile = statuses.filter((s) => s.configuredVia === 'auth_file')
+    // (exclude openai-codex which uses ~/.codex/auth.json external to the service)
+    const configuredViaFile = statuses.filter((s) => s.configuredVia === 'auth_file' && s.id !== 'openai-codex')
     assert.equal(configuredViaFile.length, 0)
   } finally {
     await rm(base, { recursive: true, force: true })

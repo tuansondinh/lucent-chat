@@ -113,20 +113,21 @@ function PaneFooter({
   onFocus,
   onOpenModelPicker,
   onToggleThinkingLevel,
+  onSwitchToTerminal,
   contextUsagePct,
-  thinkingLevel,
 }: {
   paneId: string
   isActive: boolean
   onFocus: () => void
   onOpenModelPicker: () => void
   onToggleThinkingLevel: () => void
+  onSwitchToTerminal?: () => void
   contextUsagePct: number | null
-  thinkingLevel: 'low' | 'medium' | 'high'
 }) {
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
   const currentModel = getPaneStore(paneId)((s) => s.currentModel)
+  const thinkingLevel = getPaneStore(paneId)((s) => s.thinkingLevel)
   const permissionMode = getPaneStore(paneId)((s) => s.permissionMode)
   const bridge = getBridge()
   const footerRef = useRef<HTMLDivElement>(null)
@@ -321,6 +322,20 @@ function PaneFooter({
         )}
       </button>
 
+      {onSwitchToTerminal && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            if (!isActive) onFocus()
+            onSwitchToTerminal()
+          }}
+          title="Switch this pane to terminal"
+          className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
+        >
+          <span className="font-medium">Term</span>
+        </button>
+      )}
+
       {/* Model picker */}
       <button
         onClick={(e) => {
@@ -355,10 +370,8 @@ interface ChatPaneProps {
   voiceAudioEnabled: boolean
   /** When true, all text responses are spoken (TTS-only mode). */
   textToSpeechMode: boolean
-  /** App-level default reasoning level shown in the pane footer. */
-  thinkingLevel: 'low' | 'medium' | 'high'
-  /** Cycle the app-level thinking level shown in the pane footer. */
-  onToggleThinkingLevel: () => void
+  /** Switch this pane from chat mode into terminal mode. */
+  onSwitchToTerminal?: () => void
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
   /** Called to close this pane — undefined if this is the only pane. */
@@ -375,7 +388,7 @@ const BRANCH_POLL_INTERVAL_MS = 3_000
 const keyboardShortcuts = [
   { key: <><Kbd>⌘</Kbd><Kbd>K</Kbd></>, label: 'Command palette' },
   { key: <><Kbd>hold</Kbd><Kbd>␣</Kbd></>, label: 'Push to talk' },
-  { key: <><Kbd>⌘</Kbd><Kbd>M</Kbd></>, label: 'Model picker' },
+  { key: <><Kbd>⌘</Kbd><Kbd>P</Kbd></>, label: 'Model picker' },
   { key: <><Kbd>⌘</Kbd><Kbd>E</Kbd></>, label: 'File explorer' },
   { key: <><Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd></>, label: 'File viewer' },
   { key: <><Kbd>⌘</Kbd><Kbd>B</Kbd></>, label: 'Toggle sidebar' },
@@ -398,8 +411,7 @@ export function ChatPane({
   voicePttShortcut,
   voiceAudioEnabled,
   textToSpeechMode,
-  thinkingLevel,
-  onToggleThinkingLevel,
+  onSwitchToTerminal,
   onFocus,
   onClose,
   onOpenFile,
@@ -1033,6 +1045,14 @@ export function ChatPane({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
+  const handleCycleThinkingLevel = useCallback(() => {
+    const current = getPaneStore(paneId).getState().thinkingLevel
+    const next: 'low' | 'medium' | 'high' =
+      current === 'low' ? 'medium' : current === 'medium' ? 'high' : 'low'
+    getPaneStore(paneId).getState().setThinkingLevel(next)
+    bridge.setThinkingLevel(paneId, next).catch(() => {})
+  }, [paneId, bridge])
+
   // Listen for per-pane permission mode changes from main process
   useEffect(() => {
     if (!bridge.onPanePermissionModeChanged) return
@@ -1395,9 +1415,9 @@ export function ChatPane({
             isActive={isActive}
             onFocus={onFocus}
             onOpenModelPicker={() => setModelPickerOpen(true)}
-            onToggleThinkingLevel={onToggleThinkingLevel}
+            onToggleThinkingLevel={handleCycleThinkingLevel}
+            onSwitchToTerminal={onSwitchToTerminal}
             contextUsagePct={contextUsagePct}
-            thinkingLevel={thinkingLevel}
           />
         )}
       </div>

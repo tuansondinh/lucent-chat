@@ -82,7 +82,7 @@ class MockPaneManager {
     return Array.from(this.panes.keys())
   }
 
-  async createPane() {
+  createPane() {
     const id = `pane-${this.nextIndex++}`
     const pane = this.createMockPane(id)
     this.panes.set(id, pane)
@@ -668,16 +668,16 @@ test('IPC: terminal commands use global terminal', async (t) => {
   setupIpc()
 
   // Create terminal
-  await ipcMain.invoke('cmd:terminal-create')
+  await ipcMain.invoke('cmd:terminal-create', { terminalId: 'test-terminal' })
 
   // Send input
-  await ipcMain.invoke('cmd:terminal-input', { data: 'ls' })
+  await ipcMain.invoke('cmd:terminal-input', { terminalId: 'test-terminal', data: 'ls' })
 
   // Resize
-  await ipcMain.invoke('cmd:terminal-resize', { cols: 80, rows: 24 })
+  await ipcMain.invoke('cmd:terminal-resize', { terminalId: 'test-terminal', cols: 80, rows: 24 })
 
   // Destroy
-  await ipcMain.invoke('cmd:terminal-destroy')
+  await ipcMain.invoke('cmd:terminal-destroy', { terminalId: 'test-terminal' })
 
   assert.ok(true, 'terminal commands should work')
 })

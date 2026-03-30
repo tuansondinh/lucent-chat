@@ -41,7 +41,11 @@ const XTERM_THEME = {
   brightWhite: '#e0e0e0',
 }
 
-export function Terminal() {
+interface TerminalProps {
+  terminalId?: string
+}
+
+export function Terminal({ terminalId = 'main' }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Keep stable refs so effects don't need them as deps
   const xtermRef = useRef<XTerm | null>(null)
@@ -77,17 +81,18 @@ export function Terminal() {
     // -------------------------------------------------------------------------
     // Spawn the pty, subscribe to output
     // -------------------------------------------------------------------------
-    bridge.terminalCreate().catch((err: unknown) => {
+    bridge.terminalCreate(terminalId).catch((err: unknown) => {
       console.error('[Terminal] terminalCreate failed:', err)
     })
 
-    const unsubData = bridge.onTerminalData((data: string) => {
-      xterm.write(data)
+    const unsubData = bridge.onTerminalData((payload: { terminalId: string; data: string }) => {
+      if (payload.terminalId !== terminalId) return
+      xterm.write(payload.data)
     })
 
     // Forward keyboard input to the pty
     xterm.onData((data: string) => {
-      bridge.terminalInput(data).catch((err: unknown) => {
+      bridge.terminalInput(terminalId, data).catch((err: unknown) => {
         console.error('[Terminal] terminalInput failed:', err)
       })
     })
@@ -100,7 +105,7 @@ export function Terminal() {
       try {
         fitAddon.fit()
         const { cols, rows } = xterm
-        bridge.terminalResize(cols, rows).catch((err: unknown) => {
+        bridge.terminalResize(terminalId, cols, rows).catch((err: unknown) => {
           console.error('[Terminal] terminalResize failed:', err)
         })
       } catch {
@@ -116,12 +121,12 @@ export function Terminal() {
     return () => {
       resizeObserver.disconnect()
       unsubData()
-      bridge.terminalDestroy().catch(() => {})
+      bridge.terminalDestroy(terminalId).catch(() => {})
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [terminalId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div

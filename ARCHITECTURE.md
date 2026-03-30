@@ -163,6 +163,8 @@ The reasoning and tool-calling loop, decoupled from any UI.
 
 Glue layer that assembles all packages into a usable runtime. This is the only package the CLI and Electron app need to import.
 
+See also: [`docs/runtime-tools.md`](docs/runtime-tools.md) for how the runtime exposes tool usage guidance to the model, and when to use `async_bash` / `await_job` vs `bg_shell`.
+
 **`core/`** — session lifecycle and services:
 - `agent-session.ts` — binds agent to a session
 - `session-manager.ts` — CRUD for local session persistence

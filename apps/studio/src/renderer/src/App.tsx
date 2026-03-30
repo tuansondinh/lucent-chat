@@ -12,7 +12,7 @@
  *   Cmd+1-4     → focus pane 1-4
  *   Cmd+E       → toggle explorer in sidebar
  *   Cmd+Shift+F → toggle file viewer
- *   Cmd+T       → toggle terminal panel
+ *   Cmd+T       → toggle active pane terminal mode
  *   Shift+T     → cycle thinking level
  *   Voice PTT   → configurable in Settings (default: hold Space)
  */
@@ -21,9 +21,9 @@ import { useEffect, useCallback, useState, useRef, lazy, Suspense, type ReactNod
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
 import { Menu, X, RefreshCw, LogIn, AlertTriangle } from 'lucide-react'
-import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneOrientation } from './store/pane-store'
+import { usePanesStore, getPaneStore, deletePaneStore, collectLeafIds, countLeaves, type LayoutNode, type PaneMode, type PaneOrientation } from './store/pane-store'
 import { getFileTreeStore, deleteFileTreeStore } from './store/file-tree-store'
-import { findPaneInDirection, focusPane, type Direction } from './lib/pane-refs'
+import { findPaneInDirection, focusPane, registerPaneElement, registerPaneFocus, type Direction } from './lib/pane-refs'
 import { getBridge } from './lib/bridge'
 import { ChatPane } from './components/ChatPane'
 import { Sidebar, type SidebarView } from './components/Sidebar'
@@ -69,21 +69,104 @@ function clampFileViewerWidth(
 // Layout tree renderer (module-level to avoid re-creation on each render)
 // ============================================================================
 
+function PaneTerminal({
+  paneId,
+  isActive,
+  onFocus,
+  onSwitchToChat,
+  onClose,
+}: {
+  paneId: string
+  isActive: boolean
+  onFocus: () => void
+  onSwitchToChat: () => void
+  onClose?: () => void
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    registerPaneElement(paneId, rootRef.current)
+    return () => registerPaneElement(paneId, null)
+  }, [paneId])
+
+  useEffect(() => {
+    registerPaneFocus(paneId, () => rootRef.current?.focus())
+    return () => registerPaneFocus(paneId, null)
+  }, [paneId])
+
+  return (
+    <div
+      ref={rootRef}
+      tabIndex={-1}
+      onClick={!isActive ? onFocus : undefined}
+      className={[
+        'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden',
+        isActive ? 'outline outline-1 outline-accent/30' : '',
+      ].join(' ')}
+    >
+      <div className={`flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 ${chrome.bar} ${chrome.text}`}>
+        <div className="text-xs font-medium uppercase tracking-[0.12em] text-text-secondary">Terminal</div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onSwitchToChat()
+            }}
+            className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100"
+            title="Switch this pane back to chat"
+          >
+            Chat
+          </button>
+          {onClose && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onClose()
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded text-text-secondary transition-colors hover:bg-text-secondary/20 hover:text-text-primary"
+              title="Close pane"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">
+        <Suspense fallback={null}>
+          <Terminal terminalId={paneId} />
+        </Suspense>
+      </div>
+    </div>
+  )
+}
+
 function renderLayoutNode(
   node: LayoutNode,
   activePaneId: string,
+  paneModes: Record<string, PaneMode>,
   sidebarCollapsed: boolean,
   paneCount: number,
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
   voiceAudioEnabled: boolean,
-  thinkingLevel: 'low' | 'medium' | 'high',
-  onToggleThinkingLevel: () => void,
   textToSpeechMode: boolean,
+  setPaneMode: (paneId: string, mode: PaneMode) => void,
   setActivePane: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
   handleOpenFile: (paneId: string, relativePath: string) => Promise<void>,
 ): ReactNode {
   if (node.type === 'leaf') {
+    if ((paneModes[node.paneId] ?? 'chat') === 'terminal') {
+      return (
+        <PaneTerminal
+          key={node.paneId}
+          paneId={node.paneId}
+          isActive={node.paneId === activePaneId}
+          onFocus={() => setActivePane(node.paneId)}
+          onSwitchToChat={() => setPaneMode(node.paneId, 'chat')}
+          onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
+        />
+      )
+    }
     return (
       <ChatPane
         key={node.paneId}
@@ -92,9 +175,8 @@ function renderLayoutNode(
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
         voiceAudioEnabled={voiceAudioEnabled}
-        thinkingLevel={thinkingLevel}
-        onToggleThinkingLevel={onToggleThinkingLevel}
         textToSpeechMode={textToSpeechMode}
+        onSwitchToTerminal={() => setPaneMode(node.paneId, 'terminal')}
         onFocus={() => setActivePane(node.paneId)}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         onOpenFile={handleOpenFile}
@@ -105,8 +187,8 @@ function renderLayoutNode(
   const isHorizontal = node.orientation === 'horizontal'
   const minSize = isHorizontal ? 10 : 15
   const handleClass = isHorizontal
-    ? 'w-0.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors cursor-col-resize flex-shrink-0'
-    : 'h-0.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors cursor-row-resize flex-shrink-0'
+    ? 'w-0.5 bg-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/70 transition-colors cursor-col-resize flex-shrink-0'
+    : 'h-0.5 bg-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/70 transition-colors cursor-row-resize flex-shrink-0'
 
   const panels: ReactNode[] = []
   node.children.forEach((child, idx) => {
@@ -122,7 +204,7 @@ function renderLayoutNode(
     const childKey = child.type === 'leaf' ? child.paneId : child.id
     panels.push(
       <Panel key={childKey} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(child, activePaneId, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, thinkingLevel, onToggleThinkingLevel, textToSpeechMode, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(child, activePaneId, paneModes, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, textToSpeechMode, setPaneMode, setActivePane, handleClosePane, handleOpenFile)}
       </Panel>,
     )
   })
@@ -142,7 +224,7 @@ export default function App() {
   const bridge = getBridge()
 
   // Pane layout state
-  const { layout, activePaneId, setActivePane } = usePanesStore()
+  const { layout, activePaneId, paneModes, setActivePane, setPaneMode } = usePanesStore()
   const paneIds = collectLeafIds(layout)
   const paneCount = paneIds.length
 
@@ -210,13 +292,11 @@ export default function App() {
   const modelPickerOpenRef = useRef(modelPickerOpen)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
   const sidebarViewRef = useRef(sidebarView)
-  const thinkingLevelRef = useRef(thinkingLevel)
   useEffect(() => { commandPaletteOpenRef.current = commandPaletteOpen }, [commandPaletteOpen])
   useEffect(() => { settingsOpenRef.current = settingsOpen }, [settingsOpen])
   useEffect(() => { modelPickerOpenRef.current = modelPickerOpen }, [modelPickerOpen])
   useEffect(() => { sidebarCollapsedRef.current = sidebarCollapsed }, [sidebarCollapsed])
   useEffect(() => { sidebarViewRef.current = sidebarView }, [sidebarView])
-  useEffect(() => { thinkingLevelRef.current = thinkingLevel }, [thinkingLevel])
 
   // -------------------------------------------------------------------------
   // Load persisted settings on mount
@@ -238,6 +318,8 @@ export default function App() {
         }
         if (s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
           setThinkingLevel(s.thinkingLevel)
+          // Apply default thinking level to the initial pane
+          getPaneStore(usePanesStore.getState().activePaneId).getState().setThinkingLevel(s.thinkingLevel)
         }
         if (s.textToSpeechMode === true) {
           setTextToSpeechMode(true)
@@ -375,6 +457,8 @@ export default function App() {
       const sourceProjectRoot = getPaneStore(sourcePaneId).getState().projectRoot || undefined
       // bridge.paneCreate now returns immediately — agent init runs in background
       const { paneId: newPaneId } = await bridge.paneCreate(sourceProjectRoot)
+      // Initialize new pane with the current default thinking level
+      getPaneStore(newPaneId).getState().setThinkingLevel(thinkingLevel)
       const inserted = usePanesStore.getState().splitPane(
         usePanesStore.getState().activePaneId,
         newPaneId,
@@ -440,14 +524,17 @@ export default function App() {
   }, [bridge])
 
   const cycleThinkingLevel = useCallback(() => {
-    const currentLevel = thinkingLevelRef.current
-    const nextLevel = currentLevel === 'low'
+    const paneId = usePanesStore.getState().activePaneId
+    const paneStore = getPaneStore(paneId).getState()
+    const currentLevel = paneStore.thinkingLevel
+    const nextLevel: 'low' | 'medium' | 'high' = currentLevel === 'low'
       ? 'medium'
       : currentLevel === 'medium'
         ? 'high'
         : 'low'
-    handleThinkingLevelChange(nextLevel)
-  }, [handleThinkingLevelChange])
+    paneStore.setThinkingLevel(nextLevel)
+    bridge.setThinkingLevel(paneId, nextLevel).catch(() => {})
+  }, [bridge])
 
   const handleToggleExplorer = useCallback(() => {
     if (sidebarCollapsedRef.current) {
@@ -712,7 +799,6 @@ export default function App() {
         toast.error('Model switch completed, but the active model could not be confirmed.')
         return
       }
-      toast.success(`Switched to ${formatModelDisplay(modelRef, { includeProvider: true })}`)
     } catch (err) {
       console.error('[model] switchModel failed:', err)
       toast.error(err instanceof Error ? err.message : 'Failed to switch model')
@@ -752,10 +838,12 @@ export default function App() {
         return
       }
 
-      // Cmd+T — toggle terminal panel (desktop only)
+      // Cmd+T — toggle active pane terminal mode (desktop only)
       if (!mobile && e.metaKey && !e.shiftKey && e.key.toLowerCase() === 't') {
         e.preventDefault()
-        setTerminalOpen((v) => !v)
+        const paneId = usePanesStore.getState().activePaneId
+        const currentMode = usePanesStore.getState().paneModes[paneId] ?? 'chat'
+        setPaneMode(paneId, currentMode === 'terminal' ? 'chat' : 'terminal')
         return
       }
 
@@ -914,13 +1002,13 @@ export default function App() {
   const chatPaneGroup = renderLayoutNode(
     layout,
     activePaneId,
+    paneModes,
     sidebarCollapsed,
     paneCount,
     voicePttShortcut,
     voiceAudioEnabled,
-    thinkingLevel,
-    cycleThinkingLevel,
     textToSpeechMode,
+    setPaneMode,
     setActivePane,
     handleClosePane,
     handleOpenFile,
@@ -1130,19 +1218,27 @@ export default function App() {
 
         {/* Single chat pane — full width, constrained above keyboard */}
         <div className="flex-1 min-h-0 flex flex-col mobile-input-area" style={mobileInputStyle}>
-          <ChatPane
-            paneId={activePaneId}
-            isActive
-            sidebarCollapsed
-            voicePttShortcut={voicePttShortcut}
-            voiceAudioEnabled={voiceAudioEnabled}
-            thinkingLevel={thinkingLevel}
-            onToggleThinkingLevel={cycleThinkingLevel}
-            textToSpeechMode={textToSpeechMode}
-            onFocus={() => {}}
-            onOpenFile={handleOpenFile}
-            isMobile
-          />
+          {(paneModes[activePaneId] ?? 'chat') === 'terminal' ? (
+            <PaneTerminal
+              paneId={activePaneId}
+              isActive
+              onFocus={() => {}}
+              onSwitchToChat={() => setPaneMode(activePaneId, 'chat')}
+            />
+          ) : (
+            <ChatPane
+              paneId={activePaneId}
+              isActive
+              sidebarCollapsed
+              voicePttShortcut={voicePttShortcut}
+              voiceAudioEnabled={voiceAudioEnabled}
+              textToSpeechMode={textToSpeechMode}
+              onSwitchToTerminal={() => setPaneMode(activePaneId, 'terminal')}
+              onFocus={() => {}}
+              onOpenFile={handleOpenFile}
+              isMobile
+            />
+          )}
         </div>
 
         {/* Slide-out drawer backdrop */}

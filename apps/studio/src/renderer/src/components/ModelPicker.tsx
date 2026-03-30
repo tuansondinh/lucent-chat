@@ -176,7 +176,6 @@ export function ModelPicker({ open, onOpenChange, paneId, isMobile = false }: Pr
         toast.error('Model switch completed, but the active model could not be confirmed.')
         return
       }
-      toast.success(`Switched to ${formatModelDisplay(actualModel, { includeProvider: true })}`)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to switch model'
       toast.error(message)

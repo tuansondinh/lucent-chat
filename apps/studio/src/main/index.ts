@@ -332,8 +332,8 @@ app.whenReady().then(async () => {
   })
 
   // 9. Terminal Manager — forwards pty output to renderer
-  terminalManager = new TerminalManager((_id, data) => {
-    pushEvent(mainWindow, 'event:terminal-data', { data })
+  terminalManager = new TerminalManager((terminalId, data) => {
+    pushEvent(mainWindow, 'event:terminal-data', { terminalId, data })
   })
 
   // 10. Auth service + IPC handlers

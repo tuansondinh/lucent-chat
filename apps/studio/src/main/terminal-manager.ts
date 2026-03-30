@@ -64,10 +64,14 @@ export class TerminalManager {
    * Write raw data (keyboard input) to a terminal's stdin.
    */
   write(id: string, data: string): void {
-    const term = this.terminals.get(id)
+    let term = this.terminals.get(id)
     if (!term) {
-      console.warn(`[terminal] write: no terminal with id=${id}`)
-      return
+      this.create(id)
+      term = this.terminals.get(id)
+      if (!term) {
+        console.warn(`[terminal] write: failed to create terminal id=${id}`)
+        return
+      }
     }
     term.write(data)
   }
@@ -76,10 +80,11 @@ export class TerminalManager {
    * Resize a terminal's pty.
    */
   resize(id: string, cols: number, rows: number): void {
-    const term = this.terminals.get(id)
+    let term = this.terminals.get(id)
     if (!term) {
-      console.warn(`[terminal] resize: no terminal with id=${id}`)
-      return
+      this.create(id)
+      term = this.terminals.get(id)
+      if (!term) return
     }
     term.resize(cols, rows)
   }

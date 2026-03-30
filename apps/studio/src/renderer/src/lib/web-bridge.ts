@@ -265,6 +265,10 @@ export class WebBridge implements Bridge {
     return this.cmd('set-settings', settings)
   }
 
+  setThinkingLevel(paneId: string, level: 'low' | 'medium' | 'high'): Promise<void> {
+    return this.cmd('set-thinking-level', paneId, level)
+  }
+
   openExternal(url: string): Promise<void> {
     return this.cmd('open-external', url)
   }
@@ -388,19 +392,19 @@ export class WebBridge implements Bridge {
   // Terminal — not available remotely
   // -------------------------------------------------------------------------
 
-  terminalCreate(): Promise<void> {
+  terminalCreate(_terminalId: string): Promise<void> {
     return Promise.reject(new Error('Terminal not available in PWA mode'))
   }
 
-  terminalInput(_data: string): Promise<void> {
+  terminalInput(_terminalId: string, _data: string): Promise<void> {
     return Promise.reject(new Error('Terminal not available in PWA mode'))
   }
 
-  terminalResize(_cols: number, _rows: number): Promise<void> {
+  terminalResize(_terminalId: string, _cols: number, _rows: number): Promise<void> {
     return Promise.reject(new Error('Terminal not available in PWA mode'))
   }
 
-  terminalDestroy(): Promise<void> {
+  terminalDestroy(_terminalId: string): Promise<void> {
     return Promise.reject(new Error('Terminal not available in PWA mode'))
   }
 
@@ -436,7 +440,7 @@ export class WebBridge implements Bridge {
     return this.bus.on('event:error', cb)
   }
 
-  onTerminalData(_cb: (data: string) => void): () => void {
+  onTerminalData(_cb: (payload: { terminalId: string; data: string }) => void): () => void {
     return () => {}
   }
 

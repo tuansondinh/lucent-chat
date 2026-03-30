@@ -237,7 +237,11 @@ test('PaneManager: createPane forces a fresh session for secondary panes', async
   }
 
   try {
-    const pane = await paneManager.createPane(settingsService as unknown as SettingsService, pushEvent)
+    const pane = paneManager.createPane(settingsService as unknown as SettingsService, pushEvent)
+
+    // Background init (waitForAgentReady → initializeFreshPaneSession) runs async;
+    // flush all pending microtasks/promises before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 50))
 
     assert.equal(newSessionCalls, 1)
     assert.equal(pane.sessionService.getActiveSessionId(), 'fresh-session.jsonl')

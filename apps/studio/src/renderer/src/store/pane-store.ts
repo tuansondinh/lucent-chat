@@ -79,6 +79,8 @@ export interface PaneChatState {
   recentFiles: string[]
   /** Per-pane permission mode. */
   permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
+  /** Per-pane runtime thinking level. */
+  thinkingLevel: 'low' | 'medium' | 'high'
   /** Auto mode block-tracking state. */
   autoModeState: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }
 
@@ -125,6 +127,8 @@ export interface PaneChatState {
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
   setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit' | 'auto') => void
+  /** Set the per-pane thinking level. */
+  setThinkingLevel: (level: 'low' | 'medium' | 'high') => void
   /** Update the auto mode block-tracking state. */
   setAutoModeState: (state: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }) => void
   /** Add a new skill block to a turn's assistant message. */
@@ -241,6 +245,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     currentSessionName: '',
     recentFiles: [],
     permissionMode: 'auto',
+    thinkingLevel: 'medium',
     autoModeState: { paused: false, consecutiveBlocks: 0, totalBlocks: 0 },
 
     addUserMessage: (text, turn_id) =>
@@ -662,6 +667,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     setSessionName: (name) => set({ currentSessionName: name }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
+    setThinkingLevel: (level) => set({ thinkingLevel: level }),
     setAutoModeState: (autoModeState) => set({ autoModeState }),
 
     // ---- Phase 2: dirty state actions ----
@@ -769,6 +775,7 @@ export function deletePaneStore(paneId: string): void {
 // ============================================================================
 
 export type PaneOrientation = 'horizontal' | 'vertical'
+export type PaneMode = 'chat' | 'terminal'
 
 // ----------------------------------------------------------------------------
 // Layout tree types
@@ -931,6 +938,7 @@ export function removeLeaf(
 interface PanesLayoutState {
   layout: LayoutNode
   activePaneId: string
+  paneModes: Record<string, PaneMode>
   nextSplitIndex: number
   splitPending: boolean
 
@@ -938,12 +946,15 @@ interface PanesLayoutState {
   removePane: (paneId: string) => void
   swapPanes: (paneIdA: string, paneIdB: string) => void
   setActivePane: (paneId: string) => void
+  setPaneMode: (paneId: string, mode: PaneMode) => void
+  togglePaneMode: (paneId: string) => void
   setSplitPending: (v: boolean) => void
 }
 
 export const usePanesStore = create<PanesLayoutState>((set, get) => ({
   layout: { type: 'leaf', paneId: 'pane-0' },
   activePaneId: 'pane-0',
+  paneModes: { 'pane-0': 'chat' },
   nextSplitIndex: 0,
   splitPending: false,
 
@@ -952,18 +963,25 @@ export const usePanesStore = create<PanesLayoutState>((set, get) => ({
     const splitId = `split-${nextSplitIndex}`
     const { layout: newLayout, inserted } = splitNode(layout, targetPaneId, newPaneId, orientation, splitId)
     if (inserted) {
-      set({ layout: newLayout, activePaneId: newPaneId, nextSplitIndex: nextSplitIndex + 1 })
+      set((state) => ({
+        layout: newLayout,
+        activePaneId: newPaneId,
+        nextSplitIndex: nextSplitIndex + 1,
+        paneModes: { ...state.paneModes, [newPaneId]: 'chat' },
+      }))
     }
     return inserted
   },
 
   removePane: (paneId) => {
-    const { layout, activePaneId } = get()
+    const { layout, activePaneId, paneModes } = get()
     const { layout: newLayout, siblingPaneId } = removeLeaf(layout, paneId)
     const newActiveId = activePaneId === paneId
       ? (siblingPaneId ?? 'pane-0')
       : activePaneId
-    set({ layout: newLayout, activePaneId: newActiveId })
+    const nextPaneModes = { ...paneModes }
+    delete nextPaneModes[paneId]
+    set({ layout: newLayout, activePaneId: newActiveId, paneModes: nextPaneModes })
   },
 
   swapPanes: (paneIdA, paneIdB) => {
@@ -973,6 +991,19 @@ export const usePanesStore = create<PanesLayoutState>((set, get) => ({
   },
 
   setActivePane: (paneId) => set({ activePaneId: paneId }),
+
+  setPaneMode: (paneId, mode) =>
+    set((state) => ({
+      paneModes: { ...state.paneModes, [paneId]: mode },
+    })),
+
+  togglePaneMode: (paneId) =>
+    set((state) => ({
+      paneModes: {
+        ...state.paneModes,
+        [paneId]: state.paneModes[paneId] === 'terminal' ? 'chat' : 'terminal',
+      },
+    })),
 
   setSplitPending: (v) => set({ splitPending: v }),
 }))

@@ -127,7 +127,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 128) + 'px'
+    el.style.height = Math.min(el.scrollHeight, 100) + 'px'
   }, [value])
 
   // Built-in slash commands always available regardless of installed skills
@@ -317,7 +317,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   return (
     <div
       className={cn(
-        "relative border-t px-2 py-0.5 flex items-center gap-2 transition-colors",
+        "relative border-t px-2 py-1.5 flex items-end gap-2 transition-colors",
         isDragging
           ? "border-accent bg-accent/10"
           : "border-border bg-bg-secondary"

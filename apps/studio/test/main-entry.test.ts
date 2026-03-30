@@ -460,8 +460,9 @@ test('Main entry: Startup handles malformed auth file', async (t) => {
     const statuses = authService.getProviderStatuses()
     assert.ok(Array.isArray(statuses))
 
-    // All file-based auth should be unconfigured
-    const configuredViaFile = statuses.filter((s: any) => s.configuredVia === 'auth_file')
+    // All file-based auth via the service's auth file should be unconfigured
+    // (exclude openai-codex which uses ~/.codex/auth.json external to the service)
+    const configuredViaFile = statuses.filter((s: any) => s.configuredVia === 'auth_file' && s.id !== 'openai-codex')
     assert.equal(configuredViaFile.length, 0)
   } finally {
     await rm(authDir, { recursive: true, force: true })
