@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build && cp -r src/resources dist/",
-    "preview": "electron-vite preview",
+    "preview": "npm run build && electron-vite preview",
     "test:main": "node --import tsx/esm --test test/**/*.test.{ts,mjs}",
     "test:renderer": "vitest --run",
     "test:all": "npm run test:main && npm run test:renderer",
@@ -69,6 +69,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
+    "electron-updater": "^6.8.3",
     "lucide-react": "^1.7.0",
     "node-pty": "^1.0.0",
     "qrcode.react": "^4.2.0",
@@ -109,6 +110,11 @@
     "productName": "Lucent Code",
     "electronVersion": "41.0.3",
     "afterSign": "notarize.cjs",
+    "publish": {
+      "provider": "github",
+      "owner": "lucentcode",
+      "repo": "lucent-code"
+    },
     "directories": {
       "output": "release",
       "buildResources": "build"

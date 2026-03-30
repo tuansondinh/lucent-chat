@@ -565,6 +565,41 @@ const bridge = {
     ipcRenderer.on('event:voice-status', handler)
     return () => ipcRenderer.removeListener('event:voice-status', handler)
   },
+
+  // -------------------------------------------------------------------------
+  // Auto-updater
+  // -------------------------------------------------------------------------
+
+  /** Request immediate quit-and-install of a downloaded update. */
+  updaterInstallNow: (): Promise<void> =>
+    ipcRenderer.invoke('updater:install-now'),
+
+  /** Subscribe to update-available events. Returns unsubscribe function. */
+  onUpdateAvailable: (
+    cb: (info: { version: string; releaseNotes?: string | null }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:update-available', handler)
+    return () => ipcRenderer.removeListener('event:update-available', handler)
+  },
+
+  /** Subscribe to download-progress events. Returns unsubscribe function. */
+  onUpdateProgress: (
+    cb: (data: { percent: number }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:update-progress', handler)
+    return () => ipcRenderer.removeListener('event:update-progress', handler)
+  },
+
+  /** Subscribe to update-downloaded events. Returns unsubscribe function. */
+  onUpdateDownloaded: (
+    cb: (info: { version: string; releaseNotes?: string | null }) => void,
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:update-downloaded', handler)
+    return () => ipcRenderer.removeListener('event:update-downloaded', handler)
+  },
 }
 
 

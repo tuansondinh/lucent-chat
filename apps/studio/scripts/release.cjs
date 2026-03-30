@@ -15,8 +15,9 @@
  */
 
 const { execSync } = require('child_process')
-const { existsSync, readFileSync, rmSync } = require('fs')
-const { join } = require('path')
+const { existsSync, readFileSync, rmSync, writeFileSync } = require('fs')
+const { join, basename } = require('path')
+const crypto = require('crypto')
 
 const STUDIO_DIR  = join(__dirname, '..')
 const RELEASE_DIR = join(STUDIO_DIR, 'release')
@@ -68,6 +69,24 @@ if (!existsSync(zipPath)) {
 }
 console.log(`\n[release] ZIP: ${zipPath}`)
 
+// ─── Step 4b: Generate latest-mac.yml for electron-updater ──────────────────
+const zipName = basename(zipPath)
+const zipBytes = require('fs').statSync(zipPath).size
+const zipHash  = crypto.createHash('sha512').update(readFileSync(zipPath)).digest('base64')
+const yamlPath = join(RELEASE_DIR, 'latest-mac.yml')
+const yamlContent = [
+  `version: ${version}`,
+  `files:`,
+  `  - url: ${zipName}`,
+  `    sha512: ${zipHash}`,
+  `    size: ${zipBytes}`,
+  `path: ${zipName}`,
+  `sha512: ${zipHash}`,
+  `releaseDate: '${new Date().toISOString()}'`,
+].join('\n') + '\n'
+writeFileSync(yamlPath, yamlContent)
+console.log(`[release] Generated latest-mac.yml`)
+
 // ─── Step 5: GitHub Release ───────────────────────────────────────────────────
 if (DRY_RUN) {
   console.log('\n[release] --dry-run: skipping GitHub release.')
@@ -99,7 +118,7 @@ const installNotes = NOTARIZE
 
 This build is unsigned and not notarized.${WITHOUT_AUDIO ? '\n\nVoice features are not included in this build.' : ''}`
 
-run(`gh release create v${version} "${zipPath}" \
+run(`gh release create v${version} "${zipPath}" "${yamlPath}" \
   --repo ${REPO} \
   --title "${appName} v${version}" \
   --notes ${JSON.stringify(installNotes)}`)

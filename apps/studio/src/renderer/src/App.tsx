@@ -29,6 +29,7 @@ import { Sidebar, type SidebarView } from './components/Sidebar'
 import { useIsMobile } from './lib/useIsMobile'
 import { VoiceDownloadBanner } from './components/VoiceDownloadBanner'
 import { IOSInstallBanner } from './components/IOSInstallBanner'
+import { UpdateBanner } from './components/UpdateBanner'
 import { ModelPicker } from './components/ModelPicker'
 import { useVoiceStore } from './store/voice-store'
 import { CommandPalette } from './components/CommandPalette'
@@ -357,12 +358,11 @@ export default function App() {
       toast.error('Maximum 4 panes allowed')
       return
     }
-    if (state.splitPending) return
-    usePanesStore.getState().setSplitPending(true)
     try {
       // Inherit the active pane's project root so the new pane opens in the same workspace
       const sourcePaneId = usePanesStore.getState().activePaneId
       const sourceProjectRoot = getPaneStore(sourcePaneId).getState().projectRoot || undefined
+      // bridge.paneCreate now returns immediately — agent init runs in background
       const { paneId: newPaneId } = await bridge.paneCreate(sourceProjectRoot)
       const inserted = usePanesStore.getState().splitPane(
         usePanesStore.getState().activePaneId,
@@ -376,8 +376,6 @@ export default function App() {
     } catch (err) {
       console.error('[pane] create failed:', err)
       toast.error('Failed to create pane')
-    } finally {
-      usePanesStore.getState().setSplitPending(false)
     }
   }, [bridge])
 
@@ -1057,6 +1055,9 @@ export default function App() {
         {/* iOS Safari "Add to Home Screen" install guidance */}
         <IOSInstallBanner />
 
+        {/* Auto-update notifications — shows toast when update is ready */}
+        <UpdateBanner />
+
         {/* Reconnecting banner — shown when WebSocket drops (PWA mode) */}
         {connectionStatus === 'reconnecting' && (
           <div className="reconnecting-banner" role="status" aria-live="polite">
@@ -1182,6 +1183,9 @@ export default function App() {
 
       {/* iOS Safari "Add to Home Screen" install guidance */}
       <IOSInstallBanner />
+
+      {/* Auto-update notifications — shows toast when update is ready */}
+      <UpdateBanner />
 
       {/* Voice download banner — only shows on first startup when models need downloading */}
       <VoiceDownloadBanner

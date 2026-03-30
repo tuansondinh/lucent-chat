@@ -18,6 +18,7 @@ export interface SessionInfo {
   path: string
   name: string
   modified: number  // timestamp ms
+  project?: SessionProjectState | null
 }
 
 interface SessionServicePaths {
@@ -29,7 +30,11 @@ interface SessionServicePaths {
 export interface SessionProjectState {
   projectRoot: string
   sessionPath: string
+  sessionName?: string
+  firstPrompt?: string
 }
+
+export interface FormattedMessage {
   role: 'user' | 'assistant'
   text: string
   timestamp: number
@@ -61,6 +66,13 @@ export class SessionService {
    */
   async listSessions(): Promise<SessionInfo[]> {
     const results: SessionInfo[] = []
+    const projectMap = await this.readPerProjectSessionMap()
+    const projectBySessionPath = new Map<string, SessionProjectState>()
+    for (const entry of Object.values(projectMap)) {
+      if (entry?.sessionPath) {
+        projectBySessionPath.set(entry.sessionPath, entry)
+      }
+    }
 
     async function walk(dir: string): Promise<void> {
       let entries: Awaited<ReturnType<typeof readdir>>
@@ -76,24 +88,45 @@ export class SessionService {
         } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
           try {
             const info = await stat(fullPath)
+            const project = projectBySessionPath.get(fullPath) ?? null
+
             // Read session name from first line of JSONL (the session header record)
             let name = basename(entry.name, '.jsonl')
             try {
               const raw = await readFile(fullPath, 'utf8')
-              const firstLine = raw.slice(0, raw.indexOf('\n')).trim()
+              const firstNewline = raw.indexOf('\n')
+              const firstLine = (firstNewline === -1 ? raw : raw.slice(0, firstNewline)).trim()
               if (firstLine) {
                 const header = JSON.parse(firstLine)
                 if (header?.name && typeof header.name === 'string') {
                   name = header.name
+                } else if (project?.sessionName) {
+                  name = project.sessionName
+                } else if (project?.firstPrompt) {
+                  name = project.firstPrompt
                 } else if (header?.timestamp && typeof header.timestamp === 'string') {
                   // Fall back to a human-readable timestamp
                   name = new Date(header.timestamp).toLocaleString()
                 }
+              } else if (project?.sessionName) {
+                name = project.sessionName
+              } else if (project?.firstPrompt) {
+                name = project.firstPrompt
               }
             } catch {
-              // Use filename stem if parsing fails
+              if (project?.sessionName) {
+                name = project.sessionName
+              } else if (project?.firstPrompt) {
+                name = project.firstPrompt
+              }
+              // Otherwise use filename stem if parsing fails
             }
-            results.push({ path: fullPath, name, modified: info.mtimeMs })
+            results.push({
+              path: fullPath,
+              name,
+              modified: info.mtimeMs,
+              project,
+            })
           } catch {
             // Skip files we can't stat
           }
@@ -197,12 +230,17 @@ export class SessionService {
       })
   }
 
-  setProjectSession(projectRoot: string, sessionPath: string): void {
+  setProjectSession(projectRoot: string, sessionPath: string, metadata?: { sessionName?: string | null; firstPrompt?: string | null }): void {
     const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
     mkdir(dirname(this.perProjectSessionFile), { recursive: true })
       .then(async () => {
         const map = await this.readPerProjectSessionMap()
-        map[normalizedProjectRoot] = sessionPath
+        map[normalizedProjectRoot] = {
+          projectRoot: normalizedProjectRoot,
+          sessionPath,
+          ...(metadata?.sessionName ? { sessionName: metadata.sessionName } : {}),
+          ...(metadata?.firstPrompt ? { firstPrompt: metadata.firstPrompt } : {}),
+        }
         await writeFile(this.perProjectSessionFile, JSON.stringify(map, null, 2), 'utf8')
       })
       .catch((err: Error) => {
@@ -213,8 +251,15 @@ export class SessionService {
   async getProjectSession(projectRoot: string): Promise<string | null> {
     const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
     const map = await this.readPerProjectSessionMap()
-    const sessionPath = map[normalizedProjectRoot]
-    return typeof sessionPath === 'string' && sessionPath.length > 0 ? sessionPath : null
+    const entry = map[normalizedProjectRoot]
+    if (!entry) return null
+    return typeof entry.sessionPath === 'string' && entry.sessionPath.length > 0 ? entry.sessionPath : null
+  }
+
+  async getProjectSessionState(projectRoot: string): Promise<SessionProjectState | null> {
+    const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
+    const map = await this.readPerProjectSessionMap()
+    return map[normalizedProjectRoot] ?? null
   }
 
   /**
@@ -251,10 +296,14 @@ export class SessionService {
     }
   }
 
-  async syncProjectSessionFromAgent(projectRoot: string): Promise<string | null> {
+  async syncProjectSessionFromAgent(projectRoot: string, firstPrompt?: string): Promise<string | null> {
     const sessionFile = await this.syncActiveSessionFromAgent()
     if (sessionFile) {
-      this.setProjectSession(projectRoot, sessionFile)
+      const state = await this.agentBridge.getState().catch(() => null)
+      const sessionName = typeof state?.sessionName === 'string' && state.sessionName.length > 0
+        ? state.sessionName
+        : undefined
+      this.setProjectSession(projectRoot, sessionFile, { sessionName, firstPrompt })
     }
     return sessionFile
   }
@@ -314,7 +363,7 @@ export class SessionService {
     return realTarget
   }
 
-  private async readPerProjectSessionMap(): Promise<Record<string, string>> {
+  private async readPerProjectSessionMap(): Promise<Record<string, SessionProjectState>> {
     try {
       const raw = await readFile(this.perProjectSessionFile, 'utf8')
       const parsed = JSON.parse(raw)
@@ -322,7 +371,34 @@ export class SessionService {
         return {}
       }
       return Object.fromEntries(
-        Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+        Object.entries(parsed).flatMap(([key, value]) => {
+          if (typeof key !== 'string' || !key) return []
+          if (typeof value === 'string' && value.length > 0) {
+            return [[key, { projectRoot: key, sessionPath: value } satisfies SessionProjectState]]
+          }
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            return []
+          }
+
+          const entry = value as Record<string, unknown>
+          if (typeof entry.sessionPath !== 'string' || entry.sessionPath.length === 0) {
+            return []
+          }
+
+          const normalized: SessionProjectState = {
+            projectRoot: typeof entry.projectRoot === 'string' && entry.projectRoot.length > 0 ? entry.projectRoot : key,
+            sessionPath: entry.sessionPath,
+          }
+
+          if (typeof entry.sessionName === 'string' && entry.sessionName.length > 0) {
+            normalized.sessionName = entry.sessionName
+          }
+          if (typeof entry.firstPrompt === 'string' && entry.firstPrompt.length > 0) {
+            normalized.firstPrompt = entry.firstPrompt
+          }
+
+          return [[key, normalized]]
+        })
       )
     } catch {
       return {}

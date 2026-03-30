@@ -7,7 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { getShellConfig, sanitizeCommand } from "@gsd/pi-coding-agent";
+import { getShellConfig, getShellEnv, sanitizeCommand } from "@gsd/pi-coding-agent";
 import type {
 	BgProcess,
 	BgProcessInfo,
@@ -123,7 +123,7 @@ export function startProcess(opts: StartOptions): BgProcess {
 	const id = randomUUID().slice(0, 8);
 	const processType = opts.type || detectProcessType(opts.command);
 
-	const env = { ...process.env, ...(opts.env || {}) };
+	const env = { ...getShellEnv(), ...(opts.env || {}) };
 
 	const { shell, args: shellArgs } = getShellConfig();
 	// Shell sessions default to the user's shell if no command specified

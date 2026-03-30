@@ -395,8 +395,114 @@ function getToolInputSummary(tool: string, input: unknown): string | null {
   return null
 }
 
+// ============================================================================
+// Diff viewer — for edit / write tool outputs
+// ============================================================================
+
+interface DiffStats { added: number; removed: number }
+
+function parseDiffStats(diff: string): DiffStats {
+  let added = 0, removed = 0
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) added++
+    else if (line.startsWith('-') && !line.startsWith('---')) removed++
+  }
+  return { added, removed }
+}
+
+interface DiffViewerProps {
+  diff: string
+  /** Max lines to show before clamping. Default: 120 */
+  maxLines?: number
+}
+
+function DiffViewer({ diff, maxLines = 120 }: DiffViewerProps) {
+  const [showAll, setShowAll] = useState(false)
+  const lines = diff.split('\n')
+  const clamped = !showAll && lines.length > maxLines
+  const visibleLines = clamped ? lines.slice(0, maxLines) : lines
+
+  return (
+    <div className="relative">
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-[11.5px] font-mono leading-[1.6]">
+          <tbody>
+            {visibleLines.map((line, i) => {
+              const isAdd = line.startsWith('+') && !line.startsWith('+++')
+              const isDel = line.startsWith('-') && !line.startsWith('---')
+              const isHunk = line.startsWith('@@')
+              const isMeta = line.startsWith('---') || line.startsWith('+++') || line.startsWith('diff ') || line.startsWith('index ')
+
+              if (isMeta) return null
+
+              return (
+                <tr
+                  key={i}
+                  className={cn(
+                    isAdd && 'bg-green-950/40',
+                    isDel && 'bg-red-950/40',
+                    isHunk && 'bg-bg-secondary',
+                  )}
+                >
+                  <td className={cn(
+                    'select-none w-5 pl-2 pr-1 text-right align-top shrink-0',
+                    isAdd ? 'text-green-400/70' : isDel ? 'text-red-400/70' : 'text-text-tertiary/40',
+                  )}>
+                    {isHunk ? '' : isAdd ? '+' : isDel ? '−' : ' '}
+                  </td>
+                  <td className={cn(
+                    'pl-1 pr-3 whitespace-pre break-all align-top',
+                    isAdd ? 'text-green-200' : isDel ? 'text-red-300' : isHunk ? 'text-text-tertiary/60 italic' : 'text-text-secondary',
+                  )}>
+                    {isHunk ? line : line.slice(1)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {clamped && (
+        <div className="border-t border-border/30">
+          <button
+            className="w-full py-1 text-[11px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors"
+            onClick={() => setShowAll(true)}
+          >
+            Show {lines.length - maxLines} more lines
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** True if the tool is an edit/write/create operation that may produce a diff. */
+function isFileEditTool(tool: string): boolean {
+  const lower = tool.toLowerCase()
+  return lower === 'edit' || lower === 'write' || lower === 'multiedit'
+}
+
+/** Extract diff string from tool output (supports { details: { diff } } shape). */
+function extractDiff(output: unknown): string | null {
+  if (!output || typeof output !== 'object') return null
+  const out = output as Record<string, unknown>
+  const details = out.details as Record<string, unknown> | undefined
+  if (details && typeof details.diff === 'string' && details.diff.length > 0) {
+    return details.diff
+  }
+  return null
+}
+
 function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
   const [expanded, setExpanded] = useState(false)
+
+  const isEdit = isFileEditTool(tc.tool)
+  const diff = tc.done && !tc.isError ? extractDiff(tc.output) : null
+  const isWrite = tc.tool.toLowerCase() === 'write'
+
+  // Edit tools default to collapsed — user can expand to see the diff
+  const [userToggled, setUserToggled] = useState(false)
+  const effectiveExpanded = userToggled ? expanded : false
 
   const statusIcon = tc.done
     ? tc.isError
@@ -405,14 +511,117 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     : <Loader2 className="size-3.5 text-accent animate-spin flex-shrink-0" />
 
   const hasDetails = tc.input !== undefined || tc.output !== undefined
-  const inputSummary = tc.input !== undefined ? getToolInputSummary(tc.tool, tc.input) : null
+  const filePath = (() => {
+    if (!tc.input || typeof tc.input !== 'object') return null
+    const inp = tc.input as Record<string, unknown>
+    const p = inp.path ?? inp.file_path
+    return typeof p === 'string' ? p : null
+  })()
+  const inputSummary = filePath ?? (tc.input !== undefined ? getToolInputSummary(tc.tool, tc.input) : null)
 
   // Show live activity feed when running and sub-items are present
   const showActivity = !tc.done && tc.subItems && tc.subItems.length > 0
 
   // Show collapsed summary when done and there were sub-item tool calls
-  const showSummary = tc.done && (tc.subItemCount ?? 0) > 0
+  const showSummary = tc.done && !isEdit && (tc.subItemCount ?? 0) > 0
 
+  const diffStats = diff ? parseDiffStats(diff) : null
+
+  const handleToggle = () => {
+    if (!hasDetails && !diff) return
+    if (!userToggled) {
+      // First manual toggle — flip from the auto state
+      setExpanded(!effectiveExpanded)
+    } else {
+      setExpanded((v) => !v)
+    }
+    setUserToggled(true)
+  }
+
+  // ── Edit / Write tool — file-focused layout ──────────────────────────────
+  if (isEdit) {
+    return (
+      <div className={cn(
+        'rounded-md overflow-hidden border',
+        tc.isError ? 'border-red-500/30' : 'border-border/50',
+      )}>
+        {/* Header row */}
+        <button
+          className={cn(
+            'flex items-center gap-2 w-full px-2.5 py-1.5 text-left transition-colors',
+            'hover:bg-bg-hover',
+            tc.isError ? 'bg-red-900/20' : 'bg-bg-tertiary',
+          )}
+          onClick={handleToggle}
+          aria-expanded={effectiveExpanded}
+        >
+          <span className="text-text-tertiary/60">
+            {effectiveExpanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          </span>
+          {statusIcon}
+
+          {/* Verb */}
+          <span className={cn(
+            'text-[12px] font-medium flex-shrink-0',
+            !tc.done ? 'text-accent' : tc.isError ? 'text-red-300' : 'text-text-secondary',
+          )}>
+            {!tc.done
+              ? (isWrite ? 'Writing' : 'Editing')
+              : tc.isError
+                ? (isWrite ? 'Write failed' : 'Edit failed')
+                : (isWrite ? 'Wrote' : 'Edited')}
+          </span>
+
+          {/* File path */}
+          {filePath && (
+            <span className="truncate flex-1 min-w-0 text-[12px] font-mono text-text-primary/90">
+              {filePath}
+            </span>
+          )}
+
+          {/* +/- stats badge */}
+          {diffStats && (
+            <span className="flex items-center gap-1.5 flex-shrink-0 text-[11px] font-mono">
+              {diffStats.added > 0 && (
+                <span className="text-green-400">+{diffStats.added}</span>
+              )}
+              {diffStats.removed > 0 && (
+                <span className="text-red-400">−{diffStats.removed}</span>
+              )}
+            </span>
+          )}
+        </button>
+
+        {/* Live activity */}
+        {showActivity && <ToolCallActivity subItems={tc.subItems!} />}
+
+        {/* Diff view */}
+        {effectiveExpanded && diff && (
+          <div className="border-t border-border/30 bg-bg-primary overflow-hidden">
+            <DiffViewer diff={diff} />
+          </div>
+        )}
+
+        {/* Error output */}
+        {effectiveExpanded && tc.isError && tc.output !== undefined && (
+          <div className="border-t border-border/30 bg-red-950/10 px-3 py-2">
+            <pre className="text-[11.5px] font-mono text-red-300 whitespace-pre-wrap break-words">
+              {typeof tc.output === 'string' ? tc.output : JSON.stringify(tc.output, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {/* Write tool — no diff, show "file written" hint */}
+        {effectiveExpanded && isWrite && !diff && !tc.isError && tc.done && (
+          <div className="border-t border-border/30 px-3 py-2 text-[11.5px] text-text-tertiary font-mono">
+            File written
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Default layout for all other tools ───────────────────────────────────
   return (
     <div className="rounded-md overflow-hidden border border-border/50">
       <button

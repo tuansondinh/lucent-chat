@@ -55,6 +55,12 @@ export interface Session {
   path: string
   name: string
   modified: number
+  project?: {
+    projectRoot: string
+    sessionPath: string
+    sessionName?: string
+    firstPrompt?: string
+  } | null
 }
 
 export type SidebarView = 'sessions' | 'explorer' | 'changes'
@@ -190,6 +196,8 @@ export function Sidebar({
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
+
+  const groupedSessions = groupSessionsByProject(sessions)
 
   if (collapsed) {
     return (
@@ -340,19 +348,28 @@ export function Sidebar({
                   No saved sessions
                 </p>
               )}
-              {sessions.map((session) => {
-                const isActive = session.path === currentSessionPath
-                return (
-                  <SessionItem
-                    key={session.path}
-                    session={session}
-                    isActive={isActive}
-                    onSelect={() => void handleSwitchSession(session.path)}
-                    onRename={() => handleRenameOpen(session)}
-                    onDelete={() => setDeleteTarget(session)}
-                  />
-                )
-              })}
+              {groupedSessions.map((group) => (
+                <div key={group.key} className="pt-2 first:pt-0">
+                  <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
+                    {group.label}
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    {group.sessions.map((session) => {
+                      const isActive = session.path === currentSessionPath
+                      return (
+                        <SessionItem
+                          key={session.path}
+                          session={session}
+                          isActive={isActive}
+                          onSelect={() => void handleSwitchSession(session.path)}
+                          onRename={() => handleRenameOpen(session)}
+                          onDelete={() => setDeleteTarget(session)}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </ScrollArea>
         ) : view === 'explorer' ? (
@@ -501,6 +518,31 @@ export function Sidebar({
       </Dialog>
     </>
   )
+}
+
+function groupSessionsByProject(sessions: Session[]): Array<{ key: string; label: string; sessions: Session[] }> {
+  const groups = new Map<string, { key: string; label: string; sessions: Session[] }>()
+
+  for (const session of sessions) {
+    const project = session.project
+    const key = project?.projectRoot ?? '__ungrouped__'
+    const label = project?.projectRoot
+      ? project.projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? project.projectRoot
+      : 'Other sessions'
+
+    const existing = groups.get(key)
+    if (existing) {
+      existing.sessions.push(session)
+    } else {
+      groups.set(key, { key, label, sessions: [session] })
+    }
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const aModified = Math.max(...a.sessions.map((session) => session.modified))
+    const bModified = Math.max(...b.sessions.map((session) => session.modified))
+    return bModified - aModified
+  })
 }
 
 function getChangeBadgeClass(status: GitChangeStatus): string {

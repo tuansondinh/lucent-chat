@@ -199,8 +199,10 @@ export function registerIpcHandlers(
   // Pane lifecycle
   // --------------------------------------------------------------------------
 
-  ipcMain.handle('cmd:pane-create', async (_event, projectRoot?: string) => {
-    const pane = await paneManager.createPane(settingsService, (channel, data) => {
+  ipcMain.handle('cmd:pane-create', (_event, projectRoot?: string) => {
+    // createPane is now synchronous — pane is registered immediately, agent
+    // init (spawn → ready poll → new session) runs in the background.
+    const pane = paneManager.createPane(settingsService, (channel, data) => {
       broadcast?.(channel, data)
     }, projectRoot)
     fileWatchService.watchPane(pane.id, pane.projectRoot)

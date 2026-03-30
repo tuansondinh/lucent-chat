@@ -21,7 +21,7 @@ class MockAgentBridge extends EventEmitter {
     return []
   }
 
-  async getState(): Promise<{ sessionFile?: string }> {
+  async getState(): Promise<{ sessionFile?: string; sessionName?: string }> {
     return this.stateQueue.shift() ?? {}
   }
 }
@@ -303,13 +303,27 @@ test('SessionService: per-project session persistence stores and loads mappings'
   ;(service as any).perProjectSessionFile = perProjectSessionFile
 
   try {
-    service.setProjectSession('/tmp/project-a', '/sessions/a.jsonl')
-    service.setProjectSession('/tmp/project-b', '/sessions/b.jsonl')
+    service.setProjectSession('/tmp/project-a', '/sessions/a.jsonl', {
+      sessionName: 'first prompt a',
+      firstPrompt: 'first prompt a',
+    })
+    service.setProjectSession('/tmp/project-b', '/sessions/b.jsonl', {
+      sessionName: 'first prompt b',
+      firstPrompt: 'first prompt b',
+    })
 
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     assert.equal(await service.getProjectSession('/tmp/project-a'), '/sessions/a.jsonl')
     assert.equal(await service.getProjectSession('/tmp/project-b'), '/sessions/b.jsonl')
+
+    const projectAState = await service.getProjectSessionState('/tmp/project-a')
+    assert.deepEqual(projectAState, {
+      projectRoot: '/tmp/project-a',
+      sessionPath: '/sessions/a.jsonl',
+      sessionName: 'first prompt a',
+      firstPrompt: 'first prompt a',
+    })
   } finally {
     await rm(base, { recursive: true, force: true })
   }
@@ -322,17 +336,49 @@ test('SessionService: syncProjectSessionFromAgent stores the latest agent sessio
 
   const perProjectSessionFile = join(base, 'last-session-by-project.json')
   ;(service as any).perProjectSessionFile = perProjectSessionFile
-  mockBridge.stateQueue = [{ sessionFile: '/sessions/project-x.jsonl' }]
+  mockBridge.stateQueue = [
+    { sessionFile: '/sessions/project-x.jsonl', sessionName: 'ship the dashboard filters' },
+  ]
 
   try {
-    const synced = await service.syncProjectSessionFromAgent('/tmp/project-x')
+    const synced = await service.syncProjectSessionFromAgent('/tmp/project-x', 'ship the dashboard filters')
     assert.equal(synced, '/sessions/project-x.jsonl')
     assert.equal(await service.getProjectSession('/tmp/project-x'), '/sessions/project-x.jsonl')
+    assert.deepEqual(await service.getProjectSessionState('/tmp/project-x'), {
+      projectRoot: '/tmp/project-x',
+      sessionPath: '/sessions/project-x.jsonl',
+      sessionName: 'ship the dashboard filters',
+      firstPrompt: 'ship the dashboard filters',
+    })
   } finally {
     await rm(base, { recursive: true, force: true })
   }
 })
 
+test('SessionService: readPerProjectSessionMap handles legacy string entries', async () => {
+  const base = await createSessionDir()
+  const mockBridge = new MockAgentBridge()
+  const service = new SessionService(mockBridge)
+
+  const perProjectSessionFile = join(base, 'last-session-by-project.json')
+  ;(service as any).perProjectSessionFile = perProjectSessionFile
+
+  try {
+    await writeFile(perProjectSessionFile, JSON.stringify({
+      '/tmp/project-legacy': '/sessions/legacy.jsonl',
+    }), 'utf8')
+
+    assert.equal(await service.getProjectSession('/tmp/project-legacy'), '/sessions/legacy.jsonl')
+    assert.deepEqual(await service.getProjectSessionState('/tmp/project-legacy'), {
+      projectRoot: '/tmp/project-legacy',
+      sessionPath: '/sessions/legacy.jsonl',
+    })
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('SessionService: renameSession forwards to agent bridge', async () => {
   const mockBridge = new MockAgentBridge()
   const service = new SessionService(mockBridge)
 

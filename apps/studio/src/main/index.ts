@@ -11,15 +11,15 @@ import { SessionService } from './session-service.js'
 import { SettingsService } from './settings-service.js'
 import { TerminalManager } from './terminal-manager.js'
 import { AuthService } from './auth-service.js'
-import { getDisabledVoiceStatus, VOICE_SERVICE_DISABLED_REASON, VoiceService } from './voice-service.js'
+import { VoiceService } from './voice-service.js'
 import { FileService } from './file-service.js'
 import { GitService } from './git-service.js'
 import { FileWatchService } from './file-watch-service.js'
 import { ClassifierService } from './classifier-service.js'
+import { createRemoteBridgeDispatcher } from './remote-bridge-dispatch.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
-import { resolveRemotePaneRoot } from './pane-root-policy.js'
-import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
+import { UpdateService } from './update-service.js'
 import type { AppSettings } from './settings-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -317,7 +317,9 @@ app.whenReady().then(async () => {
     onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
     onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
     onTurnComplete: () => {
-      void sessionService.syncProjectSessionFromAgent(initialProjectRoot)
+      const currentTurn = orchestrator.getCurrentTurn()
+      const firstPrompt = currentTurn?.text?.trim() || undefined
+      void sessionService.syncProjectSessionFromAgent(initialProjectRoot, firstPrompt)
     },
   }, { workspaceLabel: initialProjectRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace' })
 
@@ -364,7 +366,17 @@ app.whenReady().then(async () => {
     broadcast,
   )
 
-  // 11. WebBridgeServer — auto-start if enabled in settings
+  // 11. Auto-updater — check for updates 10s after launch (production only)
+  const updateService = new UpdateService(() => mainWindow)
+  setTimeout(() => updateService.checkForUpdates(), 10_000)
+
+  // IPC handler: renderer requests immediate install of downloaded update
+  const { ipcMain: ipcMainForUpdater } = await import('electron')
+  ipcMainForUpdater.handle('updater:install-now', () => {
+    updateService.quitAndInstall()
+  })
+
+  // 12. WebBridgeServer — auto-start if enabled in settings
   tailscaleService = new TailscaleService()
 
   const startWebBridgeServer = async (): Promise<void> => {
@@ -381,115 +393,18 @@ app.whenReady().then(async () => {
       settingsService.save({ remoteAccessToken: token })
     }
 
-    // dispatchCmd routes remote bridge commands to the local IPC handlers
-    const dispatchCmd = async (name: string, args: unknown[]): Promise<unknown> => {
-      // Route remote bridge commands to local services.
-      // This mirrors a subset of the IPC handlers — only safe, non-terminal commands.
-      const pane = () => paneManager?.getPane(args[0] as string)
-      const root = () => pane()?.projectRoot
-      const broadcastVoiceDisabledStatus = () => {
-        const status = getDisabledVoiceStatus()
-        pushEvent(mainWindow, 'event:voice-status', status)
-        broadcast('event:voice-status', status)
-        return status
-      }
-      switch (name) {
-        // Settings
-        case 'get-settings': return sanitizeSettingsForRenderer(settingsService.get())
-        case 'set-settings': {
-          const validated = validateSettingsPatch(args[0] as Record<string, unknown>)
-          settingsService.save(validated)
-          if ('voiceServiceEnabled' in validated) {
-            if (validated.voiceServiceEnabled === false) {
-              await voiceService?.stop()
-              broadcastVoiceDisabledStatus()
-            } else {
-              await voiceService?.probe()
-            }
-          }
-          return sanitizeSettingsForRenderer(settingsService.get())
-        }
-        // Pane lifecycle
-        case 'pane-list': return paneManager?.getPaneIds() ?? []
-        case 'pane-create': { const p = await paneManager!.createPane(settingsService, broadcast); return { paneId: p.id } }
-        case 'pane-close': return paneManager?.destroyPane(args[0] as string)
-        // Agent
-        case 'prompt': return pane()?.orchestrator.submitTurn(args[1] as string, 'text')
-        case 'abort': return pane()?.orchestrator.abortCurrentTurn()
-        case 'get-state': return pane()?.agentBridge.getState()
-        case 'get-models': return pane()?.agentBridge.getAvailableModels()
-        case 'switch-model': return pane()?.agentBridge.setModel(args[1] as string, args[2] as string)
-        case 'new-session': return pane()?.agentBridge.newSession()
-        case 'get-health': return pane()?.processManager.getStates() ?? {}
-        // Sessions
-        case 'get-sessions': return pane()?.sessionService.listSessions() ?? []
-        case 'get-messages': return pane()?.sessionService.getMessages() ?? []
-        case 'switch-session': return pane()?.sessionService.switchSession(args[1] as string, pane()!.orchestrator)
-        case 'rename-session': return pane()?.sessionService.renameSession(args[1] as string)
-        case 'delete-session': return pane()?.sessionService.deleteSession(args[1] as string)
-        // Provider auth
-        case 'get-provider-auth-status': return authService.getProviderStatuses()
-        case 'get-provider-catalog': return authService.getProviderCatalog()
-        case 'validate-and-save-provider-key': return authService.validateAndSaveApiKey(args[0] as string, args[1] as string)
-        case 'remove-provider-key': return authService.removeApiKey(args[0] as string)
-        // Pane info
-        case 'get-pane-info': return { paneId: args[0], projectRoot: pane()?.projectRoot ?? process.cwd() }
-        case 'set-pane-root': {
-          const p2 = pane()
-          if (!p2) throw new Error('Unknown pane')
-          const resolvedPath = await resolveRemotePaneRoot(p2.accessRoot, args[1] as string)
-          await paneManager!.restartPaneAgent(args[0] as string, resolvedPath)
-          fileWatchService?.watchPane(args[0] as string, resolvedPath)
-          fileWatchService?.notifyRootChanged(args[0] as string)
-          return { projectRoot: resolvedPath }
-        }
-        // File system
-        case 'fs-list-dir': return root() ? fileService.listDirectory(root()!, args[1] as string) : { entries: [], truncated: false }
-        case 'fs-read-file': return root() ? fileService.readFile(root()!, args[1] as string) : null
-        case 'fs-read-full': return root() ? fileService.readFileFull(root()!, args[1] as string) : null
-        case 'fs-write-file': return root() ? fileService.writeFile(root()!, args[1] as string, args[2] as string) : null
-        case 'fs-delete-file': return root() ? fileService.deleteFile(root()!, args[1] as string) : null
-        // Git
-        case 'git-branch': return root() ? gitService.getBranch(root()!) : null
-        case 'git-list-branches': return root() ? gitService.listBranches(root()!) : { current: null, branches: [] }
-        case 'git-checkout-branch': return root() ? gitService.checkoutBranch(root()!, args[1] as string) : null
-        case 'git-project-root': return root() ?? process.cwd()
-        case 'git-modified-files': return root() ? gitService.getModifiedFiles(root()!) : []
-        case 'git-changed-files': return root() ? gitService.getChangedFiles(root()!) : []
-        case 'git-file-diff': return root() ? gitService.getFileDiff(root()!, args[1] as string) : null
-        // Approval RPC
-        case 'approval-respond': {
-          const approvalPane = pane()
-          if (approvalPane) {
-            approvalPane.agentBridge.respondToApproval(args[1] as string, args[2] as boolean)
-          }
-          return null
-        }
-        case 'ui-select-respond': {
-          const respondPane = pane()
-          if (respondPane) {
-            respondPane.agentBridge.respondToUiSelect(args[1] as string, args[2] as string | string[])
-          }
-          return null
-        }
-        // Voice sidecar
-        case 'voice-probe':
-          if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
-          return voiceService?.probe() ?? { available: false, reason: 'Voice service unavailable' }
-        case 'voice-start':
-          if (!isVoiceServiceEnabled()) throw new Error(VOICE_SERVICE_DISABLED_REASON)
-          return voiceService?.start()
-        case 'voice-stop': return voiceService?.stop()
-        case 'voice-status':
-          if (!isVoiceServiceEnabled()) return getDisabledVoiceStatus()
-          return voiceService?.getStatus() ?? { available: false, state: 'unavailable', port: null, token: null }
-        // No-ops for remote context
-        case 'open-external': return null
-        case 'set-window-title': return null
-        case 'set-window-width': return null
-        default: throw new Error(`Command '${name}' not supported via remote bridge`)
-      }
-    }
+    const dispatchCmd = createRemoteBridgeDispatcher({
+      settingsService,
+      paneManager: paneManager!,
+      voiceService: voiceService!,
+      authService,
+      fileService,
+      gitService,
+      broadcast,
+      fileWatchService,
+      classifierService,
+      restartAllAgents,
+    })
 
     const tailscaleOrigin = await tailscaleService!.getStatus().then((s) => {
       if (s.magicDnsHostname) return `https://${s.magicDnsHostname}`
@@ -548,11 +463,15 @@ app.whenReady().then(async () => {
   const trayIcon = nativeImage.createFromDataURL(iconDataUrl)
   tray = new Tray(trayIcon)
   tray.setToolTip('Lucent Code')
+  let lastTrayAgentState: string | null = null
 
   const updateTray = () => {
     const states = processManager!.getStates()
     const agentState = states.agent ?? 'stopped'
-    tray!.setContextMenu(buildTrayMenu(agentState))
+    if (agentState !== lastTrayAgentState) {
+      tray!.setContextMenu(buildTrayMenu(agentState))
+      lastTrayAgentState = agentState
+    }
     tray!.setToolTip(`Lucent Code — agent: ${agentState}`)
   }
 

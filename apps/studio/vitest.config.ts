@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    setupFiles: ['./vitest.setup.ts'],
+    setupFiles: ['./vitest.react-act-patch.ts', './vitest.setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}', 'test/**/*.renderer.test.{ts,tsx}'],
     exclude: [
       'node_modules',
@@ -41,21 +41,18 @@ export default defineConfig({
           lines: 80,
           statements: 80,
         },
-        // Main services - stricter requirements
         './src/main/**/*.ts': {
           branches: 80,
           functions: 80,
           lines: 80,
           statements: 80,
         },
-        // Renderer - slightly lower requirements
         './src/renderer/**/*.tsx': {
           branches: 70,
           functions: 70,
           lines: 70,
           statements: 70,
         },
-        // IPC contracts - 100% coverage required
         './src/main/ipc-handlers.ts': {
           branches: 100,
           functions: 100,

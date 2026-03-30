@@ -124,3 +124,19 @@
 - [ ] **Removing Google Code Assist auth does not remove fallback Gemini credentials** — `getProviderStatuses()` marks `google-gemini-cli` as removable when fallback `google` credentials exist, but `removeApiKey('google-gemini-cli')` only removes the primary provider entry. The Settings UI can show a Remove button that has no effect.
 
 - [ ] **Standalone server does not restart agents after provider auth changes** — Electron restarts agents after saving or removing provider credentials, but `apps/studio/src/main/server.ts` returns auth results directly without restarting pane agents. Remote sessions can keep stale auth/model state until the whole server is restarted.
+
+## Refactors / Code Smells (2026-03-30)
+
+- [ ] **Unify bridge command routing across Electron and standalone server** — `apps/studio/src/main/index.ts` and `apps/studio/src/main/server.ts` each maintain their own remote command dispatcher. Extract a shared typed command registry/service so IPC and WebBridge use the same implementation and stop drifting.
+
+- [ ] **Split `ipc-handlers.ts` by domain** — `apps/studio/src/main/ipc-handlers.ts` currently owns pane lifecycle, settings, auth, files, git, terminal, approvals, classifier, voice, and skill discovery. Break it into smaller registrars (`settings`, `pane`, `git`, `voice`, `approval`, etc.) to reduce coupling and simplify testing.
+
+- [ ] **Centralize shared renderer/main contract types** — Types like `ProviderAuthStatus` and `RendererSettings` are duplicated between main/preload/renderer and have already drifted. Move bridge-facing contracts into one shared module and import them everywhere.
+
+- [ ] **Replace stringly typed bridge command APIs with a typed command map** — The main/preload/server bridge surfaces rely on string command names plus `unknown[]`/`Record<string, unknown>` payloads. Introduce a typed command map to reduce casts, drift, and unsupported-command regressions.
+
+- [ ] **Decompose `Settings.tsx` into tab-level components/hooks** — `apps/studio/src/renderer/src/components/Settings.tsx` mixes data loading, auth flows, remote access, auto mode, skills, and rendering in one large component. Split it into focused tab components and shared settings hooks.
+
+- [ ] **Remove hidden `pane-0` coupling from Settings model loading** — Settings currently fetches models through a hardcoded pane id. Add an app-level model-list API or a dedicated settings data source so model configuration does not depend on a particular pane existing.
+
+- [ ] **Split `ClassifierService` into rule evaluation, provider client, and state tracking** — `apps/studio/src/main/classifier-service.ts` currently mixes static rule matching, provider HTTP calls, prompt construction, caching, rate limiting, and debug logging. Separate these concerns to make classifier behavior easier to reason about and evolve.

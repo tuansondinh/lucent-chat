@@ -94,7 +94,7 @@ function createCallbackCollector() {
   return { events, callbacks }
 }
 
-test('Orchestrator: auto-names first session with workspace tag', async () => {
+test('Orchestrator: auto-names first session from the first prompt', async () => {
   const agentBridge = new MockAgentBridge()
   const { callbacks } = createCallbackCollector()
   agentBridge.messageCount = 0
@@ -105,10 +105,10 @@ test('Orchestrator: auto-names first session with workspace tag', async () => {
 
   await tick()
 
-  assert.equal(agentBridge.sessionName, '[lucent-code] make sessions remember the project it was in')
+  assert.equal(agentBridge.sessionName, 'make sessions remember the project it was in')
 })
 
-test('Orchestrator: auto-name truncates long first prompt and keeps workspace tag', async () => {
+test('Orchestrator: auto-name truncates long first prompt', async () => {
   const agentBridge = new MockAgentBridge()
   const { callbacks } = createCallbackCollector()
   agentBridge.messageCount = 0
@@ -119,10 +119,11 @@ test('Orchestrator: auto-name truncates long first prompt and keeps workspace ta
 
   await tick()
 
-  assert.match(agentBridge.sessionName, /^\[workspace-name\] This is a very long first prompt that should be truncated/)
+  assert.match(agentBridge.sessionName, /^This is a very long first prompt that should be truncated/)
   assert.ok(agentBridge.sessionName.endsWith('...'))
 })
 
+test('Orchestrator: state transitions', async () => {
   const agentBridge = new MockAgentBridge()
   const { events, callbacks } = createCallbackCollector()
   const orchestrator = new Orchestrator(agentBridge, callbacks)

@@ -526,5 +526,5 @@ function buildAutoSessionName(prompt: string, workspaceLabel: string): string {
     ? `${raw.slice(0, maxPromptLength).trimEnd()}...`
     : raw || 'New session'
 
-  return `[${workspaceLabel}] ${normalizedPrompt}`
+  return normalizedPrompt
 }

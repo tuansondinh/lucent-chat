@@ -68,7 +68,7 @@ export function StatusBar({
         {formatModelDisplay(model, { includeProvider: true })}
       </button>
 
-      {/* Center: voice indicator (when active) + session name + file viewer toggle */}
+      {/* Center: voice indicator (when active) + session name + context usage + file viewer toggle */}
       <div className="flex items-center gap-2.5 min-w-0">
         {voiceActive && (
           <div className="flex items-center gap-1 text-accent">
@@ -80,6 +80,11 @@ export function StatusBar({
         )}
         {!isMobile && (
           <span className="truncate max-w-[180px] text-center">{sessionName || 'New session'}</span>
+        )}
+        {contextUsagePct != null && (
+          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-mono text-text-primary/90">
+            ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
+          </span>
         )}
         {!isMobile && (
           <button

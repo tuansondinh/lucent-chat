@@ -61,12 +61,22 @@ export function getShellConfig(): { shell: string; args: string[] } {
 	// 1. Check user-specified shell path
 	if (customShellPath) {
 		if (existsSync(customShellPath)) {
-			cachedShellConfig = { shell: customShellPath, args: ["-c"] };
+			cachedShellConfig = isZshLike(customShellPath)
+				? { shell: customShellPath, args: ["-l", "-c"] }
+				: { shell: customShellPath, args: ["-c"] };
 			return cachedShellConfig;
 		}
 		throw new Error(
 			`Custom shell path not found: ${customShellPath}\nPlease update shellPath in ${getSettingsPath()}`,
 		);
+	}
+
+	const preferredShell = resolvePreferredUserShell();
+	if (preferredShell) {
+		cachedShellConfig = isZshLike(preferredShell)
+			? { shell: preferredShell, args: ["-l", "-c"] }
+			: { shell: preferredShell, args: ["-c"] };
+		return cachedShellConfig;
 	}
 
 	if (process.platform === "win32") {
@@ -106,18 +116,64 @@ export function getShellConfig(): { shell: string; args: string[] } {
 
 	// Unix: try /bin/bash, then bash on PATH, then fallback to sh
 	if (existsSync("/bin/bash")) {
-		cachedShellConfig = { shell: "/bin/bash", args: ["-c"] };
+		cachedShellConfig = { shell: "/bin/bash", args: ["-lc"] };
 		return cachedShellConfig;
 	}
 
 	const bashOnPath = findBashOnPath();
 	if (bashOnPath) {
-		cachedShellConfig = { shell: bashOnPath, args: ["-c"] };
+		cachedShellConfig = { shell: bashOnPath, args: ["-lc"] };
 		return cachedShellConfig;
 	}
 
 	cachedShellConfig = { shell: "sh", args: ["-c"] };
 	return cachedShellConfig;
+}
+
+function isZshLike(shellPath: string): boolean {
+	const lower = shellPath.toLowerCase();
+	return lower.endsWith("/zsh") || lower.endsWith("\\zsh.exe") || lower.includes("zsh");
+}
+
+function resolvePreferredUserShell(): string | null {
+	const shell = process.env.SHELL;
+	if (shell && existsSync(shell)) {
+		return shell;
+	}
+
+	const zshPath = "/bin/zsh";
+	if (process.platform !== "win32" && existsSync(zshPath)) {
+		return zshPath;
+	}
+
+	return null;
+}
+
+function loadEnvironmentFromLoginShell(): NodeJS.ProcessEnv | null {
+	const shell = resolvePreferredUserShell();
+	if (!shell) return null;
+
+	const args = isZshLike(shell) ? ["-lic", "env -0"] : ["-lc", "env -0"];
+	try {
+		const result = spawnSync(shell, args, { encoding: "utf8", timeout: 5000, env: process.env });
+		if (result.status !== 0 || !result.stdout) {
+			return null;
+		}
+
+		const pairs = result.stdout.split("\0").filter(Boolean);
+		const env: NodeJS.ProcessEnv = {};
+		for (const pair of pairs) {
+			const eqIndex = pair.indexOf("=");
+			if (eqIndex <= 0) continue;
+			const key = pair.slice(0, eqIndex);
+			const value = pair.slice(eqIndex + 1);
+			env[key] = value;
+		}
+
+		return env;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -132,17 +188,27 @@ export function sanitizeCommand(command: string): string {
 }
 
 export function getShellEnv(): NodeJS.ProcessEnv {
+	if (cachedShellEnv) {
+		return cachedShellEnv;
+	}
+
 	const binDir = getBinDir();
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
 	const currentPath = process.env[pathKey] ?? "";
 	const pathEntries = currentPath.split(delimiter).filter(Boolean);
-	const hasBinDir = pathEntries.includes(binDir);
-	const updatedPath = hasBinDir ? currentPath : [binDir, currentPath].filter(Boolean).join(delimiter);
+	const envFromLoginShell = loadEnvironmentFromLoginShell();
+	const baseEnv = envFromLoginShell ?? process.env;
+	const basePath = baseEnv[pathKey] ?? baseEnv.PATH ?? currentPath;
+	const mergedEntries = [...new Set([binDir, ...basePath.split(delimiter).filter(Boolean), ...pathEntries])];
+	const updatedPath = mergedEntries.join(delimiter);
 
-	return {
+	cachedShellEnv = {
+		...baseEnv,
 		...process.env,
 		[pathKey]: updatedPath,
 	};
+
+	return cachedShellEnv;
 }
 
 /**

@@ -1,4 +1,6 @@
-import { watch, type FSWatcher } from 'node:fs'
+import { watch, type FSWatcher, access } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import { join as joinPath } from 'node:path'
 
 export interface FileChangeRecord {
   relativePath: string | null
@@ -32,6 +34,10 @@ export class FileWatchService {
           relativePath: normalized,
           eventType: eventType === 'rename' ? 'rename' : 'change',
         })
+
+        if (normalized) {
+          void this.confirmPathChange(paneId, rootPath, normalized)
+        }
       })
 
       watcher.on('error', (err) => {
@@ -68,6 +74,26 @@ export class FileWatchService {
     for (const paneId of this.watchers.keys()) {
       this.unwatchPane(paneId)
     }
+  }
+
+  private async confirmPathChange(paneId: string, rootPath: string, relativePath: string): Promise<void> {
+    const fullPath = joinPath(rootPath, relativePath)
+
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        access(fullPath, (err) => {
+          if (!err) {
+            this.enqueueChange(paneId, { relativePath, eventType: 'change' })
+          }
+          resolve()
+        })
+      }),
+      stat(fullPath)
+        .then(() => {
+          this.enqueueChange(paneId, { relativePath, eventType: 'change' })
+        })
+        .catch(() => {}),
+    ])
   }
 
   private enqueueChange(paneId: string, change: FileChangeRecord): void {

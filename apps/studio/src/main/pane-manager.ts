@@ -78,13 +78,17 @@ export class PaneManager {
 
   /**
    * Create a new pane with its own process, bridge, orchestrator, and session service.
-   * Spawns a fresh agent process.
+   *
+   * The pane is registered synchronously and returned immediately so the caller
+   * can update the UI without waiting for the agent process to boot. Agent
+   * initialization (spawn → ready poll → new session) continues in the
+   * background; the agent health events will arrive via pushEvent once ready.
    */
-  async createPane(
+  createPane(
     settingsService: SettingsService,
     pushEvent: (channel: string, data: unknown) => void,
     inheritProjectRoot?: string,
-  ): Promise<PaneRuntime> {
+  ): PaneRuntime {
     const id = `pane-${this.nextPaneIndex++}`
     const settings = settingsService.get()
     const agentEnv: Record<string, string> = {}
@@ -112,9 +116,12 @@ export class PaneManager {
       onTextBlockStart: (d) => pushEvent('event:text-block-start', { paneId: id, ...d }),
       onTextBlockEnd: (d) => pushEvent('event:text-block-end', { paneId: id, ...d }),
       onTurnComplete: () => {
-        void sessionService.syncProjectSessionFromAgent(projectRoot)
+        const currentTurn = orchestrator.getCurrentTurn()
+        const firstPrompt = currentTurn?.text?.trim() || undefined
+        void sessionService.syncProjectSessionFromAgent(projectRoot, firstPrompt)
       },
     }
+    const projectRoot = inheritProjectRoot ?? process.cwd()
     const orchestrator = new Orchestrator(agentBridge, callbacks, {
       workspaceLabel: projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace',
     })
@@ -170,8 +177,11 @@ export class PaneManager {
       }
     }
 
-    // Spawn agent and wire up bridge — inherit source pane's root when splitting
-    const projectRoot = inheritProjectRoot ?? process.cwd()
+    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE }
+    this.panes.set(id, pane)
+
+    // Spawn agent and wire up bridge — agent init runs in background so the
+    // caller can return the paneId to the renderer immediately.
     processManager.spawnAgent(projectRoot, agentEnv)
     attachBridge()
     processManager.on('agent-restarting', () => setTimeout(attachBridge, 200))
@@ -179,11 +189,14 @@ export class PaneManager {
       pushEvent('event:health', { paneId: id, states })
     })
 
-    await waitForAgentReady()
-    await initializeFreshPaneSession()
+    // Background: wait for agent ready, then init fresh session.
+    // Errors are non-fatal — health events will reflect the final state.
+    void waitForAgentReady()
+      .then(() => initializeFreshPaneSession())
+      .catch((err) => {
+        console.warn(`[pane-manager] background init failed for ${id}:`, (err as Error).message)
+      })
 
-    const pane: PaneRuntime = { id, processManager, agentBridge, orchestrator, sessionService, model: '', projectRoot, accessRoot: projectRoot, attachBridge, permissionMode: (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE }
-    this.panes.set(id, pane)
     return pane
   }
 
