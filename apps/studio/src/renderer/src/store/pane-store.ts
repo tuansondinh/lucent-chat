@@ -75,6 +75,8 @@ export interface PaneChatState {
   scrollPositions: Record<string, number>
   currentSessionPath: string | null
   currentSessionName: string
+  /** Increments whenever this pane switches to a different session lineage. */
+  sessionEpoch: number
   /** Last 10 opened file paths (relative), most recent first. */
   recentFiles: string[]
   /** Per-pane permission mode. */
@@ -123,6 +125,7 @@ export interface PaneChatState {
   saveScrollPosition: (sessionPath: string, scrollTop: number) => void
   setSessionPath: (path: string | null) => void
   setSessionName: (name: string) => void
+  bumpSessionEpoch: () => void
   /** Add a file to the recent files list (most recent first, capped at 10). */
   addRecentFile: (relativePath: string) => void
   /** Set the per-pane permission mode. */
@@ -243,6 +246,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     scrollPositions: {},
     currentSessionPath: null,
     currentSessionName: '',
+    sessionEpoch: 0,
     recentFiles: [],
     permissionMode: 'auto',
     thinkingLevel: 'medium',
@@ -666,6 +670,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setSessionPath: (path) => set({ currentSessionPath: path }),
 
     setSessionName: (name) => set({ currentSessionName: name }),
+    bumpSessionEpoch: () => set((s) => ({ sessionEpoch: s.sessionEpoch + 1 })),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
     setThinkingLevel: (level) => set({ thinkingLevel: level }),
     setAutoModeState: (autoModeState) => set({ autoModeState }),

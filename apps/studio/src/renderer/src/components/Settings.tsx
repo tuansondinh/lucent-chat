@@ -206,7 +206,7 @@ export function Settings({
   const [defaultModel, setDefaultModel] = useState<string>('')
   const [localThinkingLevel, setLocalThinkingLevel] = useState<'low' | 'medium' | 'high'>(thinkingLevel)
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
-  const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(true)
+  const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(false)
   const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(textToSpeechMode)
   const [localNotificationSoundEnabled, setLocalNotificationSoundEnabled] = useState(notificationSoundEnabled)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)

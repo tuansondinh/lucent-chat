@@ -5,7 +5,7 @@
  * submit/abort handlers, session state, and the full chat column UI.
  */
 
-import { useEffect, useRef, useCallback, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useCallback, useState, type ReactNode } from 'react'
 import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
@@ -13,6 +13,7 @@ import { ChatInput, type ChatInputHandle } from './ChatInput'
 import { ModelPicker } from './ModelPicker'
 import { ApprovalCard, type ApprovalRequest } from './ApprovalModal'
 import { getPaneStore, usePanesStore } from '../store/pane-store'
+import type { ChatMessage as ChatMessageModel } from '../store/chat'
 import { MSG_GAP, MSG_LIST_PB, MSG_BLOCK_MB } from '../lib/chat-spacing'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
@@ -123,6 +124,51 @@ function FooterTooltip({
     </Tooltip>
   )
 }
+
+const HistoricalMessages = memo(function HistoricalMessages({
+  messages,
+  omitLast,
+  projectRoot,
+  onOpenFileReference,
+}: {
+  messages: ChatMessageModel[]
+  omitLast: boolean
+  projectRoot: string
+  onOpenFileReference: (relativePath: string) => Promise<void> | void
+}) {
+  const endIndex = omitLast ? messages.length - 1 : messages.length
+
+  return (
+    <>
+      {messages.slice(0, endIndex).map((msg) => (
+        <ChatMessage
+          key={msg.id}
+          message={msg}
+          projectRoot={projectRoot}
+          onOpenFileReference={onOpenFileReference}
+        />
+      ))}
+    </>
+  )
+}, (prev, next) => {
+  if (
+    prev.omitLast !== next.omitLast
+    || prev.projectRoot !== next.projectRoot
+    || prev.onOpenFileReference !== next.onOpenFileReference
+  ) {
+    return false
+  }
+
+  const prevEndIndex = prev.omitLast ? prev.messages.length - 1 : prev.messages.length
+  const nextEndIndex = next.omitLast ? next.messages.length - 1 : next.messages.length
+  if (prevEndIndex !== nextEndIndex) return false
+
+  for (let i = 0; i < prevEndIndex; i += 1) {
+    if (prev.messages[i] !== next.messages[i]) return false
+  }
+
+  return true
+})
 
 // ============================================================================
 // PaneFooter — shows git branch + project root + model picker, supports changing root
@@ -904,7 +950,7 @@ export function ChatPane({
     return () => {
       unsubs.forEach((u) => u())
     }
-  }, [paneId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paneId, sessionEpoch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false
@@ -960,6 +1006,7 @@ export function ChatPane({
     setQueuedPrompt(null)
     stopTts()
     try {
+      store.getState().bumpSessionEpoch()
       await bridge.newSession(paneId)
       store.getState().clearSessionView()
       store.getState().setSessionName('')
@@ -1340,14 +1387,33 @@ export function ChatPane({
           </div>
         ) : (
           <div className="w-full">
-            {messages.map((msg) => (
-              <ChatMessage
-                key={msg.id}
-                message={msg}
-                projectRoot={projectRoot}
-                onOpenFileReference={handleOpenFileReference}
-              />
-            ))}
+            {(() => {
+              const lastMessage = messages[messages.length - 1]
+              const renderLastMessageSeparately = Boolean(
+                isGenerating
+                && lastMessage
+                && lastMessage.role === 'assistant',
+              )
+
+              return (
+                <>
+                  <HistoricalMessages
+                    messages={messages}
+                    omitLast={renderLastMessageSeparately}
+                    projectRoot={projectRoot}
+                    onOpenFileReference={handleOpenFileReference}
+                  />
+                  {renderLastMessageSeparately && lastMessage && (
+                    <ChatMessage
+                      key={lastMessage.id}
+                      message={lastMessage}
+                      projectRoot={projectRoot}
+                      onOpenFileReference={handleOpenFileReference}
+                    />
+                  )}
+                </>
+              )
+            })()}
             {isGenerating && (() => {
               const last = messages[messages.length - 1]
               const showThinking = !last || last.role === 'user' || (last.role === 'assistant' && last.contentBlocks.length === 0)

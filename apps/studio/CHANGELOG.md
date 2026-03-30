@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.60.0 / Studio 1.0.1 — 2026-03-30
+
+### Fixed
+- Optimized ChatPane rendering with memoization to improve performance with large conversation histories.
+- Improved ChatMessage component memory efficiency.
+- Enhanced App initialization and settings state management.
+- Fixed Sidebar session grouping and display logic.
+- Improved pane store state management and session handling.
+
 ## v2.60.0 / Studio 1.0.0 — 2026-03-30
 
 ### Added

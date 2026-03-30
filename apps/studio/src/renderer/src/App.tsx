@@ -278,10 +278,10 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [sidebarView, setSidebarView] = useState<SidebarView>('sessions')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
-  const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
+  const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(false)
   const [thinkingLevel, setThinkingLevel] = useState<'low' | 'medium' | 'high'>('medium')
   const [textToSpeechMode, setTextToSpeechMode] = useState(false)
-  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true)
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(false)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
   const [paneAttention, setPaneAttention] = useState<Record<string, boolean>>({})
   // Reconnect banner state (PWA only)
@@ -302,6 +302,7 @@ export default function App() {
   const commandPaletteOpenRef = useRef(commandPaletteOpen)
   const settingsOpenRef = useRef(settingsOpen)
   const modelPickerOpenRef = useRef(modelPickerOpen)
+  const newSessionInFlightRef = useRef(false)
   const sidebarCollapsedRef = useRef(sidebarCollapsed)
   const sidebarViewRef = useRef(sidebarView)
   useEffect(() => { commandPaletteOpenRef.current = commandPaletteOpen }, [commandPaletteOpen])
@@ -603,25 +604,38 @@ export default function App() {
   }, [])
 
   const handleNewSession = useCallback(async () => {
-    const result = await bridge.newSession(activePaneId)
-    if (!result.cancelled) {
-      // Clear the pane store and sync state
-      getPaneStore(activePaneId).getState().loadHistory([])
-      await syncPaneState(activePaneId)
+    if (newSessionInFlightRef.current) return
+    newSessionInFlightRef.current = true
+
+    const paneStore = getPaneStore(activePaneId).getState()
+    paneStore.bumpSessionEpoch()
+
+    try {
+      const result = await bridge.newSession(activePaneId)
+      if (!result.cancelled) {
+        // Clear the pane store and sync state
+        paneStore.clearSessionView()
+        paneStore.setSessionName('')
+        paneStore.setSessionPath(null)
+        await syncPaneState(activePaneId)
+      }
+    } finally {
+      window.setTimeout(() => {
+        newSessionInFlightRef.current = false
+      }, 150)
     }
   }, [bridge, activePaneId, syncPaneState])
 
   const handleSwitchSession = useCallback(async (path: string) => {
+    const paneStore = getPaneStore(activePaneId).getState()
+    paneStore.bumpSessionEpoch()
+    const result = await bridge.switchSession(activePaneId, path)
+    if (result.cancelled) return
     await syncPaneState(activePaneId).catch(() => {})
     const history = await bridge.getMessages(activePaneId).catch(() => [] as Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>)
-    getPaneStore(activePaneId).getState().loadHistory(history)
-    getPaneStore(activePaneId).getState().setSessionPath(path)
-    syncPaneState(activePaneId)
-      .then(({ state }) => {
-        const name = typeof state.sessionName === 'string' ? state.sessionName : ''
-        if (name) toast.success(`Switched to ${name}`)
-      })
-      .catch(() => {})
+    paneStore.loadHistory(history)
+    paneStore.setSessionPath(path)
+    syncPaneState(activePaneId).catch(() => {})
   }, [bridge, activePaneId, syncPaneState])
 
   const handleRefresh = useCallback(() => {

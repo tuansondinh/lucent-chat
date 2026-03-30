@@ -983,7 +983,7 @@ function UnknownBlockFallback({ block }: { block: { type: string; id: string; [k
 // Main ChatMessage component
 // ============================================================================
 
-export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props) {
+export const ChatMessage = React.memo(function ChatMessage({ message, projectRoot, onOpenFileReference }: Props) {
   const isUser = message.role === 'user'
   const isError = message.role === 'error'
   const isStreaming = message.isStreaming
@@ -1077,4 +1077,8 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
       </div>
     </div>
   )
-}
+}, (prev, next) => (
+  prev.message === next.message
+  && prev.projectRoot === next.projectRoot
+  && prev.onOpenFileReference === next.onOpenFileReference
+))

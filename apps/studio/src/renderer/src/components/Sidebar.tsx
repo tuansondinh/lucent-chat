@@ -202,11 +202,8 @@ export function Sidebar({
   const handleSwitchSession = async (path: string) => {
     if (path === currentSessionPath) return
     try {
-      const result = await bridge.switchSession(activePaneId, path)
-      if (!result.cancelled) {
-        await loadSessions()
-        onSwitchSession(path)
-      }
+      await onSwitchSession(path)
+      await loadSessions()
     } catch {
       // ignore
     }

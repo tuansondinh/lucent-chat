@@ -19,6 +19,8 @@
   - How to use skills and agents
   - Where to find documentation (ARCHITECTURE.md, codebase.md, etc.)
 
+- [ ] **Autonomous job/release watcher** — Add a supervisor-style background watcher for long-running jobs (builds, releases, tests, deploys) so Lucent Code can behave more like Claude Code. It should persist watcher state, poll logs/artifacts/process status on a timer, detect stalls/timeouts, and send a Studio/native notification when the job succeeds or fails. Prefer reusing the existing GSD/pi extension primitives (`bg-shell`, notifications, workflows/extensions) instead of implementing ad-hoc polling in chat.
+
 ## Security Review (2026-03-28)
 
 ### CRITICAL
