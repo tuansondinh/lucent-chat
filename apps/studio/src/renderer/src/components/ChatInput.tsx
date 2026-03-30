@@ -123,10 +123,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [value, isMobile])
 
   // Auto-resize textarea up to ~5 lines to keep the composer compact.
+  // Use '1px' instead of 'auto' to avoid flex stretching inflating scrollHeight.
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
-    el.style.height = 'auto'
+    el.style.height = '1px'
     el.style.height = Math.min(el.scrollHeight, 100) + 'px'
   }, [value])
 
@@ -317,10 +318,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   return (
     <div
       className={cn(
-        "relative border-t px-2 py-1.5 flex items-end gap-2 transition-colors",
-        isDragging
-          ? "border-accent bg-accent/10"
-          : "border-border bg-bg-secondary"
+        'relative border-t px-2 py-1.5 flex flex-col gap-1.5 transition-colors',
+        isDragging ? 'border-accent bg-accent/10' : 'border-border bg-bg-secondary',
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -328,20 +327,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     >
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
-        <div className="mb-2 px-1 text-xs text-text-tertiary italic truncate">
+        <div className="px-1 text-xs text-text-tertiary italic truncate">
           {partialTranscript}
         </div>
       )}
 
       {/* Voice startup hint — shown while the sidecar is booting */}
       {isVoiceStarting && !voiceActive && (
-        <div className="mb-2 px-1 text-xs text-text-tertiary">
+        <div className="px-1 text-xs text-text-tertiary">
           Starting voice service...
         </div>
       )}
 
       {queuedMessageLabel && (
-        <div className="mb-2 flex items-center gap-2 px-1 text-xs">
+        <div className="flex items-center gap-2 px-1 text-xs">
           <div className="min-w-0 flex-1 truncate text-accent">
             Queued next: {queuedMessageLabel}
             <span className="opacity-50 ml-1.5 font-normal italic">(hit Esc to send queued message)</span>
@@ -380,10 +379,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
               )}
             >
-              {skill.kind === 'builtin'
-                ? <Terminal className="h-3 w-3 flex-shrink-0 text-text-tertiary" />
-                : <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
-              }
+              {skill.kind === 'builtin' ? (
+                <Terminal className="h-3 w-3 flex-shrink-0 text-text-tertiary" />
+              ) : (
+                <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
+              )}
               <span className="font-medium text-text-primary whitespace-nowrap">/{skill.trigger}</span>
               <span className="text-xs text-text-tertiary truncate">{skill.description}</span>
             </button>
@@ -391,124 +391,148 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         </div>
       )}
 
-      {/* Image preview thumbnail */}
-      {pastedImage && (
-        <div className="mb-1.5 flex items-start gap-2">
-          <div className="relative inline-block">
-            <img
-              src={pastedImage}
-              alt="Pasted image preview"
-              className="h-14 w-auto max-w-[108px] rounded-lg border border-border object-cover"
-            />
-            <button
-              onClick={() => setPastedImage(null)}
-              title="Remove image"
-              className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
-            >
-              <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
+      <div className="flex items-end gap-2 w-full">
+        {/* Image preview thumbnail */}
+        {pastedImage && (
+          <div className="flex items-start gap-2">
+            <div className="relative inline-block">
+              <img
+                src={pastedImage}
+                alt="Pasted image preview"
+                className="h-14 w-auto max-w-[108px] rounded-lg border border-border object-cover"
+              />
+              <button
+                onClick={() => setPastedImage(null)}
+                title="Remove image"
+                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                  <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        placeholder={
-          disabled
-            ? 'Waiting for agent...'
-            : hasQueuedMessage
-              ? 'One queued message already waiting...'
-            : isGenerating
-                ? 'Type a follow-up and press Enter to queue it...'
-                : 'Ask anything...'
-        }
-        disabled={disabled}
-        readOnly={queueLocked}
-        rows={1}
-        className={[
-          'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
-          'outline-none leading-4 min-h-[28px] max-h-[100px] py-1.5',
-          'disabled:opacity-50 disabled:cursor-not-allowed',
-          queueLocked ? 'opacity-60 cursor-default select-none' : '',
-          isMobile ? 'mobile-chat-input' : '',
-        ].join(' ')}
-      />
-
-      {/* Mic / TTS button */}
-      <button
-        onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
-        disabled={!voiceAvailable || isVoiceStarting}
-        aria-label={
-          !voiceAvailable
-            ? (unavailableReason ?? 'Voice unavailable')
-            : isVoiceStarting
-              ? 'Starting voice service...'
-            : isTtsPlaying
-              ? 'Stop speaking'
-              : voiceActive
-                ? 'Stop voice mode'
-                : 'Start voice mode'
-        }
-        title={
-          !voiceAvailable
-            ? (unavailableReason ?? 'Voice unavailable')
-            : isVoiceStarting
-              ? 'Starting voice service...'
-            : isTtsPlaying
-              ? 'Stop speaking'
-              : voiceActive
-                ? isMobile ? 'Tap to stop mic' : 'Stop voice mode'
-                : isMobile ? 'Tap to start mic' : 'Start voice mode'
-        }
-        className={micButtonClass}
-      >
-        {isVoiceStarting ? (
-          <svg className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
-            <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        ) : isTtsPlaying ? (
-          <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-        ) : voiceActive ? (
-          <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
-        ) : (
-          <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
         )}
-      </button>
 
-      {isGenerating && (
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder={
+            disabled
+              ? 'Waiting for agent...'
+              : hasQueuedMessage
+                ? 'One queued message already waiting...'
+                : isGenerating
+                  ? 'Type a follow-up and press Enter to queue it...'
+                  : 'Ask anything...'
+          }
+          disabled={disabled}
+          readOnly={queueLocked}
+          rows={1}
+          className={[
+            'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
+            'outline-none leading-4 min-h-[28px] max-h-[100px] py-1.5',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+            queueLocked ? 'opacity-60 cursor-default select-none' : '',
+            isMobile ? 'mobile-chat-input' : '',
+          ].join(' ')}
+        />
+
+        {/* Mic / TTS button */}
         <button
-          onClick={onAbort}
-          title="Stop generation"
-          className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-7 w-7')}
+          onClick={isTtsPlaying ? onStopTts : onVoiceToggle}
+          disabled={!voiceAvailable || isVoiceStarting}
+          aria-label={
+            !voiceAvailable
+              ? unavailableReason ?? 'Voice unavailable'
+              : isVoiceStarting
+                ? 'Starting voice service...'
+                : isTtsPlaying
+                  ? 'Stop speaking'
+                  : voiceActive
+                    ? 'Stop voice mode'
+                    : 'Start voice mode'
+          }
+          title={
+            !voiceAvailable
+              ? unavailableReason ?? 'Voice unavailable'
+              : isVoiceStarting
+                ? 'Starting voice service...'
+                : isTtsPlaying
+                  ? 'Stop speaking'
+                  : voiceActive
+                    ? isMobile
+                      ? 'Tap to stop mic'
+                      : 'Stop voice mode'
+                    : isMobile
+                      ? 'Tap to start mic'
+                      : 'Start voice mode'
+          }
+          className={micButtonClass}
+        >
+          {isVoiceStarting ? (
+            <svg
+              className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'}
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+              <circle cx="8" cy="8" r="5.5" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+              <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          ) : isTtsPlaying ? (
+            <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+          ) : voiceActive ? (
+            <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+          ) : (
+            <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+          )}
+        </button>
+
+        {isGenerating && (
+          <button
+            onClick={onAbort}
+            title="Stop generation"
+            className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-7 w-7')}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+              <rect x="2" y="2" width="8" height="8" rx="1" />
+            </svg>
+          </button>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          title={
+            isGenerating
+              ? hasQueuedMessage
+                ? 'One queued follow-up already pending'
+                : 'Queue follow-up message'
+              : 'Send message'
+          }
+          className={cn(
+            'flex-shrink-0 flex items-center justify-center h-7 w-7',
+            canSubmit
+              ? btn.primary
+              : 'rounded-lg bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
+          )}
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-            <rect x="2" y="2" width="8" height="8" rx="1" />
+            <path
+              d="M6 1L11 6L6 11M1 6H11"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
           </svg>
         </button>
-      )}
-
-      <button
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-        title={isGenerating ? (hasQueuedMessage ? 'One queued follow-up already pending' : 'Queue follow-up message') : 'Send message'}
-        className={cn(
-          'flex-shrink-0 flex items-center justify-center h-7 w-7',
-          canSubmit
-            ? btn.primary
-            : 'rounded-lg bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
-        )}
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-          <path d="M6 1L11 6L6 11M1 6H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-      </button>
+      </div>
     </div>
   )
 })

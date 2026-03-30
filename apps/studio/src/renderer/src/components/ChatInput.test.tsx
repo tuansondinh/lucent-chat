@@ -479,7 +479,7 @@ describe('ChatInput', () => {
       render(<ChatInput {...defaultProps} />)
 
       const textarea = screen.getByRole('textbox')
-      const dropZone = textarea.parentElement as HTMLElement
+      const dropZone = textarea.closest('.relative') as HTMLElement
 
       fireEvent.dragOver(dropZone, {
         dataTransfer: { files: [] },
@@ -515,7 +515,7 @@ describe('ChatInput', () => {
       render(<ChatInput {...defaultProps} />)
 
       const textarea = screen.getByRole('textbox')
-      const dropZone = textarea.parentElement as HTMLElement
+      const dropZone = textarea.closest('.relative') as HTMLElement
       fireEvent.drop(dropZone, {
         dataTransfer: {
           files: [new File(['img'], 'drop.png', { type: 'image/png' })],

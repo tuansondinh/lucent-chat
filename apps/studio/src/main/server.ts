@@ -175,9 +175,12 @@ async function main(): Promise<void> {
     broadcast('event:health', { paneId: 'pane-0', states })
   })
 
-  // Forward approval requests from pane-0 to PWA clients
+  // Forward approval + UI select requests from pane-0 to PWA clients
   agentBridge.on('approval-request', (req) => {
     broadcast('event:approval-request', { paneId: 'pane-0', ...req })
+  })
+  agentBridge.on('ui-select-request', (req) => {
+    broadcast('event:ui-select-request', { paneId: 'pane-0', ...req })
   })
 
   // 9. Spawn agent

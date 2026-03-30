@@ -283,9 +283,18 @@ class AudioSession:
                 _log(f"TTS gen {gen} discarded (min_gen={self.tts_min_gen})")
                 continue
 
+            try:
+                _ensure_tts_engine()
+            except Exception as exc:
+                msg = f"TTS unavailable: {exc}"
+                _log(msg)
+                await _send_json(ws, {"type": "error", "message": msg})
+                continue
+
             # Clear stop event for this new synthesis run
             self.tts_stop_event.clear()
-            _tts_engine.stop()  # clear any lingering stop from previous
+            if _tts_engine is not None:
+                _tts_engine.stop()  # clear any lingering stop from previous
 
             await self._synthesize_and_stream(ws, text, turn_id, gen)
 

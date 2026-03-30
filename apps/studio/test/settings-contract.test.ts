@@ -46,6 +46,11 @@ test('settings contract: validates voiceServiceEnabled', () => {
   assert.deepEqual(result, { voiceServiceEnabled: false })
 })
 
+test('settings contract: validates notificationSoundEnabled', () => {
+  const result = validateSettingsPatch({ notificationSoundEnabled: false })
+  assert.deepEqual(result, { notificationSoundEnabled: false })
+})
+
 test('settings contract: rejects invalid remoteAccessPort', () => {
   assert.throws(
     () => validateSettingsPatch({ remoteAccessPort: 70_000 }),
@@ -118,6 +123,16 @@ test('settings contract: sanitizeSettingsForRenderer includes permissionMode whe
   })
   assert.equal((result as any).permissionMode, 'danger-full-access')
   assert.equal((result as any).voiceServiceEnabled, false)
+})
+
+test('settings contract: sanitizeSettingsForRenderer passes notificationSoundEnabled through', () => {
+  const result = sanitizeSettingsForRenderer({
+    theme: 'dark',
+    fontSize: 14,
+    sidebarCollapsed: true,
+    notificationSoundEnabled: false,
+  })
+  assert.equal((result as any).notificationSoundEnabled, false)
 })
 
 test('remote pane root policy: allows descendants within scope root', async () => {

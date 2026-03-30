@@ -12,7 +12,7 @@
  * - Chronological content blocks (thinking → tool → text order preserved)
  */
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import type { ThemedToken } from 'shiki'
 import { toast } from 'sonner'
 import type { ChatMessage as ChatMsg, ContentBlock, SubItem } from '../store/chat'
@@ -224,15 +224,9 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
 type ThinkingBlockData = Extract<ContentBlock, { type: 'thinking' }>
 
 function ThinkingBlock({ block }: { block: ThinkingBlockData }) {
-  // Expanded while streaming, collapsed once done
-  const [expanded, setExpanded] = useState(block.isStreaming)
-
-  // Collapse when streaming ends
-  useEffect(() => {
-    if (!block.isStreaming) {
-      setExpanded(false)
-    }
-  }, [block.isStreaming])
+  // Always start collapsed, including while streaming. Users can still expand
+  // manually, but new thinking output should never auto-open.
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <div className={`${MSG_BLOCK_MB} rounded-md overflow-hidden border border-border/40`}>

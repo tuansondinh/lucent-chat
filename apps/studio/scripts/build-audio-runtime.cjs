@@ -92,6 +92,8 @@ ensureFile(PYPROJECT_PATH, `Missing ${PYPROJECT_PATH}`)
 
 if (!INCLUDE_AUDIO) {
   console.log('[audio-runtime] Skipping audio service bundle (LUCENT_INCLUDE_AUDIO_SERVICE=0).')
+  removeIfExists(AUDIO_SERVICE_BUNDLE_DIR)
+  mkdirSync(AUDIO_SERVICE_BUNDLE_DIR, { recursive: true })
   process.exit(0)
 }
 

@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.60.0 / Studio 0.9.10 — 2026-03-30
+
+### Added
+- Added SplashScreen for initial application load.
+- Added notification sounds via `useNotificationSound`.
+- Added new IPC handlers and extended `session-service` logic.
+- Added renderer tests for `ChatPane` and `Sidebar`.
+- Added settings contract and UI for new preferences.
+
+### Changed
+- Updated `App.tsx` and core components (`ChatInput`, `ChatPane`, `Sidebar`, `ChatMessage`) with layout and usability improvements.
+- Updated `audio_service.py` and `useVoice` hook for better voice handling.
+- Enhanced `agent-bridge.ts` and `interview-ui.ts`.
+
 ## v2.59.0 / Studio 0.9.9 — 2026-03-30
 
 ### Added

@@ -140,6 +140,13 @@ function createWindow(savedBounds?: { x: number; y: number; width: number; heigh
     if (input.shift && input.code === 'KeyE') {
       event.preventDefault()
       window.webContents.send('event:app-shortcut', { action: 'toggle-permission-mode' })
+      return
+    }
+
+    // Cmd+W — close active pane (intercept here so terminals/iframes can't swallow it)
+    if (!input.shift && input.code === 'KeyW') {
+      event.preventDefault()
+      window.webContents.send('event:app-shortcut', { action: 'close-pane' })
     }
   })
 

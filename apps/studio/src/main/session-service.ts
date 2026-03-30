@@ -91,39 +91,46 @@ export class SessionService {
         } else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
           try {
             const info = await stat(fullPath)
-            const project = projectBySessionPath.get(fullPath) ?? null
-
-            // Read session name from first line of JSONL (the session header record)
             let name = basename(entry.name, '.jsonl')
+            let project: SessionProjectState | null = projectBySessionPath.get(fullPath) ?? null
+
             try {
               const raw = await readFile(fullPath, 'utf8')
-              const firstNewline = raw.indexOf('\n')
-              const firstLine = (firstNewline === -1 ? raw : raw.slice(0, firstNewline)).trim()
-              if (firstLine) {
-                const header = JSON.parse(firstLine)
-                if (header?.name && typeof header.name === 'string') {
-                  name = header.name
-                } else if (project?.sessionName) {
-                  name = project.sessionName
-                } else if (project?.firstPrompt) {
-                  name = project.firstPrompt
-                } else if (header?.timestamp && typeof header.timestamp === 'string') {
-                  // Fall back to a human-readable timestamp
-                  name = new Date(header.timestamp).toLocaleString()
-                }
-              } else if (project?.sessionName) {
-                name = project.sessionName
-              } else if (project?.firstPrompt) {
-                name = project.firstPrompt
+              const parsed = parseSessionFileMetadata(raw)
+              if (!parsed.hasMessages) {
+                continue
               }
+              const parsedProjectRoot = parsed.projectRoot
+                ? normalizeProjectRoot(parsed.projectRoot)
+                : undefined
+
+              project = parsedProjectRoot || parsed.sessionName || parsed.firstPrompt || project
+                ? {
+                    projectRoot: parsedProjectRoot ?? project?.projectRoot ?? dirname(fullPath),
+                    sessionPath: fullPath,
+                    ...(parsed.sessionName || project?.sessionName
+                      ? { sessionName: parsed.sessionName ?? project?.sessionName }
+                      : {}),
+                    ...(parsed.firstPrompt || project?.firstPrompt
+                      ? { firstPrompt: parsed.firstPrompt ?? project?.firstPrompt }
+                      : {}),
+                  }
+                : null
+
+              name = parsed.sessionName
+                || parsed.headerName
+                || project?.sessionName
+                || parsed.firstPrompt
+                || project?.firstPrompt
+                || formatHeaderTimestamp(parsed.headerTimestamp)
+                || name
             } catch {
-              if (project?.sessionName) {
-                name = project.sessionName
-              } else if (project?.firstPrompt) {
-                name = project.firstPrompt
-              }
+              name = project?.sessionName
+                || project?.firstPrompt
+                || name
               // Otherwise use filename stem if parsing fails
             }
+
             results.push({
               path: fullPath,
               name,
@@ -158,6 +165,7 @@ export class SessionService {
       throw new Error('Cannot delete the active session — switch to another session first.')
     }
     await unlink(validatedPath)
+    await this.removeDeletedSessionFromProjectMap(validatedPath)
   }
 
   // =========================================================================
@@ -416,6 +424,23 @@ export class SessionService {
     }
   }
 
+  private async removeDeletedSessionFromProjectMap(sessionPath: string): Promise<void> {
+    this.writeQueue = this.writeQueue.then(async () => {
+      try {
+        const map = await this.readPerProjectSessionMap()
+        const nextEntries = Object.entries(map).filter(([, value]) => value?.sessionPath !== sessionPath)
+        if (nextEntries.length === Object.keys(map).length) {
+          return
+        }
+        await mkdir(dirname(this.perProjectSessionFile), { recursive: true })
+        await writeFile(this.perProjectSessionFile, JSON.stringify(Object.fromEntries(nextEntries), null, 2), 'utf8')
+      } catch (err) {
+        console.warn('[session-service] failed to clean deleted session from per-project map:', (err as Error).message)
+      }
+    })
+    await this.writeQueue
+  }
+
   private async resolveActiveSessionPath(): Promise<string | null> {
     if (!this.activeSessionId) return null
     try {
@@ -424,6 +449,113 @@ export class SessionService {
       return this.activeSessionId
     }
   }
+}
+
+function parseSessionFileMetadata(raw: string): {
+  projectRoot?: string
+  headerName?: string
+  headerTimestamp?: string
+  sessionName?: string
+  firstPrompt?: string
+  hasMessages: boolean
+} {
+  const lines = raw.split(/\r?\n/)
+  let headerName: string | undefined
+  let headerTimestamp: string | undefined
+  let projectRoot: string | undefined
+  let sessionName: string | undefined
+  let firstPrompt: string | undefined
+  let hasMessages = false
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]?.trim()
+    if (!line) continue
+
+    let entry: any
+    try {
+      entry = JSON.parse(line)
+    } catch {
+      if (index === 0) {
+        return { hasMessages: false }
+      }
+      continue
+    }
+
+    if (index === 0) {
+      if (typeof entry?.name === 'string' && entry.name.trim()) {
+        headerName = entry.name.trim()
+      }
+      if (typeof entry?.timestamp === 'string' && entry.timestamp.trim()) {
+        headerTimestamp = entry.timestamp
+      }
+      if (typeof entry?.cwd === 'string' && entry.cwd.trim()) {
+        projectRoot = entry.cwd.trim()
+      }
+    }
+
+    if (typeof entry?.type === 'string' && entry.type === 'session_info') {
+      if (typeof entry?.name === 'string' && entry.name.trim()) {
+        sessionName = entry.name.trim()
+      }
+      continue
+    }
+
+    if (!firstPrompt) {
+      const userText = extractUserPromptText(entry)
+      if (userText) {
+        firstPrompt = userText
+      }
+    }
+
+    if (entry?.type === 'message' || (entry?.message && typeof entry.message === 'object')) {
+      const maybeRole = entry?.message?.role ?? entry?.role
+      if (maybeRole === 'user' || maybeRole === 'assistant') {
+        hasMessages = true
+      }
+    }
+  }
+
+  return {
+    ...(projectRoot ? { projectRoot } : {}),
+    ...(headerName ? { headerName } : {}),
+    ...(headerTimestamp ? { headerTimestamp } : {}),
+    ...(sessionName ? { sessionName } : {}),
+    ...(firstPrompt ? { firstPrompt } : {}),
+    hasMessages,
+  }
+}
+
+function extractUserPromptText(entry: any): string | undefined {
+  const message = entry?.message && typeof entry.message === 'object' ? entry.message : entry
+  if (message?.role !== 'user') return undefined
+
+  const text = extractTextContent(message.content)
+  return text || undefined
+}
+
+function extractTextContent(content: unknown): string {
+  if (typeof content === 'string') {
+    return content.trim()
+  }
+
+  if (!Array.isArray(content)) {
+    return ''
+  }
+
+  let text = ''
+  for (const block of content) {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      text += block.text
+    }
+  }
+
+  return text.trim()
+}
+
+function formatHeaderTimestamp(timestamp?: string): string | undefined {
+  if (!timestamp) return undefined
+  const parsed = new Date(timestamp)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toLocaleString()
 }
 
 function resolveSessionPaths(): SessionServicePaths {

@@ -118,6 +118,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.voiceAudioEnabled = partial.voiceAudioEnabled
   }
 
+  if ('notificationSoundEnabled' in partial) {
+    if (typeof partial.notificationSoundEnabled !== 'boolean') {
+      throw new Error('Invalid notificationSoundEnabled setting')
+    }
+    validated.notificationSoundEnabled = partial.notificationSoundEnabled
+  }
+
   if ('voiceServiceEnabled' in partial) {
     if (typeof partial.voiceServiceEnabled !== 'boolean') {
       throw new Error('Invalid voiceServiceEnabled setting')

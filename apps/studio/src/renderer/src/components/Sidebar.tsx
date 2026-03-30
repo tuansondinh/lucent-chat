@@ -13,10 +13,11 @@ import {
   PanelLeftClose,
   FolderOpen,
   GitBranch,
-  MoreHorizontal,
   Pencil,
   Trash2,
   MessageSquare,
+  ChevronDown,
+  ChevronRight,
   Cpu,
   Volume2,
   VolumeX,
@@ -27,15 +28,9 @@ import { getBridge } from '../lib/bridge'
 import { FileTree } from './FileTree'
 import { ScrollArea } from './ui/scroll-area'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu'
-import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -117,6 +112,19 @@ export function Sidebar({
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = getBridge()
   const prevIsGeneratingRef = useRef(false)
+  const groupedSessions = groupSessionsByProject(sessions)
+
+  // Ensure the group containing the current session is expanded
+  const prevSessionPathRef = useRef(currentSessionPath)
+  useEffect(() => {
+    if (currentSessionPath && currentSessionPath !== prevSessionPathRef.current) {
+      const group = groupedSessions.find((g) => g.sessions.some((s) => s.path === currentSessionPath))
+      if (group) {
+        setCollapsedGroups((prev) => ({ ...prev, [group.key]: false }))
+      }
+    }
+    prevSessionPathRef.current = currentSessionPath
+  }, [currentSessionPath, groupedSessions])
 
   // -- Rename dialog state
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
@@ -125,6 +133,16 @@ export function Sidebar({
   // -- Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // -- Collapsed groups state
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
+  }
 
   // -------------------------------------------------------------------------
   // Load sessions
@@ -230,11 +248,19 @@ export function Sidebar({
     }
   }
 
+  const handleDeleteImmediate = async (path: string) => {
+    try {
+      await bridge.deleteSession(activePaneId, path)
+      await loadSessions()
+      onRefresh()
+    } catch {
+      // silently ignore
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
-
-  const groupedSessions = groupSessionsByProject(sessions)
 
   if (collapsed) {
     return (
@@ -378,38 +404,60 @@ export function Sidebar({
         </div>
 
         {view === 'sessions' ? (
-          <ScrollArea className="flex-1 px-2">
-            <div className="flex flex-col gap-0.5 pb-2">
-              {sessions.length === 0 && (
-                <p className="text-xs text-text-tertiary px-2 py-4 text-center">
-                  No saved sessions
-                </p>
-              )}
-              {groupedSessions.map((group) => (
-                <div key={group.key} className="pt-2 first:pt-0">
-                  <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">
-                    {group.label}
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    {group.sessions.map((session) => {
-                      const isActive = session.path === currentSessionPath
-                      return (
-                        <SessionItem
-                          key={session.path}
-                          session={session}
-                          isActive={isActive}
-                          onSelect={() => void handleSwitchSession(session.path)}
-                          onRename={() => handleRenameOpen(session)}
-                          onDelete={() => setDeleteTarget(session)}
-                          projectLabel={session.project?.projectRoot}
-                        />
-                      )
-                    })}
-                  </div>
+          <div className="flex-1 min-h-0 px-2 pb-2">
+            <div className="h-full overflow-hidden rounded-lg border border-border/60 bg-bg-primary/30">
+              <ScrollArea className="h-full">
+                <div className="flex flex-col gap-0.5 p-1.5">
+                  {sessions.length === 0 && (
+                    <p className="text-xs text-text-tertiary px-2 py-4 text-center">
+                      No saved sessions
+                    </p>
+                  )}
+                  {groupedSessions.map((group) => {
+                    const isCollapsed = collapsedGroups[group.key]
+                    return (
+                      <div key={group.key} className="pt-2 first:pt-0">
+                        <button
+                          onClick={() => toggleGroup(group.key)}
+                          className="group/header flex w-full items-center gap-1.5 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-text-tertiary transition-colors hover:text-text-secondary"
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="h-3 w-3 flex-shrink-0 opacity-60 group-hover/header:opacity-100" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3 flex-shrink-0 opacity-60 group-hover/header:opacity-100" />
+                          )}
+                          <span className="truncate">{group.label}</span>
+                          <span className="ml-auto pr-1 text-[9px] font-medium opacity-40 group-hover/header:opacity-70">
+                            {group.sessions.length}
+                          </span>
+                        </button>
+                        {!isCollapsed && (
+                          <div className="flex flex-col gap-0.5">
+                            {group.sessions.map((session) => {
+                              const isActive = session.path === currentSessionPath
+                              return (
+                                <SessionItem
+                                  key={session.path}
+                                  session={session}
+                                  isActive={isActive}
+                                  onSelect={() => void handleSwitchSession(session.path)}
+                                  onRename={() => handleRenameOpen(session)}
+                                  onDelete={() => setDeleteTarget(session)}
+                                  onDeleteImmediate={() => void handleDeleteImmediate(session.path)}
+                                  canDelete={!isActive}
+                                  projectLabel={session.project?.projectRoot}
+                                />
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
+              </ScrollArea>
             </div>
-          </ScrollArea>
+          </div>
         ) : view === 'explorer' ? (
           <div className="flex-1 min-h-0 px-2 pb-2">
             <div className="h-full overflow-hidden rounded-lg border border-border/60 bg-bg-primary/30">
@@ -421,40 +469,44 @@ export function Sidebar({
             </div>
           </div>
         ) : (
-          <ScrollArea className="flex-1 px-2">
-            <div className="flex flex-col gap-1 pb-2">
-              {changedFiles.length === 0 ? (
-                <p className="text-xs text-text-tertiary px-2 py-4 text-center">
-                  No local changes
-                </p>
-              ) : (
-                changedFiles.map((file) => (
-                  <button
-                    key={`${file.path}:${file.status}`}
-                    onClick={() => { void onOpenDiff?.(activePaneId, file.path) }}
-                    className={cn(btn.ghost, 'flex items-center gap-2 rounded-lg px-2 py-2 text-left')}
-                    title={file.path}
-                  >
-                    <span className={cn(
-                      'inline-flex min-w-7 items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold',
-                      getChangeBadgeClass(file.status),
-                    )}
-                    >
-                      {file.status}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium">{file.path}</div>
-                      {file.previousPath && (
-                        <div className="truncate text-[10px] text-text-tertiary">
-                          from {file.previousPath}
+          <div className="flex-1 min-h-0 px-2 pb-2">
+            <div className="h-full overflow-hidden rounded-lg border border-border/60 bg-bg-primary/30">
+              <ScrollArea className="h-full">
+                <div className="flex flex-col gap-1 p-1.5">
+                  {changedFiles.length === 0 ? (
+                    <p className="text-xs text-text-tertiary px-2 py-4 text-center">
+                      No local changes
+                    </p>
+                  ) : (
+                    changedFiles.map((file) => (
+                      <button
+                        key={`${file.path}:${file.status}`}
+                        onClick={() => { void onOpenDiff?.(activePaneId, file.path) }}
+                        className={cn(btn.ghost, 'flex items-center gap-2 rounded-lg px-2 py-2 text-left')}
+                        title={file.path}
+                      >
+                        <span className={cn(
+                          'inline-flex min-w-7 items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                          getChangeBadgeClass(file.status),
+                        )}
+                        >
+                          {file.status}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium">{file.path}</div>
+                          {file.previousPath && (
+                            <div className="truncate text-[10px] text-text-tertiary">
+                              from {file.previousPath}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  </button>
-                ))
-              )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
             </div>
-          </ScrollArea>
+          </div>
         )}
 
         {/* Bottom area */}
@@ -493,6 +545,9 @@ export function Sidebar({
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Rename Session</DialogTitle>
+            <DialogDescription>
+              Choose a new name for this saved session.
+            </DialogDescription>
           </DialogHeader>
           <Input
             value={renameValue}
@@ -524,9 +579,12 @@ export function Sidebar({
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteError(null) } }}>
-        <DialogContent className="max-w-sm" aria-describedby={undefined}>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete Session</DialogTitle>
+            <DialogDescription>
+              Permanently remove this saved session from disk.
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-text-secondary">
             Are you sure you want to delete{' '}
@@ -610,11 +668,12 @@ interface SessionItemProps {
   onSelect: () => void
   onRename: () => void
   onDelete: () => void
+  onDeleteImmediate: () => void
+  canDelete: boolean
   projectLabel?: string
 }
 
-function SessionItem({ session, isActive, onSelect, onRename, onDelete, projectLabel }: SessionItemProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
+function SessionItem({ session, isActive, onSelect, onRename, onDelete, onDeleteImmediate, canDelete, projectLabel }: SessionItemProps) {
   const shortProjectLabel = projectLabel
     ? projectLabel.split(/[\\/]/).filter(Boolean).pop() ?? projectLabel
     : null
@@ -625,68 +684,68 @@ function SessionItem({ session, isActive, onSelect, onRename, onDelete, projectL
   return (
     <div
       className={cn(
-        'group relative flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
+        'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2 transition-colors',
         isActive
           ? 'bg-accent/15 border-l-2 border-accent text-text-primary pl-[6px]'
-          : 'text-text-secondary hover:bg-accent/10 hover:text-accent active:bg-accent/20',
+          : 'text-text-secondary hover:bg-accent/10 active:bg-accent/20',
       )}
-      onClick={onSelect}
       title={displayName}
     >
-      <MessageSquare
-        className={cn('w-3.5 h-3.5 flex-shrink-0', isActive ? 'text-accent' : 'text-text-tertiary')}
-      />
+      <button
+        onClick={onSelect}
+        className="flex min-w-0 items-center gap-2 text-left"
+        title={displayName}
+      >
+        <MessageSquare
+          className={cn('h-3.5 w-3.5 flex-shrink-0', isActive ? 'text-accent' : 'text-text-tertiary')}
+        />
 
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium truncate leading-tight text-text-primary">{displayName}</p>
-        <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-          {shortProjectLabel && (
-            <span className="truncate text-[10px] text-text-tertiary/90">
-              {shortProjectLabel}
-            </span>
-          )}
-          <span className="text-[10px] text-text-tertiary leading-tight truncate">
-            {relativeTime(session.modified)}
-          </span>
-        </div>
-      </div>
-
-      {/* Context menu trigger — visible on hover or when menu is open */}
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
-          <button
-            onClick={(e) => e.stopPropagation()}
-            className={cn(
-              cn(btn.icon, 'w-5 h-5 flex-shrink-0'),
-              menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium leading-tight text-text-primary">{displayName}</p>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+            {shortProjectLabel && (
+              <span className="truncate text-[10px] text-text-tertiary/90">
+                {shortProjectLabel}
+              </span>
             )}
-          >
-            <MoreHorizontal className="w-3.5 h-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" side="right" sideOffset={4}>
-          <DropdownMenuItem
-            onClick={(e) => {
-              e.stopPropagation()
-              onRename()
-            }}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Rename
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <span className="truncate text-[10px] leading-tight text-text-tertiary">
+              {relativeTime(session.modified)}
+            </span>
+          </div>
+        </div>
+      </button>
+
+      <div className="flex flex-shrink-0 items-center gap-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRename()
+          }}
+          aria-label="Rename session"
+          title="Rename session"
+          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border border-border/70 bg-bg-primary/80 text-text-secondary opacity-0 pointer-events-none shadow-sm transition-all group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:border-accent/40 hover:bg-accent/10 hover:text-accent"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onDeleteImmediate()
+          }}
+          aria-label="Delete session"
+          title={canDelete ? 'Delete session' : 'Switch to another session to delete this one'}
+          disabled={!canDelete}
+          className={cn(
+            'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md border shadow-sm transition-all',
+            canDelete
+              ? 'border-red-500/40 bg-red-500/15 text-red-200 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:bg-red-500/25 hover:text-red-100'
+              : 'cursor-not-allowed border-border/60 bg-bg-primary/50 text-text-tertiary/60 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
+          )}
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 }

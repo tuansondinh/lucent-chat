@@ -56,6 +56,31 @@ test('AgentBridge emits approval-request events from approval_request JSON lines
   proc.emit('exit', 0, null)
 })
 
+test('AgentBridge emits ui-select-request events from extension_ui_request JSON lines', async () => {
+  const { bridge, stdout, proc } = createAttachedBridge()
+  const received: any[] = []
+  bridge.on('ui-select-request', (req) => received.push(req))
+
+  stdout.emit(
+    'data',
+    `${JSON.stringify({
+      type: 'extension_ui_request',
+      id: 'ui_001',
+      method: 'select',
+      title: 'Pick one',
+      options: ['A', 'B'],
+      allowMultiple: false,
+    })}\n`,
+  )
+
+  assert.equal(received.length, 1)
+  assert.equal(received[0].id, 'ui_001')
+  assert.equal(received[0].method, 'select')
+  assert.deepEqual(received[0].options, ['A', 'B'])
+
+  proc.emit('exit', 0, null)
+})
+
 test('AgentBridge respondToApproval writes approval_response JSON to stdin', async () => {
   const { bridge, proc, stdinWrites } = createAttachedBridge()
   const responded: any[] = []
@@ -75,6 +100,38 @@ test('AgentBridge respondToApproval writes approval_response JSON to stdin', asy
   proc.emit('exit', 0, null)
 })
 
+test('AgentBridge respondToUiSelect writes value for single-select responses', async () => {
+  const { bridge, proc, stdinWrites } = createAttachedBridge()
+
+  bridge.respondToUiSelect('ui_002', 'A')
+
+  assert.equal(stdinWrites.length, 1)
+  const message = JSON.parse(stdinWrites[0].trim())
+  assert.deepEqual(message, {
+    type: 'extension_ui_response',
+    id: 'ui_002',
+    value: 'A',
+  })
+
+  proc.emit('exit', 0, null)
+})
+
+test('AgentBridge respondToUiSelect writes values for multi-select responses', async () => {
+  const { bridge, proc, stdinWrites } = createAttachedBridge()
+
+  bridge.respondToUiSelect('ui_003', ['A', 'B'])
+
+  assert.equal(stdinWrites.length, 1)
+  const message = JSON.parse(stdinWrites[0].trim())
+  assert.deepEqual(message, {
+    type: 'extension_ui_response',
+    id: 'ui_003',
+    values: ['A', 'B'],
+  })
+
+  proc.emit('exit', 0, null)
+})
+
 test('AgentBridge respondToApproval warns and does nothing when no process is attached', async () => {
   const bridge = new AgentBridge()
   const warnings: string[] = []
@@ -88,4 +145,19 @@ test('AgentBridge respondToApproval warns and does nothing when no process is at
   }
 
   assert.ok(warnings.some((warning) => warning.includes('respondToApproval')))
+})
+
+test('AgentBridge respondToUiSelect warns and does nothing when no process is attached', async () => {
+  const bridge = new AgentBridge()
+  const warnings: string[] = []
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => warnings.push(args.join(' '))
+
+  try {
+    bridge.respondToUiSelect('ui_004', 'A')
+  } finally {
+    console.warn = originalWarn
+  }
+
+  assert.ok(warnings.some((warning) => warning.includes('respondToUiSelect')))
 })

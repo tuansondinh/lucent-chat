@@ -66,6 +66,8 @@ interface SettingsProps {
   onVoiceAudioEnabledChange: (enabled: boolean) => void
   thinkingLevel: 'low' | 'medium' | 'high'
   onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
+  notificationSoundEnabled: boolean
+  onNotificationSoundEnabledChange: (enabled: boolean) => void
   /** When true, renders with a close button suitable for full-screen mobile overlay. */
   isMobile?: boolean
 }
@@ -181,6 +183,8 @@ export function Settings({
   onVoiceAudioEnabledChange,
   thinkingLevel,
   onThinkingLevelChange,
+  notificationSoundEnabled,
+  onNotificationSoundEnabledChange,
   isMobile = false,
 }: SettingsProps) {
   const bridge = getBridge()
@@ -199,6 +203,7 @@ export function Settings({
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
   const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(true)
   const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(false)
+  const [localNotificationSoundEnabled, setLocalNotificationSoundEnabled] = useState(notificationSoundEnabled)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
@@ -281,6 +286,7 @@ export function Settings({
         setLocalVoiceAudioEnabled(s.voiceAudioEnabled !== false)
         setLocalVoiceServiceEnabled(s.voiceServiceEnabled !== false)
         setLocalTextToSpeechMode(s.textToSpeechMode === true)
+        setLocalNotificationSoundEnabled(s.notificationSoundEnabled !== false)
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setLocalVoicePttShortcut(s.voicePttShortcut)
         } else {
@@ -379,6 +385,12 @@ export function Settings({
     setLocalTextToSpeechMode(enabled)
     bridge.setSettings({ textToSpeechMode: enabled }).catch(() => {})
   }, [bridge])
+
+  const handleNotificationSoundEnabledChange = useCallback((enabled: boolean) => {
+    setLocalNotificationSoundEnabled(enabled)
+    onNotificationSoundEnabledChange(enabled)
+    bridge.setSettings({ notificationSoundEnabled: enabled }).catch(() => {})
+  }, [bridge, onNotificationSoundEnabledChange])
 
   const handleAutoModeRulesChange = useCallback((rules: ClassifierRule[]) => {
     setAutoModeRules(rules)
@@ -481,6 +493,8 @@ export function Settings({
                 onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
                 textToSpeechMode={localTextToSpeechMode}
                 onTextToSpeechModeChange={handleTextToSpeechModeChange}
+                notificationSoundEnabled={localNotificationSoundEnabled}
+                onNotificationSoundEnabledChange={handleNotificationSoundEnabledChange}
               />
             )}
             {activeTab === 'updates' && <UpdatesTab />}
@@ -564,6 +578,8 @@ interface GeneralTabProps {
   onVoiceAudioEnabledChange: (enabled: boolean) => void
   textToSpeechMode: boolean
   onTextToSpeechModeChange: (enabled: boolean) => void
+  notificationSoundEnabled: boolean
+  onNotificationSoundEnabledChange: (enabled: boolean) => void
 }
 
 function GeneralTab({
@@ -575,6 +591,8 @@ function GeneralTab({
   onVoiceAudioEnabledChange,
   textToSpeechMode,
   onTextToSpeechModeChange,
+  notificationSoundEnabled,
+  onNotificationSoundEnabledChange,
 }: GeneralTabProps) {
   return (
     <div className="p-6 space-y-6">
@@ -693,6 +711,36 @@ function GeneralTab({
               className={cn(
                 'rounded-md px-3 py-1.5 text-sm transition-colors',
                 !textToSpeechMode
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              Off
+            </button>
+          </div>
+        </Field>
+
+        <Field
+          label="Notification sound"
+          hint="Play a soft chime when the agent finishes responding."
+        >
+          <div className="inline-flex rounded-lg border border-border bg-bg-tertiary p-1">
+            <button
+              onClick={() => onNotificationSoundEnabledChange(true)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                notificationSoundEnabled
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              On
+            </button>
+            <button
+              onClick={() => onNotificationSoundEnabledChange(false)}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                !notificationSoundEnabled
                   ? 'bg-accent/20 text-accent'
                   : 'text-text-secondary hover:text-text-primary',
               )}

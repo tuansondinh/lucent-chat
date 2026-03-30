@@ -10,6 +10,7 @@
  * - Review screen before submitting — shows all answers, single submit button
  * - Exit confirmation on Esc — "End interview?" with keep-going as default
  * - focusNotes dimming: checked/committed items stay visible, others dim
+ * - Mouse click support: click any option to select it
  *
  * Navigation:
  *   ←/→          move between questions
@@ -17,6 +18,7 @@
  *   Enter/Space  commit selection and advance
  *   Tab          open/close notes field
  *   Esc          exit confirmation overlay (keep-going is default)
+ *   Click        select an option directly
  *
  * On last question, Enter advances to a review screen instead of submitting directly.
  * From the review screen:
@@ -106,6 +108,33 @@ export interface WrapUpOptions {
 
 const OTHER_OPTION_LABEL = "None of the above";
 const OTHER_OPTION_DESCRIPTION = "Press TAB to add optional notes.";
+
+// ─── Mouse helpers ────────────────────────────────────────────────────────────
+
+/** Enable SGR mouse button-press reporting (mode 1000 + 1006). */
+function enableMouse(): void {
+	process.stdout.write("\x1b[?1000h\x1b[?1006h");
+}
+
+/** Disable SGR mouse reporting and restore prior state. */
+function disableMouse(): void {
+	process.stdout.write("\x1b[?1006l\x1b[?1000l");
+}
+
+/**
+ * Parse an SGR mouse sequence: \x1b[<Cb;Cx;CyM (press) or …m (release).
+ * Returns { button, col, row, release } with 0-based row/col, or null.
+ */
+function parseSgrMouse(data: string): { button: number; col: number; row: number; release: boolean } | null {
+	const match = data.match(/^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/);
+	if (!match) return null;
+	return {
+		button: parseInt(match[1]!, 10),
+		col: parseInt(match[2]!, 10) - 1, // convert to 0-based
+		row: parseInt(match[3]!, 10) - 1, // convert to 0-based
+		release: match[4] === "m",
+	};
+}
 
 // ─── Wrap-up screen ───────────────────────────────────────────────────────────
 
@@ -207,6 +236,13 @@ export async function showInterviewRound(
 		let exitCursor = 0; // 0 = keep going (default), 1 = end interview
 		let cachedLines: string[] | undefined;
 
+		// Mouse: map content-line index → click handler.
+		// Populated after each render() call; used in handleInput for mouse clicks.
+		const rowActions = new Map<number, () => void>();
+
+		// Enable SGR mouse button reporting so clicks are delivered as escape sequences.
+		enableMouse();
+
 		// Editor is created once; editorTheme comes from the design system
 		const editorRef = { current: null as Editor | null };
 
@@ -219,7 +255,14 @@ export async function showInterviewRound(
 
 		function refresh() {
 			cachedLines = undefined;
+			rowActions.clear();
 			tui.requestRender();
+		}
+
+		/** Wrap done() to always disable mouse before resolving. */
+		function finishWith(result: RoundResult): void {
+			disableMouse();
+			done(result);
 		}
 
 		function isMultiSelect(qIdx: number): boolean {
@@ -287,7 +330,7 @@ export async function showInterviewRound(
 
 		function submit() {
 			saveEditorToState();
-			done(buildResult());
+			finishWith(buildResult());
 		}
 
 		function goNextOrSubmit() {
@@ -312,15 +355,30 @@ export async function showInterviewRound(
 		// ── Input handler ────────────────────────────────────────────────────
 
 		function handleInput(data: string) {
+			// ── Mouse click ───────────────────────────────────────────────
+			const mouse = parseSgrMouse(data);
+			if (mouse && !mouse.release && mouse.button === 0) {
+				// Determine which content row was clicked.
+				// The TUI renders from the top; content line N maps to screen row
+				// N - viewportTop, where viewportTop = max(0, maxLinesRendered - termRows).
+				const termRows = tui.terminal.rows;
+				const maxRendered = (tui as any).maxLinesRendered as number ?? 0;
+				const viewportTop = Math.max(0, maxRendered - termRows);
+				const contentRow = mouse.row + viewportTop;
+				const action = rowActions.get(contentRow);
+				if (action) { action(); return; }
+				return; // ignore clicks on non-clickable rows
+			}
+
 			// ── Exit confirmation overlay ──────────────────────────────────
 			if (showingExitConfirm) {
 				if (matchesKey(data, Key.up) || matchesKey(data, Key.left)) { exitCursor = 0; refresh(); return; }
 				if (matchesKey(data, Key.down) || matchesKey(data, Key.right)) { exitCursor = 1; refresh(); return; }
 				if (data === "1") { showingExitConfirm = false; refresh(); return; }
-				if (data === "2") { done({ endInterview: false, answers: {} }); return; }
+				if (data === "2") { finishWith({ endInterview: false, answers: {} }); return; }
 				if (matchesKey(data, Key.enter) || matchesKey(data, Key.space)) {
 					if (exitCursor === 0) { showingExitConfirm = false; refresh(); }
-					else { done({ endInterview: false, answers: {} }); }
+					else { finishWith({ endInterview: false, answers: {} }); }
 					return;
 				}
 				if (matchesKey(data, Key.escape)) { showingExitConfirm = false; refresh(); return; }
@@ -538,6 +596,8 @@ export async function showInterviewRound(
 			for (let i = 0; i < q.options.length; i++) {
 				const opt = q.options[i];
 				const isCursor = i === st.cursorIndex;
+				const optLineStart = lines.length; // content row before pushing this option
+				const optIdx = i; // capture for closure
 
 				if (multiSel) {
 					const isChecked = st.checkedIndices.has(i);
@@ -551,11 +611,27 @@ export async function showInterviewRound(
 						push(ui.optionUnselected(i + 1, opt.label, opt.description, { isCommitted, isFocusDimmed: focusNotes }));
 					}
 				}
+
+				// Register every content line rendered for this option as clickable.
+				for (let row = optLineStart; row < lines.length; row++) {
+					rowActions.set(row, () => {
+						st.cursorIndex = optIdx;
+						if (multiSel) {
+							if (st.checkedIndices.has(optIdx)) st.checkedIndices.delete(optIdx);
+							else st.checkedIndices.add(optIdx);
+							refresh();
+						} else {
+							st.committedIndex = optIdx;
+							goNextOrSubmit();
+						}
+					});
+				}
 			}
 
 			// ── None / Done slot ───────────────────────────────────────────
 			const ndIdx = noneOrDoneIdx(currentIdx);
 			const ndCursor = ndIdx === st.cursorIndex;
+			const ndLineStart = lines.length;
 
 			if (multiSel) {
 				push(ui.blank());
@@ -568,6 +644,19 @@ export async function showInterviewRound(
 				} else {
 					push(ui.slotUnselected(OTHER_OPTION_LABEL, OTHER_OPTION_DESCRIPTION, { isCommitted: ndCommitted, isFocusDimmed: focusNotes }));
 				}
+			}
+
+			// Register the None/Done slot as clickable.
+			for (let row = ndLineStart; row < lines.length; row++) {
+				rowActions.set(row, () => {
+					st.cursorIndex = ndIdx;
+					if (multiSel) {
+						goNextOrSubmit();
+					} else {
+						st.committedIndex = ndIdx;
+						goNextOrSubmit();
+					}
+				});
 			}
 
 			// ── Notes area ─────────────────────────────────────────────────
@@ -588,12 +677,12 @@ export async function showInterviewRound(
 				hints.push("enter to confirm");
 				hints.push("tab or esc to close notes");
 			} else if (multiSel) {
-				hints.push("space to toggle");
+				hints.push("click or space to toggle");
 				if (isMultiQuestion) hints.push("←/→ navigate questions");
 				hints.push("tab to add notes");
 				hints.push(isLast && allAnswered() ? "enter to review" : "enter to next");
 			} else {
-				hints.push("tab to add notes");
+				hints.push("click or ↑/↓ to choose");
 				if (isMultiQuestion) hints.push("←/→ navigate");
 				hints.push(isLast && allAnswered() ? "enter to review" : "enter to next");
 			}
@@ -606,8 +695,9 @@ export async function showInterviewRound(
 
 		return {
 			render,
-			invalidate: () => { cachedLines = undefined; },
+			invalidate: () => { cachedLines = undefined; rowActions.clear(); },
 			handleInput,
+			dispose: () => { disableMouse(); },
 		};
 	});
 }

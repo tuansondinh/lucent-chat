@@ -293,13 +293,18 @@ export class AgentBridge extends EventEmitter {
   /**
    * Send a UI select response back to the agent stdin.
    * Called by ipc-handlers after the user makes a selection in the UI.
+   *
+   * RPC mode expects `value` for single-select and `values` for multi-select.
    */
   respondToUiSelect(id: string, selected: string | string[]): void {
     if (!this.proc?.stdin) {
       console.warn('[agent-bridge] respondToUiSelect: no agent process stdin available')
       return
     }
-    const msg = serializeJsonLine({ type: 'extension_ui_response', id, selected })
+    const payload = Array.isArray(selected)
+      ? { type: 'extension_ui_response', id, values: selected }
+      : { type: 'extension_ui_response', id, value: selected }
+    const msg = serializeJsonLine(payload)
     this.proc.stdin.write(msg)
   }
 

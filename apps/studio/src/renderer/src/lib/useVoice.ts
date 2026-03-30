@@ -209,6 +209,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const playbackQueueRef = useRef<AudioPlaybackQueue | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const ttsOnlyWsRequestedRef = useRef(false)
   const pendingReleaseRef = useRef(false)
   const releaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const autoDeactivateAfterTurnRef = useRef(false)
@@ -438,6 +439,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   }, [])
 
   const disconnectVoiceIo = useCallback(() => {
+    ttsOnlyWsRequestedRef.current = false
     pendingReleaseRef.current = false
     autoDeactivateAfterTurnRef.current = false
     ttsRequestedForTurnRef.current = false
@@ -528,6 +530,7 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     wsRef.current = ws
 
     ws.onopen = () => {
+      ttsOnlyWsRequestedRef.current = false
       console.log('[voice] WebSocket connected')
       if (!isElectron) {
         // PWA: send auth message to the bridge server proxy
@@ -597,15 +600,22 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     }
 
     ws.onclose = () => {
+      ttsOnlyWsRequestedRef.current = false
       voiceStore.getState().setWsConnected(false)
       wsRef.current = null
-      // Reconnect if voice is still active
+      // Reconnect if live voice is still active or TTS-only mode is enabled.
       const state = voiceStore.getState()
-      if (state.active && state.activePaneId === _activePaneId) {
+      const shouldReconnect =
+        (state.active && state.activePaneId === _activePaneId)
+        || (!state.active && textOnlyModeEnabledRef.current)
+      if (shouldReconnect) {
         reconnectTimerRef.current = setTimeout(() => {
           const latest = voiceStore.getState()
           const p = latest.port
-          if (p && latest.active && latest.activePaneId === _activePaneId) {
+          const reconnectAllowed =
+            (latest.active && latest.activePaneId === _activePaneId)
+            || (!latest.active && textOnlyModeEnabledRef.current)
+          if (p && reconnectAllowed) {
             connectWs(p)
           }
         }, 2000)
@@ -613,10 +623,24 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
     }
 
     ws.onerror = (err) => {
+      ttsOnlyWsRequestedRef.current = false
       console.error('[voice] WebSocket error', err)
       voiceStore.getState().setError('WebSocket connection failed')
     }
   }, [voiceStore, onTranscript, handlePlaybackDrain, _activePaneId, completePushToTalkRelease, flushPendingTtsRequests])
+
+  useEffect(() => {
+    const state = voiceStore.getState()
+    const ws = wsRef.current
+    if (!textOnlyMode) return
+    if (state.active) return
+    if (state.sidecarState !== 'ready' || !state.port) return
+    if (!sidecarTokenRef.current) return
+    if (ws?.readyState === WebSocket.OPEN || ws?.readyState === WebSocket.CONNECTING) return
+    if (ttsOnlyWsRequestedRef.current) return
+    ttsOnlyWsRequestedRef.current = true
+    connectWs(state.port)
+  }, [textOnlyMode, sidecarState, connectWs, voiceStore])
 
   const startMic = useCallback(async () => {
     try {
@@ -856,10 +880,10 @@ export function useVoice({ onTranscript, activePaneId: _activePaneId, ttsEnabled
   }, [voiceStore, _activePaneId, flushTtsBuffer, completePushToTalkRelease])
 
   useEffect(() => {
-    if (!isVoiceOwner) {
+    if (!isVoiceOwner && !textOnlyModeEnabledRef.current) {
       disconnectVoiceIo()
     }
-  }, [isVoiceOwner, disconnectVoiceIo])
+  }, [isVoiceOwner, disconnectVoiceIo, textOnlyMode])
 
   // =========================================================================
   // Cleanup on unmount

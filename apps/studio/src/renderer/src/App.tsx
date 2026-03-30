@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useCallback, useState, useRef, lazy, Suspense, type ReactNode } from 'react'
+import packageJson from '../../../package.json'
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { toast, Toaster } from 'sonner'
 import { Menu, X, RefreshCw, LogIn, AlertTriangle } from 'lucide-react'
@@ -72,12 +73,14 @@ function clampFileViewerWidth(
 function PaneTerminal({
   paneId,
   isActive,
+  hasUnreadResponse,
   onFocus,
   onSwitchToChat,
   onClose,
 }: {
   paneId: string
   isActive: boolean
+  hasUnreadResponse: boolean
   onFocus: () => void
   onSwitchToChat: () => void
   onClose?: () => void
@@ -100,7 +103,9 @@ function PaneTerminal({
       tabIndex={-1}
       onClick={!isActive ? onFocus : undefined}
       className={[
-        'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden',
+        'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden transition-all duration-200',
+        !isActive && !hasUnreadResponse ? 'opacity-60 hover:opacity-80' : '',
+        !isActive && hasUnreadResponse ? 'opacity-60 hover:opacity-80 border border-orange-500/40 pane-attention-orange-soft' : '',
         isActive ? 'outline outline-1 outline-accent/30' : '',
       ].join(' ')}
     >
@@ -149,9 +154,12 @@ function renderLayoutNode(
   voicePttShortcut: 'space' | 'alt+space' | 'cmd+shift+space',
   voiceAudioEnabled: boolean,
   textToSpeechMode: boolean,
+  notificationSoundEnabled: boolean,
+  paneAttention: Record<string, boolean>,
   setPaneMode: (paneId: string, mode: PaneMode) => void,
-  setActivePane: (id: string) => void,
+  focusPaneById: (id: string) => void,
   handleClosePane: (id: string) => Promise<void>,
+  handlePaneNeedsAttention: (paneId: string) => void,
   handleOpenFile: (paneId: string, relativePath: string) => Promise<void>,
 ): ReactNode {
   if (node.type === 'leaf') {
@@ -161,7 +169,8 @@ function renderLayoutNode(
           key={node.paneId}
           paneId={node.paneId}
           isActive={node.paneId === activePaneId}
-          onFocus={() => setActivePane(node.paneId)}
+          hasUnreadResponse={paneAttention[node.paneId] === true}
+          onFocus={() => focusPaneById(node.paneId)}
           onSwitchToChat={() => setPaneMode(node.paneId, 'chat')}
           onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         />
@@ -172,12 +181,15 @@ function renderLayoutNode(
         key={node.paneId}
         paneId={node.paneId}
         isActive={node.paneId === activePaneId}
+        hasUnreadResponse={paneAttention[node.paneId] === true}
         sidebarCollapsed={sidebarCollapsed && paneCount === 1}
         voicePttShortcut={voicePttShortcut}
         voiceAudioEnabled={voiceAudioEnabled}
         textToSpeechMode={textToSpeechMode}
+        notificationSoundEnabled={notificationSoundEnabled}
         onSwitchToTerminal={() => setPaneMode(node.paneId, 'terminal')}
-        onFocus={() => setActivePane(node.paneId)}
+        onFocus={() => focusPaneById(node.paneId)}
+        onRequestAttention={handlePaneNeedsAttention}
         onClose={paneCount > 1 ? () => void handleClosePane(node.paneId) : undefined}
         onOpenFile={handleOpenFile}
       />
@@ -187,8 +199,8 @@ function renderLayoutNode(
   const isHorizontal = node.orientation === 'horizontal'
   const minSize = isHorizontal ? 10 : 15
   const handleClass = isHorizontal
-    ? 'w-0.5 bg-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/70 transition-colors cursor-col-resize flex-shrink-0'
-    : 'h-0.5 bg-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/70 transition-colors cursor-row-resize flex-shrink-0'
+    ? 'w-0.5 bg-border hover:bg-border-active transition-colors cursor-col-resize flex-shrink-0'
+    : 'h-0.5 bg-border hover:bg-border-active transition-colors cursor-row-resize flex-shrink-0'
 
   const panels: ReactNode[] = []
   node.children.forEach((child, idx) => {
@@ -197,14 +209,13 @@ function renderLayoutNode(
         <PanelResizeHandle
           key={`handle-${node.id}-${idx}`}
           className={handleClass}
-          hitAreaMargins={{ coarse: 20, fine: 5 }}
         />,
       )
     }
     const childKey = child.type === 'leaf' ? child.paneId : child.id
     panels.push(
       <Panel key={childKey} minSize={minSize} className="flex flex-col min-h-0 min-w-0">
-        {renderLayoutNode(child, activePaneId, paneModes, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, textToSpeechMode, setPaneMode, setActivePane, handleClosePane, handleOpenFile)}
+        {renderLayoutNode(child, activePaneId, paneModes, sidebarCollapsed, paneCount, voicePttShortcut, voiceAudioEnabled, textToSpeechMode, notificationSoundEnabled, paneAttention, setPaneMode, focusPaneById, handleClosePane, handlePaneNeedsAttention, handleOpenFile)}
       </Panel>,
     )
   })
@@ -271,7 +282,9 @@ export default function App() {
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(true)
   const [thinkingLevel, setThinkingLevel] = useState<'low' | 'medium' | 'high'>('medium')
   const [textToSpeechMode, setTextToSpeechMode] = useState(false)
+  const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(true)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
+  const [paneAttention, setPaneAttention] = useState<Record<string, boolean>>({})
   // Reconnect banner state (PWA only)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connected')
 
@@ -323,6 +336,9 @@ export default function App() {
         }
         if (s.textToSpeechMode === true) {
           setTextToSpeechMode(true)
+        }
+        if (s.notificationSoundEnabled === false) {
+          setNotificationSoundEnabled(false)
         }
         if (s.voiceModelsDownloaded === true) {
           setVoiceModelsDownloaded(true)
@@ -479,6 +495,12 @@ export default function App() {
     try {
       await bridge.paneClose(paneIdToClose)
       usePanesStore.getState().removePane(paneIdToClose)
+      setPaneAttention((current) => {
+        if (!(paneIdToClose in current)) return current
+        const next = { ...current }
+        delete next[paneIdToClose]
+        return next
+      })
       deletePaneStore(paneIdToClose)
       deleteFileTreeStore(paneIdToClose)
     } catch (err) {
@@ -491,9 +513,35 @@ export default function App() {
     const targetId = findPaneInDirection(currentActive, direction)
     if (targetId) {
       setActivePane(targetId)
+      setPaneAttention((current) => {
+        if (!current[targetId]) return current
+        return { ...current, [targetId]: false }
+      })
       focusPane(targetId)
     }
   }, [setActivePane])
+
+  const focusPaneById = useCallback((paneId: string) => {
+    setActivePane(paneId)
+    setPaneAttention((current) => {
+      if (!current[paneId]) return current
+      return { ...current, [paneId]: false }
+    })
+  }, [setActivePane])
+
+  const handlePaneNeedsAttention = useCallback((paneId: string) => {
+    setPaneAttention((current) => {
+      if (current[paneId]) return current
+      return { ...current, [paneId]: true }
+    })
+  }, [])
+
+  useEffect(() => {
+    setPaneAttention((current) => {
+      if (!current[activePaneId]) return current
+      return { ...current, [activePaneId]: false }
+    })
+  }, [activePaneId])
 
   // -------------------------------------------------------------------------
   // Sidebar / session actions (scoped to active pane)
@@ -516,6 +564,11 @@ export default function App() {
   const handleVoiceAudioEnabledChange = useCallback((enabled: boolean) => {
     setVoiceAudioEnabled(enabled)
     bridge.setSettings({ voiceAudioEnabled: enabled }).catch(() => {})
+  }, [bridge])
+
+  const handleNotificationSoundEnabledChange = useCallback((enabled: boolean) => {
+    setNotificationSoundEnabled(enabled)
+    bridge.setSettings({ notificationSoundEnabled: enabled }).catch(() => {})
   }, [bridge])
 
   const handleThinkingLevelChange = useCallback((level: 'low' | 'medium' | 'high') => {
@@ -728,6 +781,13 @@ export default function App() {
       }
       if (action === 'toggle-permission-mode') {
         bridge.togglePanePermissionMode?.(activePaneId).catch(() => {})
+        return
+      }
+      if (action === 'close-pane') {
+        const isModalOpen = commandPaletteOpenRef.current || settingsOpenRef.current || modelPickerOpenRef.current
+        if (!isModalOpen) {
+          void handleClosePane(usePanesStore.getState().activePaneId)
+        }
       }
     })
     return () => unsubscribe()
@@ -760,7 +820,7 @@ export default function App() {
     const startWidth = sidebarWidth
 
     const handlePointerMove = (moveEvent: MouseEvent) => {
-      const next = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 160), 600)
+      const next = Math.min(Math.max(startWidth + (moveEvent.clientX - startX), 260), 600)
       setSidebarWidth(next)
     }
 
@@ -901,7 +961,7 @@ export default function App() {
         const ids = collectLeafIds(usePanesStore.getState().layout)
         if (idx < ids.length) {
           e.preventDefault()
-          setActivePane(ids[idx])
+          focusPaneById(ids[idx])
           focusPane(ids[idx])
           return
         }
@@ -961,12 +1021,8 @@ export default function App() {
         e.preventDefault()
         setSettingsOpen((v) => !v)
       }
-      // Cmd+W — close active pane (desktop only)
-      if (!mobile && e.metaKey && e.key === 'w') {
-        e.preventDefault()
-        void handleClosePane(usePanesStore.getState().activePaneId)
-        return
-      }
+      // Cmd+W — handled in main process via before-input-event to work even when
+      // terminals or iframes swallow keyboard events.
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -1008,9 +1064,12 @@ export default function App() {
     voicePttShortcut,
     voiceAudioEnabled,
     textToSpeechMode,
+    notificationSoundEnabled,
+    paneAttention,
     setPaneMode,
-    setActivePane,
+    focusPaneById,
     handleClosePane,
+    handlePaneNeedsAttention,
     handleOpenFile,
   )
 
@@ -1026,6 +1085,7 @@ export default function App() {
         : activePaneHealth === 'crashed' || activePaneHealth === 'degraded'
           ? 'bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.5)]'
           : 'bg-bg-tertiary'
+  const appVersionLabel = `v${packageJson.version}`
 
   // -------------------------------------------------------------------------
   // Render
@@ -1081,6 +1141,8 @@ export default function App() {
           onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
           thinkingLevel={thinkingLevel}
           onThinkingLevelChange={handleThinkingLevelChange}
+          notificationSoundEnabled={notificationSoundEnabled}
+          onNotificationSoundEnabledChange={handleNotificationSoundEnabledChange}
           isMobile={isMobile}
         />
       </div>
@@ -1172,8 +1234,8 @@ export default function App() {
           <div className="mobile-header__title">Lucent Code</div>
           <div className="mobile-header__health">
             <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${healthDotColor}`} />
-            <span className="text-xs text-text-tertiary capitalize">
-              {activePaneHealth === 'unknown' ? 'connecting' : activePaneHealth}
+            <span className="text-xs text-text-tertiary">
+              {appVersionLabel}
             </span>
           </div>
         </header>
@@ -1222,6 +1284,7 @@ export default function App() {
             <PaneTerminal
               paneId={activePaneId}
               isActive
+              hasUnreadResponse={false}
               onFocus={() => {}}
               onSwitchToChat={() => setPaneMode(activePaneId, 'chat')}
             />
@@ -1229,12 +1292,15 @@ export default function App() {
             <ChatPane
               paneId={activePaneId}
               isActive
+              hasUnreadResponse={false}
               sidebarCollapsed
               voicePttShortcut={voicePttShortcut}
               voiceAudioEnabled={voiceAudioEnabled}
               textToSpeechMode={textToSpeechMode}
+              notificationSoundEnabled={notificationSoundEnabled}
               onSwitchToTerminal={() => setPaneMode(activePaneId, 'terminal')}
               onFocus={() => {}}
+              onRequestAttention={handlePaneNeedsAttention}
               onOpenFile={handleOpenFile}
               isMobile
             />
@@ -1353,7 +1419,7 @@ export default function App() {
                 onMouseDown={handleSidebarResizeStart}
                 className="group flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center bg-transparent"
               >
-                <div className="w-px bg-border transition-colors group-hover:bg-accent/50" />
+                <div className="w-px bg-border transition-colors group-hover:bg-accent-gray/50" />
               </div>
             )}
 
@@ -1372,7 +1438,7 @@ export default function App() {
                     onMouseDown={handleFileViewerResizeStart}
                     className="group flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center bg-transparent"
                   >
-                    <div className="w-px bg-border transition-colors group-hover:bg-accent/50" />
+                    <div className="w-px bg-border transition-colors group-hover:bg-accent-gray/50" />
                   </div>
                   <div
                     className="flex min-h-0 border-l border-border bg-bg-secondary"

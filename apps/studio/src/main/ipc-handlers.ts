@@ -714,7 +714,33 @@ async function openExternalHttpUrl(
 
 /** Push an event from main process to the renderer window. */
 export function pushEvent(win: BrowserWindow | null, channel: string, data: unknown): void {
-  if (win && !win.isDestroyed()) {
+  if (!win) {
+    return
+  }
+
+  const windowDestroyed = typeof win.isDestroyed === 'function' ? win.isDestroyed() : Boolean((win as BrowserWindow & { isDestroyed?: boolean }).isDestroyed)
+  if (windowDestroyed) {
+    return
+  }
+
+  const webContents = win.webContents as typeof win.webContents & {
+    isDestroyed?: (() => boolean) | boolean
+  }
+  const webContentsDestroyed = typeof webContents.isDestroyed === 'function'
+    ? webContents.isDestroyed()
+    : Boolean(webContents.isDestroyed)
+
+  if (webContentsDestroyed) {
+    return
+  }
+
+  try {
     win.webContents.send(channel, data)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('Render frame was disposed before WebFrameMain could be accessed')) {
+      return
+    }
+    throw error
   }
 }

@@ -465,8 +465,10 @@ test('IPC: cmd:set-settings validates settings', async (t) => {
     theme: 'dark',
     fontSize: 16,
     voicePttShortcut: 'alt+space',
+    notificationSoundEnabled: false,
   })
   assert.ok(result)
+  assert.equal(result.notificationSoundEnabled, false)
 })
 
 test('IPC: cmd:get-settings sanitizes output', async (t) => {

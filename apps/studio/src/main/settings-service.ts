@@ -38,6 +38,8 @@ export interface AppSettings {
   voicePttShortcut?: 'space' | 'alt+space' | 'cmd+shift+space'
   /** Whether assistant TTS playback is enabled. */
   voiceAudioEnabled?: boolean
+  /** Whether desktop notification sounds are enabled. */
+  notificationSoundEnabled?: boolean
   /** Whether the Python voice sidecar is allowed to run. */
   voiceServiceEnabled?: boolean
   /** Whether voice models have already been downloaded on this machine. */
@@ -89,6 +91,7 @@ const DEFAULTS: AppSettings = {
   voiceModelsDownloaded: false,
   voicePttShortcut: 'space',
   voiceAudioEnabled: true,
+  notificationSoundEnabled: true,
   voiceServiceEnabled: true,
   textToSpeechMode: false,
   remoteAccessEnabled: false,

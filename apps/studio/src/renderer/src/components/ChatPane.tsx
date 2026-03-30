@@ -16,6 +16,7 @@ import { getPaneStore, usePanesStore } from '../store/pane-store'
 import { MSG_GAP, MSG_LIST_PB, MSG_BLOCK_MB } from '../lib/chat-spacing'
 import { formatModelDisplay, getModelRefFromState } from '../lib/models'
 import { useVoice } from '../lib/useVoice'
+import { useNotificationSound } from '../lib/useNotificationSound'
 import { useVoiceStore } from '../store/voice-store'
 import { registerPaneElement, registerPaneFocus } from '../lib/pane-refs'
 import { Kbd, KbdGroup } from './ui/kbd'
@@ -362,6 +363,7 @@ function PaneFooter({
 interface ChatPaneProps {
   paneId: string
   isActive: boolean
+  hasUnreadResponse?: boolean
   /** Show collapse sidebar padding (true = sidebar icon strip is visible). */
   sidebarCollapsed: boolean
   /** Configured push-to-talk shortcut for this pane when active. */
@@ -370,10 +372,14 @@ interface ChatPaneProps {
   voiceAudioEnabled: boolean
   /** When true, all text responses are spoken (TTS-only mode). */
   textToSpeechMode: boolean
+  /** When true, plays a chime when the agent finishes responding. */
+  notificationSoundEnabled: boolean
   /** Switch this pane from chat mode into terminal mode. */
   onSwitchToTerminal?: () => void
   /** Called when user clicks on this pane to focus it. */
   onFocus: () => void
+  /** Called when an agent response completes while this pane is inactive. */
+  onRequestAttention?: (paneId: string) => void
   /** Called to close this pane — undefined if this is the only pane. */
   onClose?: () => void
   /** Open a file in the file viewer for this pane. */
@@ -407,12 +413,15 @@ const keyboardShortcuts = [
 export function ChatPane({
   paneId,
   isActive,
+  hasUnreadResponse = false,
   sidebarCollapsed,
   voicePttShortcut,
   voiceAudioEnabled,
   textToSpeechMode,
+  notificationSoundEnabled,
   onSwitchToTerminal,
   onFocus,
+  onRequestAttention,
   onClose,
   onOpenFile,
   isMobile = false,
@@ -462,7 +471,12 @@ export function ChatPane({
   const pttActivationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pttShortcutHeldRef = useRef(false)
   // Keep a ref so the bridge-listener effect (deps=[paneId]) can read the latest value
+  const isActiveRef = useRef(isActive)
   const textToSpeechModeRef = useRef(textToSpeechMode)
+  const voiceAudioEnabledRef = useRef(voiceAudioEnabled)
+  const onRequestAttentionRef = useRef(onRequestAttention)
+  const playNotificationSoundRef = useRef<(() => void) | null>(null)
+  const { play: playNotificationSound } = useNotificationSound(notificationSoundEnabled)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
   // When we interrupt-and-send, we store the aborted turn_id so we can ignore its
@@ -475,7 +489,12 @@ export function ChatPane({
   const permissionMode = store((s) => s.permissionMode)
 
   // Keep textToSpeechModeRef in sync so the stale bridge-listener closure reads the current value
+  useEffect(() => { isActiveRef.current = isActive }, [isActive])
   useEffect(() => { textToSpeechModeRef.current = textToSpeechMode }, [textToSpeechMode])
+  useEffect(() => { voiceAudioEnabledRef.current = voiceAudioEnabled }, [voiceAudioEnabled])
+  useEffect(() => { onRequestAttentionRef.current = onRequestAttention }, [onRequestAttention])
+  // Keep playNotificationSoundRef in sync
+  useEffect(() => { playNotificationSoundRef.current = playNotificationSound }, [playNotificationSound])
 
   // Helper to map bridge response to store shape
   const applyAutoModeState = useCallback((bridgeState: { paused: boolean; consecutive: number; total: number }) => {
@@ -560,10 +579,15 @@ export function ChatPane({
     return () => el.removeEventListener('scroll', handleScroll)
   }, [])
 
-  // Auto-scroll only when already near the bottom; otherwise show indicator
+  // Auto-scroll only when already near the bottom; otherwise show indicator.
+  // Use an immediate scroll during streaming so repeated chunk updates do not
+  // fight manual scrolling with stacked smooth-scroll animations.
   useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+
     if (isNearBottomRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      el.scrollTop = el.scrollHeight
     } else if (isGenerating) {
       setShowScrollIndicator(true)
     }
@@ -698,16 +722,30 @@ export function ChatPane({
         store.getState().appendChunk(turn_id, text)
         // Forward chunk to TTS when voice is active OR when TTS-only mode is on
         const voiceState = useVoiceStore.getState()
-        const ttsActive = (voiceState.active && voiceState.activePaneId === paneId) || textToSpeechModeRef.current
-        if (isActive && ttsActive) feedAgentChunk(text, turn_id)
+        const ttsActive =
+          ((voiceState.active && voiceState.activePaneId === paneId) && voiceAudioEnabledRef.current)
+          || textToSpeechModeRef.current
+        if (isActiveRef.current && ttsActive) feedAgentChunk(text, turn_id)
       }),
       bridge.onAgentDone(({ paneId: pid, turn_id, full_text }) => {
         if (pid !== paneId || isStale()) return
         store.getState().finalizeMessage(turn_id, full_text)
+        const paneIsActive = isActiveRef.current
+        // Play notification chime when the agent finishes (unless TTS is taking over audio)
+        const voiceStateForSound = useVoiceStore.getState()
+        const ttsWillPlay =
+          ((voiceStateForSound.active && voiceStateForSound.activePaneId === paneId) && voiceAudioEnabledRef.current)
+          || textToSpeechModeRef.current
+        if (!paneIsActive) {
+          onRequestAttentionRef.current?.(paneId)
+        }
+        if (!paneIsActive && !ttsWillPlay) playNotificationSoundRef.current?.()
         // Flush remaining TTS buffer at end of turn
         const voiceState = useVoiceStore.getState()
-        const ttsActive = (voiceState.active && voiceState.activePaneId === paneId) || textToSpeechModeRef.current
-        if (isActive && ttsActive) flushTts(turn_id)
+        const ttsActive =
+          ((voiceState.active && voiceState.activePaneId === paneId) && voiceAudioEnabledRef.current)
+          || textToSpeechModeRef.current
+        if (paneIsActive && ttsActive) flushTts(turn_id)
       }),
       bridge.onToolStart(({ paneId: pid, turn_id, toolCallId, tool, input }) => {
         if (pid !== paneId || isStale()) return
@@ -1217,13 +1255,21 @@ export function ChatPane({
       <div
         ref={rootRef}
         className={[
-          'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden',
+          'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden transition-all duration-200',
           isMobile ? 'w-full' : '',
+          !isActive ? 'opacity-60 hover:opacity-80' : '',
           isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
           isPaneDragging ? 'outline outline-2 outline-accent/60' : '',
           isPaneDropTarget ? 'outline outline-2 outline-blue-400/70' : '',
         ].join(' ')}
-        onClick={!isActive ? onFocus : undefined}
+        onClick={() => {
+          if (!isActive) {
+            onFocus()
+          } else {
+            // Pane is already active, focus the text input
+            inputRef.current?.focus()
+          }
+        }}
         onDragOver={handlePaneDragOver}
         onDragLeave={handlePaneDragLeave}
         onDrop={handlePaneDrop}
@@ -1233,7 +1279,7 @@ export function ChatPane({
           <div
             draggable
             onDragStart={handleDragHandleStart}
-            className="flex-shrink-0 relative flex items-center justify-center h-0 hover:h-5 overflow-hidden w-full cursor-grab active:cursor-grabbing group transition-all duration-150"
+            className="group relative flex h-2 w-full flex-shrink-0 items-center justify-center overflow-hidden transition-all duration-150 hover:h-5 cursor-grab active:cursor-grabbing"
             title="Drag to reorder pane"
           >
             <div className="flex gap-0.5 opacity-0 group-hover:opacity-50 transition-opacity">
@@ -1254,6 +1300,12 @@ export function ChatPane({
         )}
 
         {/* Messages area */}
+        <div
+          className={[
+            'flex flex-1 min-h-0 flex-col overflow-hidden',
+            !isActive && hasUnreadResponse ? 'border border-orange-500/40 rounded-md' : '',
+          ].join(' ')}
+        >
         <main
           ref={scrollContainerRef as React.RefObject<HTMLElement | null>}
           className={`flex-1 overflow-y-auto px-3 pt-2 ${MSG_LIST_PB} min-h-0`}
@@ -1327,6 +1379,7 @@ export function ChatPane({
           </div>
         )}
         </main>
+        </div>
 
         {/* Inline approval card — shown when agent requests edit/write approval */}
         {pendingApproval && (
