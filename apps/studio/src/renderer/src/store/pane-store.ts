@@ -63,6 +63,7 @@ export interface PaneChatState {
   isCompacting: boolean
   autoCompactionEnabled: boolean
   currentModel: string
+  contextUsagePct: number | null
   /** Open file tabs — ordered list. */
   openFiles: OpenViewerItem[]
   /** Active tab key (or null if none). */
@@ -101,10 +102,12 @@ export interface PaneChatState {
   setPendingMessageCount: (value: number) => void
   setCompactionState: (isCompacting: boolean, autoCompactionEnabled?: boolean) => void
   setModel: (model: string) => void
+  setContextUsagePct: (value: number | null) => void
   addErrorMessage: (message: string) => void
   loadHistory: (messages: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>) => void
+  /** Clear rendered chat state for the active pane while keeping pane/session metadata. */
+  clearSessionView: () => void
   /** Open a file tab (or switch to it if already open). */
-  openFile: (file: Omit<OpenFile, 'kind' | 'tabKey' | 'baselineContent' | 'draftContent' | 'isDirty'>) => void
   /** Open a diff tab (or switch to it if already open). */
   openDiff: (diff: Omit<OpenDiff, 'kind' | 'tabKey'>) => void
   /** Close a file tab, selecting the nearest neighbor if it was active. */
@@ -191,6 +194,19 @@ function ensureAssistantMessage(messages: ChatMessage[], turn_id: string): ChatM
   ]
 }
 
+function mergeStreamingText(existing: string, incoming: string): string {
+  if (!existing || !incoming) return existing + incoming
+
+  const maxOverlap = Math.min(existing.length, incoming.length)
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (existing.endsWith(incoming.slice(0, overlap))) {
+      return existing + incoming.slice(overlap)
+    }
+  }
+
+  return existing + incoming
+}
+
 const toolCounters: Record<string, number> = {}
 
 function nextToolId(turn_id: string): string {
@@ -215,6 +231,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     isCompacting: false,
     autoCompactionEnabled: true,
     currentModel: '',
+    contextUsagePct: null,
     openFiles: [],
     activeFilePath: null,
     gitBranch: null,
@@ -256,7 +273,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
               isStreaming: true,
               contentBlocks: [
                 ...blocks.slice(0, -1),
-                { ...last, text: last.text + text },
+                { ...last, text: mergeStreamingText(last.text, text) },
               ],
             }
           }
@@ -414,7 +431,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
             ...m,
             contentBlocks: [
               ...blocks.slice(0, realIdx),
-              { ...block, text: block.text + text },
+              { ...block, text: mergeStreamingText(block.text, text) },
               ...blocks.slice(realIdx + 1),
             ],
           }
@@ -498,6 +515,9 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     setModel: (model) =>
       set({ currentModel: model }),
 
+    setContextUsagePct: (value) =>
+      set({ contextUsagePct: value }),
+
     addErrorMessage: (message) =>
       set((s) => ({
         messages: [
@@ -531,6 +551,16 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         currentTurnId: null,
         isGenerating: false,
         pendingMessageCount: 0,
+      }),
+
+    clearSessionView: () =>
+      set({
+        messages: [],
+        currentTurnId: null,
+        isGenerating: false,
+        pendingMessageCount: 0,
+        isCompacting: false,
+        contextUsagePct: null,
       }),
 
     openFile: (file) =>

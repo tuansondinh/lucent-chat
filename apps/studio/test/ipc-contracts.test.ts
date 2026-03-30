@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { ipcMain } from 'electron'
+import { createRequire } from 'node:module'
 import { registerIpcHandlers } from '../src/main/ipc-handlers.js'
 import { PaneManager } from '../src/main/pane-manager.js'
 import { SettingsService } from '../src/main/settings-service.js'
@@ -11,7 +11,9 @@ import { VoiceService } from '../src/main/voice-service.js'
 import { FileService } from '../src/main/file-service.js'
 import { GitService } from '../src/main/git-service.js'
 import { FileWatchService } from '../src/main/file-watch-service.js'
-import { BrowserWindow } from 'electron'
+
+const require = createRequire(import.meta.url)
+const { ipcMain } = require('./__mocks__/electron.cjs') as { ipcMain: { invoke: (...args: any[]) => Promise<any>; removeAllListeners: () => void } }
 
 // Mock implementations
 class MockPaneManager {
@@ -34,7 +36,13 @@ class MockPaneManager {
       id,
       projectRoot: '/test/root',
       orchestrator: {
-        submitTurn: async () => 'turn-id',
+        submitTurn: async (text: string) => {
+          if (state.messageCount === 0 && !state.sessionName) {
+            state.sessionName = text
+          }
+          state.messageCount += 1
+          return 'turn-id'
+        },
         abortCurrentTurn: async () => {},
         getCurrentTurn: () => null,
         setVoicePhase: () => {},
@@ -223,6 +231,20 @@ class MockFileWatchService {
   shutdown() {}
 }
 
+class MockClassifierService {
+  setDebugSink(_sink: (data: unknown) => void) {}
+  getPaneState(_paneId: string) {
+    return { paused: false, blockedCount: 0 }
+  }
+  evaluateRules(_toolName: string, _args: unknown, _rules: unknown[]) {
+    return null
+  }
+  async classifyToolCall(_paneId: string, _toolName: string, _args: unknown, _context: unknown, _provider: string) {
+    return { approved: true, source: 'classifier' as const }
+  }
+  resume(_paneId: string) {}
+}
+
 // Test setup
 function setupIpc() {
   const paneManager = new MockPaneManager()
@@ -233,6 +255,7 @@ function setupIpc() {
   const fileService = new MockFileService()
   const gitService = new MockGitService()
   const fileWatchService = new MockFileWatchService()
+  const classifierService = new MockClassifierService()
 
   const restartAllAgents = async () => {}
 
@@ -248,7 +271,8 @@ function setupIpc() {
     gitService as any,
     fileWatchService as any,
     restartAllAgents,
-    getMainWindow
+    getMainWindow,
+    classifierService as any,
   )
 
   return {
@@ -260,6 +284,7 @@ function setupIpc() {
     fileService,
     gitService,
     fileWatchService,
+    classifierService,
   }
 }
 
@@ -472,6 +497,7 @@ test('IPC: auth changes trigger restartAllAgents', async (t) => {
   const fileService = new MockFileService()
   const gitService = new MockGitService()
   const fileWatchService = new MockFileWatchService()
+  const classifierService = new MockClassifierService()
   const getMainWindow = () => null as any
 
   registerIpcHandlers(
@@ -484,7 +510,8 @@ test('IPC: auth changes trigger restartAllAgents', async (t) => {
     gitService as any,
     fileWatchService as any,
     restartAllAgents,
-    getMainWindow
+    getMainWindow,
+    classifierService as any,
   )
 
   // Save API key should trigger restart
@@ -507,6 +534,7 @@ test('IPC: cmd:remove-provider-key triggers restartAllAgents', async (t) => {
   const fileService = new MockFileService()
   const gitService = new MockGitService()
   const fileWatchService = new MockFileWatchService()
+  const classifierService = new MockClassifierService()
   const getMainWindow = () => null as any
 
   registerIpcHandlers(
@@ -519,7 +547,8 @@ test('IPC: cmd:remove-provider-key triggers restartAllAgents', async (t) => {
     gitService as any,
     fileWatchService as any,
     restartAllAgents,
-    getMainWindow
+    getMainWindow,
+    classifierService as any,
   )
 
   // Remove key should trigger restart
@@ -574,6 +603,7 @@ test('IPC: destroyed window behavior', async (t) => {
   const gitService = new MockGitService()
   const fileWatchService = new MockFileWatchService()
   const restartAllAgents = async () => {}
+  const classifierService = new MockClassifierService()
 
   registerIpcHandlers(
     paneManager as any,
@@ -585,7 +615,8 @@ test('IPC: destroyed window behavior', async (t) => {
     gitService as any,
     fileWatchService as any,
     restartAllAgents,
-    getMainWindow
+    getMainWindow,
+    classifierService as any,
   )
 
   // Set window title with valid window
@@ -612,6 +643,7 @@ test('IPC: cmd:pick-folder requires valid folder', async (t) => {
   const gitService = new MockGitService()
   const fileWatchService = new MockFileWatchService()
   const restartAllAgents = async () => {}
+  const classifierService = new MockClassifierService()
 
   registerIpcHandlers(
     paneManager as any,
@@ -623,7 +655,8 @@ test('IPC: cmd:pick-folder requires valid folder', async (t) => {
     gitService as any,
     fileWatchService as any,
     restartAllAgents,
-    getMainWindow
+    getMainWindow,
+    classifierService as any,
   )
 
   // With no main window, should return null

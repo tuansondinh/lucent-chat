@@ -8,7 +8,7 @@
  *   npm run serve        # build:pwa first, then serve PWA + bridge on port 8788
  *
  * All agent events are broadcast directly to WebSocket clients.
- * Token is read from settings (~/.lucent-code/settings.json),
+ * Token is read from settings (~/.lucent/settings.json),
  * auto-generated on first run. Legacy ~/.voice-bridge-desktop/settings.json
  * is migrated automatically.
  */
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
         return sanitizeSettingsForRenderer(settingsService.get())
       }
       case 'pane-list': return paneManager.getPaneIds()
-      case 'pane-create': { const p = await paneManager.createPane(settingsService, broadcast); return { paneId: p.id } }
+      case 'pane-create': { const p = await paneManager.createPane(settingsService, broadcast, args[0] as string | undefined); return { paneId: p.id } }
       case 'pane-close': return paneManager.destroyPane(args[0] as string)
       case 'prompt': return pane(args)?.orchestrator.submitTurn(args[1] as string, 'text')
       case 'abort': return pane(args)?.orchestrator.abortCurrentTurn()

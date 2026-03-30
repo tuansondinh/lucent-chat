@@ -237,8 +237,8 @@ export class WebBridge implements Bridge {
   // Pane lifecycle
   // -------------------------------------------------------------------------
 
-  paneCreate(): Promise<{ paneId: string }> {
-    return this.cmd('pane-create')
+  paneCreate(projectRoot?: string): Promise<{ paneId: string }> {
+    return this.cmd('pane-create', projectRoot)
   }
 
   paneClose(paneId: string): Promise<void> {
@@ -506,6 +506,10 @@ export class WebBridge implements Bridge {
 
   onClassifierDecision(cb: (data: unknown) => void): () => void {
     return this.bus.on('event:classifier-decision', cb)
+  }
+
+  onClassifierDebug(cb: (data: unknown) => void): () => void {
+    return this.bus.on('event:classifier-debug', cb)
   }
 
   getAutoModeState(paneId: string): Promise<{ consecutive: number; total: number; paused: boolean }> {

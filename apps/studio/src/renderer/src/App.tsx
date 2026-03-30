@@ -150,6 +150,7 @@ export default function App() {
     isGenerating: activePaneGenerating,
     isCompacting: activePaneCompacting,
     autoCompactionEnabled: activePaneAutoCompactionEnabled,
+    contextUsagePct: activePaneContextUsagePct,
   } = activePaneStore()
 
   // Mobile detection
@@ -359,7 +360,10 @@ export default function App() {
     if (state.splitPending) return
     usePanesStore.getState().setSplitPending(true)
     try {
-      const { paneId: newPaneId } = await bridge.paneCreate()
+      // Inherit the active pane's project root so the new pane opens in the same workspace
+      const sourcePaneId = usePanesStore.getState().activePaneId
+      const sourceProjectRoot = getPaneStore(sourcePaneId).getState().projectRoot || undefined
+      const { paneId: newPaneId } = await bridge.paneCreate(sourceProjectRoot)
       const inserted = usePanesStore.getState().splitPane(
         usePanesStore.getState().activePaneId,
         newPaneId,
@@ -665,6 +669,11 @@ export default function App() {
   // Model actions (scoped to active pane)
   // -------------------------------------------------------------------------
 
+  const handleClearContext = useCallback(async () => {
+    const paneId = usePanesStore.getState().activePaneId
+    window.dispatchEvent(new CustomEvent('lucent:clear-context', { detail: { paneId } }))
+  }, [])
+
   const handleSwitchModel = useCallback(async (provider: string, modelId: string) => {
     const requestedModel = `${provider}/${modelId}`
     try {
@@ -794,6 +803,18 @@ export default function App() {
         return
       }
 
+      // /clear — start a fresh session and clear visible context
+      if (!isModalOpen && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === 'Enter') {
+        const target = e.target as HTMLElement | null
+        const textField = target?.closest('textarea, input, [contenteditable="true"]') as HTMLTextAreaElement | HTMLInputElement | null
+        const value = typeof textField?.value === 'string' ? textField.value.trim() : ''
+        if (value === '/clear') {
+          e.preventDefault()
+          void handleClearContext()
+          return
+        }
+      }
+
       // Cmd+Option+Arrow — spatial pane navigation (desktop only)
       if (!mobile && e.metaKey && e.altKey) {
         if (!isModalOpen) {
@@ -913,6 +934,10 @@ export default function App() {
         onClosePane={paneCount > 1 ? () => void handleClosePane(activePaneId) : undefined}
         onOpenFile={handleOpenFile}
         onRunSkill={(trigger) => {
+          if (trigger === 'clear') {
+            void handleClearContext()
+            return
+          }
           const text = `/${trigger}`
           bridge.prompt(activePaneId, text).then((turn_id) => {
             getPaneStore(activePaneId).getState().addUserMessage(text, turn_id)

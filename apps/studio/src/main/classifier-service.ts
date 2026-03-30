@@ -32,8 +32,8 @@ const MAX_CONCURRENT_PER_PANE = 5
  *
  * PHILOSOPHY: Only block genuinely catastrophic / irreversible operations that
  * have no legitimate use in a coding-agent context. Normal dev operations like
- * rm, kill, sed -i are intentionally NOT listed here — the LLM classifier
- * handles nuance. When in doubt, let it through rather than blocking legit work.
+ * rm are intentionally NOT listed here — the LLM classifier handles nuance.
+ * When in doubt, let it through rather than blocking legit work.
  */
 const BUILT_IN_BASH_DENY_PATTERNS: string[] = [
   // Remote shell / file transfer (out of scope for coding agent)
@@ -48,6 +48,11 @@ const BUILT_IN_BASH_DENY_PATTERNS: string[] = [
   // Credential exfiltration — sending local secrets to external hosts
   'curl * -d @*/.ssh/*', 'curl * --data @*/.ssh/*',
   'curl * -d @*/.aws/*', 'curl * --data @*/.aws/*',
+  // In-place file editing (silent overwrites — agent should use edit/write tools)
+  'sed -i *', 'sed -i',
+  // Killing arbitrary processes
+  'kill -9 *', 'kill -9',
+  'killall *', 'killall',
   // Privilege escalation
   'sudo *', 'sudo',
   // Truly destructive recursive removal of root/system paths only
@@ -120,12 +125,29 @@ interface PaneRateLimitState {
   queue: Array<() => void>
 }
 
+interface ClassifierDebugEvent {
+  kind: string
+  toolName: string
+  pattern?: string
+  candidate?: string
+  matched?: boolean
+  approved?: boolean
+  source?: ClassifierDecision['source']
+  reason?: string
+  result?: string
+}
+
 export class ClassifierService {
   private cache = new Map<string, { approved: boolean; timestamp: number }>()
   private blockStats = new Map<string, { consecutive: number; total: number; paused: boolean }>()
   private rateLimitState = new Map<string, PaneRateLimitState>()
+  private debugSink?: (event: ClassifierDebugEvent) => void
 
   constructor(private authService: AuthService) {}
+
+  setDebugSink(sink?: (event: ClassifierDebugEvent) => void): void {
+    this.debugSink = sink
+  }
 
   /**
    * Evaluate static rules before calling the LLM classifier.
@@ -140,7 +162,9 @@ export class ClassifierService {
     if (toolName === 'bash') {
       for (const pattern of BUILT_IN_BASH_DENY_PATTERNS) {
         for (const text of candidates) {
-          if (this.matchPattern(pattern, text)) {
+          const matched = this.matchPattern(pattern, text)
+          this.logRuleCheck('built-in deny', toolName, pattern, text, matched)
+          if (matched) {
             return 'deny'
           }
         }
@@ -153,7 +177,9 @@ export class ClassifierService {
     for (const rule of rules) {
       if (rule.decision === 'deny' && rule.toolName === toolName) {
         for (const text of candidates) {
-          if (this.matchPattern(rule.pattern, text)) {
+          const matched = this.matchPattern(rule.pattern, text)
+          this.logRuleCheck('user deny', toolName, rule.pattern, text, matched)
+          if (matched) {
             return 'deny'
           }
         }
@@ -167,7 +193,7 @@ export class ClassifierService {
     // chain that also contains a non-allowed (but non-denied) command.
     for (const rule of rules) {
       if (rule.decision === 'allow' && rule.toolName === toolName) {
-        if (this.allSubcommandsAllowed(candidates, [rule.pattern])) {
+        if (this.allSubcommandsAllowed(candidates, [rule.pattern], `user allow:${rule.pattern}`)) {
           return 'allow'
         }
       }
@@ -177,7 +203,7 @@ export class ClassifierService {
     // Checked after deny rules so chained destructive commands are still caught.
     // For compound commands every subcommand must match a built-in allow pattern.
     if (toolName === 'bash') {
-      if (this.allSubcommandsAllowed(candidates, BUILT_IN_BASH_ALLOW_PATTERNS)) {
+      if (this.allSubcommandsAllowed(candidates, BUILT_IN_BASH_ALLOW_PATTERNS, 'built-in allow')) {
         return 'allow'
       }
     }
@@ -186,17 +212,19 @@ export class ClassifierService {
   }
 
   /**
-   * Classify a tool call using Anthropic Sonnet.
+   * Classify a tool call using Anthropic Sonnet or Google Gemini Flash.
    * Respects per-pane rate limiting (max 5 concurrent API calls).
    */
   async classifyToolCall(
     paneId: string,
     toolName: string,
     args: any,
-    context: ClassifierContext
+    context: ClassifierContext,
+    provider: 'anthropic' | 'google' = 'anthropic'
   ): Promise<ClassifierDecision> {
     const stats = this.getStats(paneId)
     if (stats.paused) {
+      this.logFinalDecision(false, 'fallback', 'paused')
       return { approved: false, reason: 'Auto mode paused due to frequent blocks', source: 'fallback' }
     }
 
@@ -208,22 +236,27 @@ export class ClassifierService {
     const cacheKey = `${toolName}:${this.hash(argsJson)}:${this.hash(latestMessage)}`
     const cached = this.cache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < 30000) {
+      this.logFinalDecision(cached.approved, 'cache')
       return { approved: cached.approved, reason: 'Cached decision', source: 'cache' }
     }
 
-    const apiKey = await this.authService.getApiKey('anthropic')
+    const apiKey = await this.authService.getApiKey(provider)
     if (!apiKey) {
       // No API key → deny and fall back to manual approval
-      return { approved: false, reason: 'No Anthropic API key — requires manual approval', source: 'fallback' }
+      this.logFinalDecision(false, 'fallback', 'no_api_key')
+      return { approved: false, reason: `No ${provider === 'google' ? 'Google Gemini' : 'Anthropic'} API key — requires manual approval`, source: 'fallback' }
     }
 
     // Rate limiting: acquire a slot before calling the API
     await this.acquireSlot(paneId)
     try {
-      const approved = await this.callAnthropicClassifier(apiKey, toolName, argsJson, context)
+      const approved = provider === 'google'
+        ? await this.callGeminiClassifier(apiKey, toolName, argsJson, context)
+        : await this.callAnthropicClassifier(apiKey, toolName, argsJson, context)
 
       this.cache.set(cacheKey, { approved, timestamp: Date.now() })
       this.updateStats(paneId, approved)
+      this.logFinalDecision(approved, 'classifier')
 
       return {
         approved,
@@ -233,8 +266,10 @@ export class ClassifierService {
     } catch (err: any) {
       console.error('[classifier-service] classifier call failed:', err.message)
       if (err.message === 'timeout') {
+        this.logFinalDecision(false, 'timeout')
         return { approved: false, reason: 'Classifier timeout', source: 'timeout' }
       }
+      this.logFinalDecision(false, 'fallback', err.message)
       return { approved: false, reason: `Classifier error: ${err.message}`, source: 'fallback' }
     } finally {
       this.releaseSlot(paneId)
@@ -295,7 +330,7 @@ Decision (ALLOW/DENY)?`
 
     return new Promise((resolve, reject) => {
       const data = JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-haiku-4-5',
         max_tokens: 10,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
@@ -334,7 +369,14 @@ Decision (ALLOW/DENY)?`
           }
           try {
             const result = JSON.parse(body)
+            if (!result.content) {
+              // API returned 200 but no content — log full body to help debug
+              console.error(`[classifier] API 200 but no content — body: ${body.slice(0, 500)}`)
+              reject(new Error(`API returned no content: ${body.slice(0, 200)}`))
+              return
+            }
             const text = result.content[0]?.text?.trim().toUpperCase()
+            this.logModelResult(text ?? 'EMPTY')
             resolve(text === 'ALLOW')
           } catch (e) {
             reject(e)
@@ -350,6 +392,137 @@ Decision (ALLOW/DENY)?`
       req.write(data)
       req.end()
     })
+  }
+
+  private async callGeminiClassifier(
+    apiKey: string,
+    toolName: string,
+    argsJson: string,
+    context: ClassifierContext
+  ): Promise<boolean> {
+    const systemPrompt = `You are a security classifier for an autonomous coding agent. Your job is to decide ALLOW or DENY for a pending tool call.
+
+DEFAULT: ALLOW. The user enabled auto mode because they trust the agent. Only deny clear security violations.
+
+ALWAYS ALLOW:
+- Any read-only operation: find, grep, ls, cat, head, tail, wc, stat, file, du, df, echo, pwd, env, which, sort, awk, sed -n
+- Any git read operation: git status, git log, git diff, git show, git branch, git blame, git remote
+- Build/test/lint: npm run *, npx *, tsc, eslint, jest, vitest, cargo, make
+- Writing or editing files inside the project directory
+- Installing packages: npm install, pip install, cargo add
+- Operations clearly implied by the user's recent messages
+
+DENY only these specific violations:
+- Deleting files with rm, unlink, rmdir (unless user explicitly said "delete" or "remove" that file)
+- Commands outside the project directory targeting system paths (/etc, /usr, /bin, /System, ~/.ssh)
+- sudo, su, chmod/chown on system paths
+- curl/wget piped directly to sh/bash (arbitrary code execution)
+- curl/wget sending local files or env vars to external hosts
+- ssh, scp, sftp — remote shell/file access is out of scope for a coding agent
+- nc/ncat in listen/server mode (-l flag) — reverse shell risk
+- sudo, su — privilege escalation
+- kill -9, killall — terminating arbitrary processes
+- crontab — modifying scheduled jobs
+- dd, mkfs — disk/filesystem writes
+- sed -i — in-place file editing that can silently corrupt files
+- npm publish, pip publish, twine upload — publishing packages requires explicit user action
+- git push --force / git push -f — destructive remote history rewrite
+- Accessing credential files unrelated to the current task
+
+Use the user's recent messages to judge intent. Output exactly one word: ALLOW or DENY.`
+
+    const userMessagesContext = context.userMessages.join('\n\n')
+    const projectContext = context.projectInstructions ? `PROJECT INSTRUCTIONS:\n${context.projectInstructions}\n\n` : ''
+
+    const userPrompt = `${projectContext}RECENT USER MESSAGES:
+${userMessagesContext}
+
+PENDING TOOL CALL:
+Tool: ${toolName}
+Args: ${argsJson}
+
+Decision (ALLOW/DENY)?`
+
+    return new Promise((resolve, reject) => {
+      const data = JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        contents: [
+          { role: 'user', parts: [{ text: userPrompt }] }
+        ],
+        generationConfig: { maxOutputTokens: 32, temperature: 0 }
+      })
+
+      const req = request({
+        hostname: 'generativelanguage.googleapis.com',
+        port: 443,
+        path: `/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(data),
+        },
+        timeout: 10000
+      }, (res) => {
+        let body = ''
+        res.on('data', (chunk) => body += chunk)
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            console.error(`[classifier/gemini] API ${res.statusCode}: ${body.slice(0, 500)}`)
+            reject(new Error(`Gemini API error ${res.statusCode}: ${body}`))
+            return
+          }
+          try {
+            const result = JSON.parse(body)
+            resolve(this.parseGeminiDecision(result, body))
+          } catch (e) {
+            reject(e)
+          }
+        })
+      })
+
+      req.on('error', reject)
+      req.on('timeout', () => {
+        req.destroy()
+        reject(new Error('timeout'))
+      })
+      req.write(data)
+      req.end()
+    })
+  }
+
+  private parseGeminiDecision(result: any, rawBodyForLog: string): boolean {
+    const candidate = result?.candidates?.[0]
+    const finishReason = candidate?.finishReason
+    const text = candidate?.content?.parts
+      ?.map((part: any) => typeof part?.text === 'string' ? part.text : '')
+      .join('')
+      .trim()
+      .toUpperCase()
+
+    if (text === 'ALLOW' || text === 'DENY') {
+      this.logModelResult(text)
+      return text === 'ALLOW'
+    }
+
+    if (!text) {
+      console.error(`[classifier/gemini] empty result — finishReason=${finishReason} body: ${rawBodyForLog.slice(0, 500)}`)
+      // MAX_TOKENS means the model ran out of tokens before producing a response - this is a failure.
+      // Throw an error so classifyToolCall can fallback to another provider or manual approval.
+      if (finishReason === 'MAX_TOKENS') {
+        throw new Error('Gemini classifier hit max tokens without producing output')
+      }
+      // Gemini sometimes spends a tiny output budget without emitting visible text.
+      // For this classifier, defaulting to ALLOW is safer than converting that quirk into a deny.
+      if (finishReason === 'SAFETY' || finishReason === 'RECITATION' || finishReason === 'OTHER') {
+        this.logModelResult(`ALLOW (${finishReason.toLowerCase()}-fallback)`)
+        return true
+      }
+    }
+
+    this.logModelResult(text || 'EMPTY')
+    return false
   }
 
   /**
@@ -447,7 +620,7 @@ Decision (ALLOW/DENY)?`
    *
    * To do this we re-split the full command (candidates[0]) ourselves, keeping only the direct parts.
    */
-  private allSubcommandsAllowed(candidates: string[], patterns: string[]): boolean {
+  private allSubcommandsAllowed(candidates: string[], patterns: string[], label: string): boolean {
     const full = candidates[0]
     if (!full) return false
 
@@ -456,13 +629,46 @@ Decision (ALLOW/DENY)?`
 
     // Single command — check directly
     if (parts.length === 1) {
-      return patterns.some((p) => this.matchPattern(p, parts[0]))
+      const part = parts[0]
+      let matched = false
+      for (const pattern of patterns) {
+        const didMatch = this.matchPattern(pattern, part)
+        this.logRuleCheck(label, 'bash', pattern, part, didMatch)
+        if (didMatch) matched = true
+      }
+      return matched
     }
 
     // Compound command: every part must match a pattern
-    return parts.every((part) =>
-      patterns.some((p) => this.matchPattern(p, part))
-    )
+    return parts.every((part) => {
+      let matched = false
+      for (const pattern of patterns) {
+        const didMatch = this.matchPattern(pattern, part)
+        this.logRuleCheck(label, 'bash', pattern, part, didMatch)
+        if (didMatch) {
+          matched = true
+          break
+        }
+      }
+      return matched
+    })
+  }
+
+  private logRuleCheck(kind: string, toolName: string, pattern: string, candidate: string, matched: boolean): void {
+    const line = `[classifier] check: kind=${kind} tool=${toolName} pattern=${JSON.stringify(pattern)} candidate=${JSON.stringify(candidate)} matched=${matched}`
+    console.log(line)
+    this.debugSink?.({ kind, toolName, pattern, candidate, matched })
+  }
+
+  private logModelResult(result: string): void {
+    console.log(`[classifier] model result: ${result}`)
+    this.debugSink?.({ kind: 'model-result', toolName: '', result })
+  }
+
+  private logFinalDecision(approved: boolean, source: ClassifierDecision['source'], reason?: string): void {
+    const suffix = reason ? ` reason=${reason}` : ''
+    console.log(`[classifier] final decision: source=${source} approved=${approved}${suffix}`)
+    this.debugSink?.({ kind: 'final-decision', toolName: '', approved, source, reason })
   }
 
   private matchPattern(pattern: string, text: string): boolean {

@@ -1,6 +1,7 @@
-import { StrictMode } from 'react'
+import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { getBridge } from './lib/bridge'
 import './styles/index.css'
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,14 @@ function Root() {
     }
     localStorage.removeItem('lc_bridge_token')
   }
+
+  useEffect(() => {
+    const bridge = getBridge()
+    if (!bridge.onClassifierDebug) return
+    return bridge.onClassifierDebug((data) => {
+      console.debug('[classifier]', data)
+    })
+  }, [])
 
   return <App />
 }

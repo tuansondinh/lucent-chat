@@ -64,6 +64,7 @@ def _announce(msg: str) -> None:
 _vad_model: Any = None       # SileroVAD instance
 _whisper_model: Any = None   # pywhispercpp Model instance
 _tts_engine: Any = None      # BufferedTTSEngine instance
+_tts_error: str | None = None
 _auth_token = os.environ.get("VOICE_SERVICE_TOKEN", "").strip()
 
 # Thread pool for blocking CPU work (Whisper + TTS)
@@ -123,7 +124,8 @@ class AudioSession:
         if self._tts_worker_task and not self._tts_worker_task.done():
             self._tts_worker_task.cancel()
         # Interrupt any in-progress TTS synthesis
-        _tts_engine.stop()
+        if _tts_engine is not None:
+            _tts_engine.stop()
 
     # ------------------------------------------------------------------
     # Audio / VAD / STT
@@ -252,7 +254,8 @@ class AudioSession:
 
     def stop_tts(self) -> None:
         """Interrupt active synthesis and drain the queue."""
-        _tts_engine.stop()
+        if _tts_engine is not None:
+            _tts_engine.stop()
         self.tts_stop_event.set()
         # Drain the queue
         while not self.tts_queue.empty():
@@ -291,6 +294,14 @@ class AudioSession:
     ) -> None:
         """Synthesize text and stream Int16LE audio frames to the client."""
         _log(f"TTS synthesize: turn_id={turn_id} gen={gen} text={text[:60]!r}")
+
+        try:
+            _ensure_tts_engine()
+        except Exception as exc:
+            msg = f"TTS unavailable: {exc}"
+            _log(msg)
+            await _send_json(ws, {"type": "error", "message": msg})
+            return
 
         loop = asyncio.get_event_loop()
         first_chunk = True
@@ -461,11 +472,10 @@ async def _handle_control(
 
 def _load_models() -> None:
     """Load all ML models. Raises on failure (caller handles exit)."""
-    global _vad_model, _whisper_model, _tts_engine
+    global _vad_model, _whisper_model
 
     from voice_bridge.audio import load_vad_model
     from voice_bridge.stt import load_model as load_whisper_model
-    from voice_bridge.tts import BufferedTTSEngine
 
     _log("Loading VAD model...")
     _vad_model = load_vad_model()
@@ -475,8 +485,26 @@ def _load_models() -> None:
     _whisper_model = load_whisper_model("large-v3-turbo")
     _log("Whisper model loaded.")
 
+    _log("TTS engine will load lazily on first synthesis request.")
+
+
+def _ensure_tts_engine() -> None:
+    """Load the TTS engine on demand so STT can still work if TTS init fails."""
+    global _tts_engine, _tts_error
+
+    if _tts_engine is not None:
+        return
+    if _tts_error is not None:
+        raise RuntimeError(_tts_error)
+
+    from voice_bridge.tts import BufferedTTSEngine
+
     _log("Loading TTS engine...")
-    _tts_engine = BufferedTTSEngine()
+    try:
+        _tts_engine = BufferedTTSEngine()
+    except Exception as exc:
+        _tts_error = str(exc)
+        raise
     _log("TTS engine loaded.")
 
 

@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
-import { delimiter } from "node:path";
+import { delimiter, dirname } from "node:path";
 import { spawn, spawnSync } from "child_process";
+import { homedir } from "node:os";
 import { getBinDir, getSettingsPath } from "../config.js";
 import { SettingsManager } from "../core/settings-manager.js";
 
 let cachedShellConfig: { shell: string; args: string[] } | null = null;
+let cachedShellEnv: NodeJS.ProcessEnv | null = null;
 
 /**
  * Find bash executable on PATH (cross-platform)

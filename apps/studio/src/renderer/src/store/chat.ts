@@ -142,6 +142,19 @@ function ensureAssistantMessage(
   ]
 }
 
+function mergeStreamingText(existing: string, incoming: string): string {
+  if (!existing || !incoming) return existing + incoming
+
+  const maxOverlap = Math.min(existing.length, incoming.length)
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    if (existing.endsWith(incoming.slice(0, overlap))) {
+      return existing + incoming.slice(overlap)
+    }
+  }
+
+  return existing + incoming
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   currentTurnId: null,
@@ -203,7 +216,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             isStreaming: true,
             contentBlocks: [
               ...blocks.slice(0, -1),
-              { ...last, text: last.text + text },
+              { ...last, text: mergeStreamingText(last.text, text) },
             ],
           }
         }
@@ -365,14 +378,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (idx === -1) return m
         const realIdx = blocks.length - 1 - idx
         const block = blocks[realIdx] as Extract<ContentBlock, { type: 'thinking' }>
-        return {
-          ...m,
-          contentBlocks: [
-            ...blocks.slice(0, realIdx),
-            { ...block, text: block.text + text },
-            ...blocks.slice(realIdx + 1),
-          ],
-        }
+          return {
+            ...m,
+            contentBlocks: [
+              ...blocks.slice(0, realIdx),
+              { ...block, text: mergeStreamingText(block.text, text) },
+              ...blocks.slice(realIdx + 1),
+            ],
+          }
       }),
     })),
 

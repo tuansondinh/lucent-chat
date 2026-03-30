@@ -82,7 +82,8 @@ export class PaneManager {
    */
   async createPane(
     settingsService: SettingsService,
-    pushEvent: (channel: string, data: unknown) => void
+    pushEvent: (channel: string, data: unknown) => void,
+    inheritProjectRoot?: string,
   ): Promise<PaneRuntime> {
     const id = `pane-${this.nextPaneIndex++}`
     const settings = settingsService.get()
@@ -111,10 +112,12 @@ export class PaneManager {
       onTextBlockStart: (d) => pushEvent('event:text-block-start', { paneId: id, ...d }),
       onTextBlockEnd: (d) => pushEvent('event:text-block-end', { paneId: id, ...d }),
       onTurnComplete: () => {
-        void sessionService.syncActiveSessionFromAgent()
+        void sessionService.syncProjectSessionFromAgent(projectRoot)
       },
     }
-    const orchestrator = new Orchestrator(agentBridge, callbacks)
+    const orchestrator = new Orchestrator(agentBridge, callbacks, {
+      workspaceLabel: projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace',
+    })
 
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -133,6 +136,7 @@ export class PaneManager {
           processManager.setState('agent', 'ready')
           if (state.sessionFile) {
             sessionService.setActiveSessionId(state.sessionFile)
+            sessionService.setProjectSession(projectRoot, state.sessionFile)
           }
           return
         } catch (err) {
@@ -166,8 +170,8 @@ export class PaneManager {
       }
     }
 
-    // Spawn agent and wire up bridge
-    const projectRoot = process.cwd()
+    // Spawn agent and wire up bridge — inherit source pane's root when splitting
+    const projectRoot = inheritProjectRoot ?? process.cwd()
     processManager.spawnAgent(projectRoot, agentEnv)
     attachBridge()
     processManager.on('agent-restarting', () => setTimeout(attachBridge, 200))

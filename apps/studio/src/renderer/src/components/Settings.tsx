@@ -199,6 +199,7 @@ export function Settings({
   const [skills, setSkills] = useState<Array<{ name: string; description: string; trigger: string; stepCount: number }>>([])
   const [loadingSkills, setLoadingSkills] = useState(false)
   const [autoModeRules, setAutoModeRules] = useState<ClassifierRule[]>([])
+  const [classifierProvider, setClassifierProvider] = useState<'anthropic' | 'google'>('anthropic')
 
   // ---- Remote Access state ----
   const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false)
@@ -287,6 +288,9 @@ export function Settings({
         if (Array.isArray(s.autoModeRules)) {
           setAutoModeRules(s.autoModeRules as ClassifierRule[])
         }
+        if (s.classifierProvider === 'anthropic' || s.classifierProvider === 'google') {
+          setClassifierProvider(s.classifierProvider)
+        }
         // Remote Access
         if (typeof s.remoteAccessEnabled === 'boolean') setRemoteAccessEnabled(s.remoteAccessEnabled)
         if (typeof s.remoteAccessPort === 'number') setRemoteAccessPort(s.remoteAccessPort)
@@ -363,6 +367,11 @@ export function Settings({
   const handleAutoModeRulesChange = useCallback((rules: ClassifierRule[]) => {
     setAutoModeRules(rules)
     bridge.setSettings({ autoModeRules: rules }).catch(() => {})
+  }, [bridge])
+
+  const handleClassifierProviderChange = useCallback((provider: 'anthropic' | 'google') => {
+    setClassifierProvider(provider)
+    bridge.setSettings({ classifierProvider: provider }).catch(() => {})
   }, [bridge])
 
   // Remote Access handlers
@@ -486,6 +495,9 @@ export function Settings({
               <AutoModeTab
                 rules={autoModeRules}
                 onRulesChange={handleAutoModeRulesChange}
+                classifierProvider={classifierProvider}
+                onClassifierProviderChange={handleClassifierProviderChange}
+                providerStatuses={providerStatuses}
               />
             )}
             {activeTab === 'skills' && (
@@ -1774,9 +1786,12 @@ function RemoteAccessTab({
 interface AutoModeTabProps {
   rules: ClassifierRule[]
   onRulesChange: (rules: ClassifierRule[]) => void
+  classifierProvider: 'anthropic' | 'google'
+  onClassifierProviderChange: (provider: 'anthropic' | 'google') => void
+  providerStatuses: ProviderStatus[]
 }
 
-function AutoModeTab({ rules, onRulesChange }: AutoModeTabProps) {
+function AutoModeTab({ rules, onRulesChange, classifierProvider, onClassifierProviderChange, providerStatuses }: AutoModeTabProps) {
   const [newRule, setNewRule] = useState<ClassifierRule>({
     toolName: 'bash',
     pattern: '',
@@ -1795,6 +1810,38 @@ function AutoModeTab({ rules, onRulesChange }: AutoModeTabProps) {
 
   return (
     <div className="p-6 space-y-6">
+      <Section title="Classifier Provider">
+        <p className="text-xs text-text-tertiary mb-3">
+          Choose which AI provider powers the Auto mode classifier. The selected provider's API key must be configured in the Providers tab.
+        </p>
+        <div className="flex gap-3">
+          {([
+            { value: 'anthropic', label: 'Anthropic (Claude Haiku)', providerId: 'anthropic' },
+            { value: 'google', label: 'Google (Gemini 3 Flash Preview)', providerId: 'google' },
+          ] as const).map(({ value, label, providerId }) => {
+            const status = providerStatuses.find((s) => s.id === providerId)
+            const isConfigured = status?.configured ?? false
+            const isSelected = classifierProvider === value
+            return (
+              <button
+                key={value}
+                onClick={() => onClassifierProviderChange(value)}
+                className={cn(
+                  'flex-1 flex flex-col gap-1 rounded-lg border p-3 text-left transition-colors',
+                  isSelected
+                    ? 'border-accent bg-accent/10 text-text-primary'
+                    : 'border-border bg-bg-secondary text-text-secondary hover:border-border-active',
+                )}
+              >
+                <span className="text-xs font-medium">{label}</span>
+                <span className={cn('text-[10px]', isConfigured ? 'text-green-500' : 'text-text-tertiary')}>
+                  {isConfigured ? '● Key configured' : '○ No key — set in Providers'}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </Section>
       <Section title="Auto Mode Rules">
         <p className="text-xs text-text-tertiary">
           Rules are matched against tool calls before the LLM classifier. Patterns support

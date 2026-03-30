@@ -294,7 +294,45 @@ test('SessionService: active session persistence', async () => {
   }
 })
 
-test('SessionService: renameSession delegates to agentBridge', async () => {
+test('SessionService: per-project session persistence stores and loads mappings', async () => {
+  const base = await createSessionDir()
+  const mockBridge = new MockAgentBridge()
+  const service = new SessionService(mockBridge)
+
+  const perProjectSessionFile = join(base, 'last-session-by-project.json')
+  ;(service as any).perProjectSessionFile = perProjectSessionFile
+
+  try {
+    service.setProjectSession('/tmp/project-a', '/sessions/a.jsonl')
+    service.setProjectSession('/tmp/project-b', '/sessions/b.jsonl')
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    assert.equal(await service.getProjectSession('/tmp/project-a'), '/sessions/a.jsonl')
+    assert.equal(await service.getProjectSession('/tmp/project-b'), '/sessions/b.jsonl')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test('SessionService: syncProjectSessionFromAgent stores the latest agent session for a project', async () => {
+  const base = await createSessionDir()
+  const mockBridge = new MockAgentBridge()
+  const service = new SessionService(mockBridge)
+
+  const perProjectSessionFile = join(base, 'last-session-by-project.json')
+  ;(service as any).perProjectSessionFile = perProjectSessionFile
+  mockBridge.stateQueue = [{ sessionFile: '/sessions/project-x.jsonl' }]
+
+  try {
+    const synced = await service.syncProjectSessionFromAgent('/tmp/project-x')
+    assert.equal(synced, '/sessions/project-x.jsonl')
+    assert.equal(await service.getProjectSession('/tmp/project-x'), '/sessions/project-x.jsonl')
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
   const mockBridge = new MockAgentBridge()
   const service = new SessionService(mockBridge)
 
@@ -307,20 +345,15 @@ test('SessionService: renameSession delegates to agentBridge', async () => {
   assert.equal(newName, 'New Session Name')
 })
 
-test('SessionService: syncActiveSessionFromAgent waits for the new session file', async () => {
+test('SessionService: syncActiveSessionFromAgent stores the latest agent session file', async () => {
   const mockBridge = new MockAgentBridge()
   const service = new SessionService(mockBridge)
 
   mockBridge.stateQueue = [
-    { sessionFile: '/sessions/old.jsonl' },
-    { sessionFile: '/sessions/old.jsonl' },
     { sessionFile: '/sessions/new.jsonl' },
   ]
 
-  const synced = await service.syncActiveSessionFromAgent({
-    previousSessionId: '/sessions/old.jsonl',
-    timeoutMs: 500,
-  })
+  const synced = await service.syncActiveSessionFromAgent()
 
   assert.equal(synced, '/sessions/new.jsonl')
   assert.equal(service.getActiveSessionId(), '/sessions/new.jsonl')

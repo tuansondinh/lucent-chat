@@ -59,6 +59,7 @@ docs/coherence-audit/
 
 # ── Build artifacts ──
 apps/studio/release/
+apps/studio/audio-service/python-runtime/
 
 # ── Stale lock files (npm is canonical) ──
 pnpm-lock.yaml

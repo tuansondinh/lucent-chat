@@ -15,7 +15,7 @@
  */
 
 const { execSync } = require('child_process')
-const { existsSync, readFileSync } = require('fs')
+const { existsSync, readFileSync, rmSync } = require('fs')
 const { join } = require('path')
 
 const STUDIO_DIR  = join(__dirname, '..')
@@ -25,6 +25,7 @@ const REPO        = 'tuansondinh/lucent-code'
 const args      = process.argv.slice(2)
 const DRY_RUN   = args.includes('--dry-run')
 const NOTARIZE  = args.includes('--notarize')
+const WITHOUT_AUDIO = args.includes('--without-audio')
 const pkg     = JSON.parse(readFileSync(join(STUDIO_DIR, 'package.json'), 'utf-8'))
 const version = pkg.version
 const appName = 'Lucent Code'
@@ -39,7 +40,9 @@ function run(cmd, opts = {}) {
 // ─── Step 1: Build ────────────────────────────────────────────────────────────
 console.log(`\n[release] Building ${appName} v${version} (arm64)...`)
 run('npm run build')
+run(WITHOUT_AUDIO ? 'npm run bundle-audio-service:none' : 'npm run bundle-audio-service')
 run('npm run bundle-runtime')
+rmSync(appPath, { recursive: true, force: true })
 const builderEnv = NOTARIZE
   ? 'CSC_IDENTITY_AUTO_DISCOVERY=true'
   : 'SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false'
@@ -94,7 +97,7 @@ const installNotes = NOTARIZE
 2. Move **${appName}.app** to /Applications
 3. First launch: right-click → Open (or System Settings → Privacy & Security → Open Anyway)
 
-This build is unsigned and not notarized.`
+This build is unsigned and not notarized.${WITHOUT_AUDIO ? '\n\nVoice features are not included in this build.' : ''}`
 
 run(`gh release create v${version} "${zipPath}" \
   --repo ${REPO} \

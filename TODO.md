@@ -112,3 +112,15 @@
   - Settings UI to configure models for each internal subagent
   - Subagent spawning reads this setting to override defaults
   - Goal: allow using faster/cheaper models for utility subagents while keeping high-quality models for main chat
+
+## Code Review (2026-03-30)
+
+### HIGH
+
+- [ ] **Remote/PWA bridge is missing auto-mode command support** — The renderer calls `get-auto-mode-state`, `resume-auto-mode`, and `toggle-pane-permission-mode`, but `apps/studio/src/main/server.ts` does not implement these commands. Remote Access clients cannot toggle permission mode or recover paused auto mode.
+
+### MEDIUM
+
+- [ ] **Removing Google Code Assist auth does not remove fallback Gemini credentials** — `getProviderStatuses()` marks `google-gemini-cli` as removable when fallback `google` credentials exist, but `removeApiKey('google-gemini-cli')` only removes the primary provider entry. The Settings UI can show a Remove button that has no effect.
+
+- [ ] **Standalone server does not restart agents after provider auth changes** — Electron restarts agents after saving or removing provider credentials, but `apps/studio/src/main/server.ts` returns auth results directly without restarting pane agents. Remote sessions can keep stale auth/model state until the whole server is restarted.

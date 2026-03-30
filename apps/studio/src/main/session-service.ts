@@ -5,7 +5,7 @@
 
 import { readdir, stat, unlink, readFile, writeFile, mkdir, realpath } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, basename, extname, isAbsolute, relative, dirname } from 'node:path'
+import { join, basename, extname, isAbsolute, relative, dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBridge } from './agent-bridge.js'
 import type { Orchestrator } from './orchestrator.js'
@@ -20,7 +20,16 @@ export interface SessionInfo {
   modified: number  // timestamp ms
 }
 
-export interface FormattedMessage {
+interface SessionServicePaths {
+  activeSessionFile: string
+  sessionsBase: string
+  perProjectSessionFile: string
+}
+
+export interface SessionProjectState {
+  projectRoot: string
+  sessionPath: string
+}
   role: 'user' | 'assistant'
   text: string
   timestamp: number
@@ -35,6 +44,7 @@ export class SessionService {
   /** Path to the file that persists the active session ID across launches. */
   private readonly activeSessionFile = this.resolvedPaths.activeSessionFile
   private readonly sessionsBase = this.resolvedPaths.sessionsBase
+  private readonly perProjectSessionFile = this.resolvedPaths.perProjectSessionFile
 
   /** In-memory cache of the current active session path. */
   private activeSessionId: string | null = null
@@ -107,7 +117,8 @@ export class SessionService {
    */
   async deleteSession(path: string): Promise<void> {
     const validatedPath = await this.validateSessionPath(path)
-    if (this.activeSessionId === validatedPath) {
+    const activeSessionId = await this.resolveActiveSessionPath()
+    if (activeSessionId === validatedPath) {
       throw new Error('Cannot delete the active session — switch to another session first.')
     }
     await unlink(validatedPath)
@@ -186,6 +197,26 @@ export class SessionService {
       })
   }
 
+  setProjectSession(projectRoot: string, sessionPath: string): void {
+    const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
+    mkdir(dirname(this.perProjectSessionFile), { recursive: true })
+      .then(async () => {
+        const map = await this.readPerProjectSessionMap()
+        map[normalizedProjectRoot] = sessionPath
+        await writeFile(this.perProjectSessionFile, JSON.stringify(map, null, 2), 'utf8')
+      })
+      .catch((err: Error) => {
+        console.warn('[session-service] failed to persist per-project session:', err.message)
+      })
+  }
+
+  async getProjectSession(projectRoot: string): Promise<string | null> {
+    const normalizedProjectRoot = normalizeProjectRoot(projectRoot)
+    const map = await this.readPerProjectSessionMap()
+    const sessionPath = map[normalizedProjectRoot]
+    return typeof sessionPath === 'string' && sessionPath.length > 0 ? sessionPath : null
+  }
+
   /**
    * Load the persisted active session ID from disk (call once at startup).
    */
@@ -218,6 +249,14 @@ export class SessionService {
     } catch {
       return this.activeSessionId
     }
+  }
+
+  async syncProjectSessionFromAgent(projectRoot: string): Promise<string | null> {
+    const sessionFile = await this.syncActiveSessionFromAgent()
+    if (sessionFile) {
+      this.setProjectSession(projectRoot, sessionFile)
+    }
+    return sessionFile
   }
 
   // =========================================================================
@@ -260,34 +299,63 @@ export class SessionService {
   }
 
   private async validateSessionPath(targetPath: string): Promise<string> {
+    if (extname(targetPath) !== '.jsonl') {
+      throw new Error('Invalid session path')
+    }
+
     const realBase = await realpath(this.sessionsBase)
     const realTarget = await realpath(targetPath)
     const rel = relative(realBase, realTarget)
 
-    if (rel.startsWith('..') || isAbsolute(rel) || extname(realTarget) !== '.jsonl') {
+    if (rel.startsWith('..') || isAbsolute(rel)) {
       throw new Error('Invalid session path')
     }
 
     return realTarget
   }
+
+  private async readPerProjectSessionMap(): Promise<Record<string, string>> {
+    try {
+      const raw = await readFile(this.perProjectSessionFile, 'utf8')
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {}
+      }
+      return Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string')
+      )
+    } catch {
+      return {}
+    }
+  }
+
+  private async resolveActiveSessionPath(): Promise<string | null> {
+    if (!this.activeSessionId) return null
+    try {
+      return await this.validateSessionPath(this.activeSessionId)
+    } catch {
+      return this.activeSessionId
+    }
+  }
 }
 
-function resolveSessionPaths(): { activeSessionFile: string; sessionsBase: string } {
+function resolveSessionPaths(): SessionServicePaths {
   const home = homedir()
   const candidates = [
     process.env.LUCENT_CODING_AGENT_DIR,
     process.env.LUCENT_CONFIG_DIR ? join(process.env.LUCENT_CONFIG_DIR, 'agent') : undefined,
-    process.env.GSD_CODING_AGENT_DIR,
-    process.env.LC_CODING_AGENT_DIR,
     join(home, '.lucent', 'agent'),
-    join(home, '.gsd', 'agent'),
   ].filter((value): value is string => typeof value === 'string' && value.length > 0)
 
-  const existingBase = candidates.find((dir) => existsSync(dir))
-
-  const agentBase = existingBase ?? candidates[0] ?? join(home, '.lucent', 'agent')
+  // Use the first available config, defaulting to ~/.lucent/agent
+  const agentBase = candidates[0] ?? join(home, '.lucent', 'agent')
   return {
     activeSessionFile: join(dirname(agentBase), 'active-session'),
     sessionsBase: join(agentBase, 'sessions'),
+    perProjectSessionFile: join(dirname(agentBase), 'last-session-by-project.json'),
   }
+}
+
+function normalizeProjectRoot(projectRoot: string): string {
+  return resolve(projectRoot)
 }

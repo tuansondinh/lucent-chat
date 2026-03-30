@@ -71,6 +71,20 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     }
   }
 
+  if ('lastProjectRoot' in partial) {
+    if (partial.lastProjectRoot !== undefined && typeof partial.lastProjectRoot !== 'string') {
+      throw new Error('Invalid lastProjectRoot setting')
+    }
+    validated.lastProjectRoot = partial.lastProjectRoot
+  }
+
+  if ('lastActiveFilePath' in partial) {
+    if (partial.lastActiveFilePath !== undefined && typeof partial.lastActiveFilePath !== 'string') {
+      throw new Error('Invalid lastActiveFilePath setting')
+    }
+    validated.lastActiveFilePath = partial.lastActiveFilePath
+  }
+
   if ('onboardingComplete' in partial) {
     if (typeof partial.onboardingComplete !== 'boolean') {
       throw new Error('Invalid onboardingComplete setting')
@@ -180,6 +194,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
       }
     }
     validated.autoModeRules = value as AppSettings['autoModeRules']
+  }
+
+  if ('classifierProvider' in partial) {
+    if (partial.classifierProvider !== 'anthropic' && partial.classifierProvider !== 'google') {
+      throw new Error('Invalid classifierProvider setting')
+    }
+    validated.classifierProvider = partial.classifierProvider
   }
 
   const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))

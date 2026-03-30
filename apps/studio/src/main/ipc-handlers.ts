@@ -8,7 +8,7 @@
  * Events:   main → renderer (webContents.send, received via ipcRenderer.on)
  */
 
-import { ipcMain, type BrowserWindow } from 'electron'
+import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -23,6 +23,27 @@ import type { GitService } from './git-service.js'
 import type { FileWatchService } from './file-watch-service.js'
 import { sanitizeSettingsForRenderer, validateSettingsPatch } from './settings-contract.js'
 import type { ClassifierService } from './classifier-service.js'
+
+type BrowserWindow = import('electron').BrowserWindow
+type ElectronApi = Pick<typeof import('electron'), 'ipcMain' | 'shell' | 'dialog'>
+
+const require = createRequire(import.meta.url)
+
+function loadElectron(): ElectronApi {
+  try {
+    const electron = require('electron') as Partial<ElectronApi>
+    if (electron && typeof electron === 'object' && electron.ipcMain && electron.shell && electron.dialog) {
+      return electron as ElectronApi
+    }
+  } catch {
+    // Fall through to the Node test mock.
+  }
+
+  return require('../../test/__mocks__/electron.cjs') as ElectronApi
+}
+
+const electron = loadElectron()
+const { ipcMain } = electron
 
 // Re-export SessionFile for consumers that imported it from here
 export type { SessionInfo as SessionFile } from './session-service.js'
@@ -52,6 +73,11 @@ export function registerIpcHandlers(
     pushEvent(win, 'event:voice-status', status)
     broadcast?.('event:voice-status', status)
   }
+  classifierService.setDebugSink((data) => {
+    const win = getMainWindow()
+    pushEvent(win, 'event:classifier-debug', data)
+    broadcast?.('event:classifier-debug', data)
+  })
 
   for (const paneId of paneManager.getPaneIds()) {
     const root = paneManager.getPane(paneId)?.projectRoot
@@ -73,14 +99,16 @@ export function registerIpcHandlers(
       throw new Error('No AI provider configured — add an API key or sign in via Settings (⌘,).')
     }
 
+    let agentState: any = null
+
     // Specific check: is the active model's provider configured?
     // Query agent state with a short timeout so we don't delay the prompt.
     try {
-      const agentState = await Promise.race([
+      agentState = await Promise.race([
         pane.agentBridge.getState(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2_000)),
       ])
-      if (agentState.model) {
+      if (agentState?.model) {
         const activeProvider = statuses.find((s) => s.id === agentState.model!.provider)
         if (activeProvider && !activeProvider.configured) {
           throw new Error(
@@ -103,6 +131,7 @@ export function registerIpcHandlers(
         images = [{ type: 'image', data: match[2], mimeType: match[1] }]
       }
     }
+
     return pane.orchestrator.submitTurn(text, 'text', options, images)
   })
 
@@ -170,12 +199,10 @@ export function registerIpcHandlers(
   // Pane lifecycle
   // --------------------------------------------------------------------------
 
-  ipcMain.handle('cmd:pane-create', async () => {
-    const win = getMainWindow()
+  ipcMain.handle('cmd:pane-create', async (_event, projectRoot?: string) => {
     const pane = await paneManager.createPane(settingsService, (channel, data) => {
-      if (win && !win.isDestroyed()) win.webContents.send(channel, data)
       broadcast?.(channel, data)
-    })
+    }, projectRoot)
     fileWatchService.watchPane(pane.id, pane.projectRoot)
     // Register forwarding for the new pane
     registerApprovalForwardingForPane(pane.id)
@@ -244,7 +271,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle('cmd:oauth-start', async (_event, providerId: string) => {
     const win = getMainWindow()
-    const { shell } = await import('electron')
+    const { shell } = electron
     return authService.startOAuthLogin(
       providerId,
       (channel, data) => {
@@ -284,7 +311,7 @@ export function registerIpcHandlers(
   })
 
   ipcMain.handle('cmd:open-external', async (_event, url: string) => {
-    const { shell } = await import('electron')
+    const { shell } = electron
     await openExternalHttpUrl(shell.openExternal, url)
   })
 
@@ -392,7 +419,7 @@ export function registerIpcHandlers(
   ipcMain.handle('cmd:pick-folder', async () => {
     const win = getMainWindow()
     if (!win) return null
-    const { dialog } = await import('electron')
+    const { dialog } = electron
     const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] })
     if (result.canceled) return null
     const selected = result.filePaths[0] ?? null
@@ -530,7 +557,7 @@ export function registerIpcHandlers(
         projectInstructions,
       }
 
-      const decision = await classifierService.classifyToolCall(paneId, req.toolName, req.args, context)
+      const decision = await classifierService.classifyToolCall(paneId, req.toolName, req.args, context, settingsService.get().classifierProvider ?? 'anthropic')
 
       // Fallback to manual if no key or error
       if (decision.source === 'fallback') {

@@ -38,6 +38,7 @@ interface Props {
   onStopTts?: () => void
   onEditQueuedMessage?: () => void
   onClearQueuedMessage?: () => void
+  onInterruptAndSend?: () => void
   /** When true, textarea uses 16px font-size to prevent iOS zoom on focus. */
   isMobile?: boolean
 }
@@ -70,6 +71,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onStopTts,
   onEditQueuedMessage,
   onClearQueuedMessage,
+  onInterruptAndSend,
   isMobile = false,
 }: Props, ref) {
   // On mobile, restore persisted draft from localStorage (Task 10: State persistence)
@@ -175,6 +177,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       }
       if (e.key === 'Escape') {
         setSkillDropdownOpen(false)
+        return
+      }
+    }
+
+    if (e.key === 'Escape') {
+      if (hasQueuedMessage && onInterruptAndSend) {
+        e.preventDefault()
+        onInterruptAndSend()
         return
       }
     }
@@ -308,6 +318,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         <div className="mb-2 flex items-center gap-2 px-1 text-xs">
           <div className="min-w-0 flex-1 truncate text-accent">
             Queued next: {queuedMessageLabel}
+            <span className="opacity-50 ml-1.5 font-normal italic">(hit Esc to send queued message)</span>
           </div>
           <button
             type="button"
@@ -399,12 +410,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   ? 'Type a follow-up and press Enter to queue it...'
                   : 'Ask anything... (Enter to send, Shift+Enter for newline)'
           }
-          disabled={disabled || queueLocked}
+          disabled={disabled}
+          readOnly={queueLocked}
           rows={1}
           className={[
             'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
             'outline-none leading-4 min-h-[18px] max-h-[100px]',
             'disabled:opacity-50 disabled:cursor-not-allowed',
+            queueLocked ? 'opacity-60 cursor-default select-none' : '',
             isMobile ? 'mobile-chat-input' : '',
           ].join(' ')}
         />

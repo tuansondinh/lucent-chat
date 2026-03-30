@@ -1,7 +1,7 @@
 /**
  * SettingsService — persists app-level settings to disk.
  *
- * Settings file: ~/.lucent-code/settings.json
+ * Settings file: ~/.lucent/settings.json
  * File permissions: 0o600 (contains API keys).
  */
 
@@ -26,6 +26,10 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   /** Last window bounds for position/size restore. */
   windowBounds?: { x: number; y: number; width: number; height: number }
+  /** Last project root restored at app startup. */
+  lastProjectRoot?: string
+  /** Last active file path within the restored project. */
+  lastActiveFilePath?: string
   /** Whether the user has completed first-run onboarding. */
   onboardingComplete?: boolean
   /** Push-to-talk shortcut for pane-scoped voice input. */
@@ -63,6 +67,9 @@ export interface AppSettings {
 
   /** Rules for Auto mode. */
   autoModeRules?: Array<{ toolName: string; pattern: string; decision: 'allow' | 'deny' }>
+
+  /** Which LLM provider to use for the Auto mode classifier. Defaults to 'anthropic'. */
+  classifierProvider?: 'anthropic' | 'google'
 }
 
 // ============================================================================
@@ -103,7 +110,7 @@ export class SettingsService {
   private settings: AppSettings
 
   constructor() {
-    const dir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.lucent-code')
+    const dir = process.env.LUCENT_CONFIG_DIR ?? join(homedir(), '.lucent')
     this.settingsPath = join(dir, 'settings.json')
     this.settings = { ...DEFAULTS }
     this.ensureDir(dir)

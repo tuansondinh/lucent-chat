@@ -105,6 +105,30 @@ describe('pane-store', () => {
       expect(lastMessage.isStreaming).toBe(true)
     })
 
+    it('should ignore fully duplicated streamed chunks', () => {
+      const store = createPaneChatStore('test-pane')
+      store.getState().addUserMessage('Test', 'turn-1')
+      store.getState().appendChunk('turn-1', 'Let')
+      store.getState().appendChunk('turn-1', 'Let')
+      store.getState().appendChunk('turn-1', ' me look')
+
+      const state = store.getState()
+      const lastMessage = state.messages[state.messages.length - 1]
+      expect(lastMessage.contentBlocks[0].text).toBe('Let me look')
+    })
+
+    it('should merge overlapping streamed chunks without duplicating prefixes', () => {
+      const store = createPaneChatStore('test-pane')
+      store.getState().addUserMessage('Test', 'turn-1')
+      store.getState().appendChunk('turn-1', 'Let')
+      store.getState().appendChunk('turn-1', 'Let me look at the codebase')
+      store.getState().appendChunk('turn-1', ' codebase to understand')
+
+      const state = store.getState()
+      const lastMessage = state.messages[state.messages.length - 1]
+      expect(lastMessage.contentBlocks[0].text).toBe('Let me look at the codebase to understand')
+    })
+
     it('should create new text block when previous is finalized', () => {
       const store = createPaneChatStore('test-pane')
       store.getState().addUserMessage('Test', 'turn-1')

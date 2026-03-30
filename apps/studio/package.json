@@ -16,20 +16,24 @@
     "build:pwa": "vite build --config vite.pwa.config.ts",
     "serve:pwa": "vite preview --config vite.pwa.config.ts",
     "serve": "tsx src/main/server.ts",
+    "bundle-audio-service": "node scripts/build-audio-runtime.cjs",
+    "bundle-audio-service:none": "LUCENT_INCLUDE_AUDIO_SERVICE=0 node scripts/build-audio-runtime.cjs",
     "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
     "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
     "bundle-runtime:force": "npm run bundle -w @gsd/pi-coding-agent -- -- --force",
-    "pack": "npm run bundle-runtime && electron-builder --dir",
-    "pack:arm64": "CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-runtime && electron-builder --dir --arm64",
-    "dist": "npm run build && npm run bundle-runtime && electron-builder -wml",
-    "dist:mac": "npm run build && npm run bundle-runtime && electron-builder -m",
-    "dist:mac:arm64": "npm run build && npm run bundle-runtime && electron-builder -m --arm64",
-    "dist:mac:x64": "npm run build && npm run bundle-runtime && electron-builder -m --x64",
-    "dist:mac:universal": "npm run build && npm run bundle-runtime && electron-builder -m --universal",
-    "release": "npm run build && npm run bundle-runtime && electron-builder -m --publish never",
+    "pack": "SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false npm run bundle-audio-service && npm run bundle-runtime && electron-builder --dir --config.mac.identity=null",
+    "pack:arm64": "SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder --dir --arm64 --config.mac.identity=null",
+    "dist": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -wml",
+    "dist:mac": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m",
+    "dist:mac:arm64": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m --arm64",
+    "dist:mac:x64": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m --x64",
+    "dist:mac:universal": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m --universal",
+    "release": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m --publish never",
     "release:arm64": "node scripts/release.cjs",
+    "release:arm64:no-audio": "node scripts/release.cjs --without-audio",
     "release:arm64:notarize": "node scripts/release.cjs --notarize",
-    "release:arm64:dry": "node scripts/release.cjs --dry-run"
+    "release:arm64:dry": "node scripts/release.cjs --dry-run",
+    "release:arm64:no-audio:dry": "node scripts/release.cjs --dry-run --without-audio"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
@@ -111,7 +115,6 @@
     },
     "files": [
       "dist/**/*",
-      "audio-service/**/*",
       "node_modules/**/*",
       "package.json"
     ],
@@ -124,8 +127,11 @@
         ]
       },
       {
-        "from": "audio-service",
-        "to": "audio-service"
+        "from": "build/audio-service-bundle",
+        "to": "audio-service",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

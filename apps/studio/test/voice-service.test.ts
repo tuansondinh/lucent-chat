@@ -218,7 +218,7 @@ test('VoiceService: getUvPythonArgs omits project when audioServiceDir is unset'
   assert.ok(!args.includes('--project'))
 })
 
-test('VoiceService: probe uses expanded PATH during runtime version detection', async () => {
+test('VoiceService: probe prefers bundled Python before PATH runtimes', async () => {
   const tempHome = await mkdtemp(join(tmpdir(), 'lucent-voice-home-'))
   const fakeBin = join(tempHome, '.cargo', 'bin')
   const fakeRuntime = join(fakeBin, 'uv')
@@ -240,7 +240,7 @@ test('VoiceService: probe uses expanded PATH during runtime version detection', 
     const result = await service.probe()
 
     assert.equal(result.available, true)
-    assert.equal((service as any).pythonCmd, 'uv')
+    assert.equal((service as any).pythonCmd, (service as any).getBundledPythonPath())
   } finally {
     if (originalHome === undefined) {
       delete process.env.HOME
@@ -253,5 +253,55 @@ test('VoiceService: probe uses expanded PATH during runtime version detection', 
       process.env.PATH = originalPath
     }
     await rm(tempHome, { recursive: true, force: true })
+  }
+})
+
+test('VoiceService: bundled runtime helpers resolve release paths', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'lucent-voice-packaged-'))
+  const audioServiceDir = join(tempRoot, 'Lucent Code.app', 'Contents', 'Resources', 'audio-service')
+  const releasePython = join(audioServiceDir, 'python-runtime', 'bin', 'python3.12')
+  const sitePackages = join(audioServiceDir, '.venv-release', 'lib', 'python3.12', 'site-packages')
+
+  await mkdir(join(audioServiceDir, 'python-runtime', 'bin'), { recursive: true })
+  await mkdir(sitePackages, { recursive: true })
+  await writeFile(releasePython, '#!/bin/sh\nexit 0\n')
+  await chmod(releasePython, 0o755)
+
+  try {
+    const service = new VoiceService(() => tempRoot)
+    ;(service as any).audioServiceDir = audioServiceDir
+
+    assert.equal((service as any).getBundledPythonPath(), releasePython)
+    assert.equal((service as any).getBundledSitePackagesPath(), sitePackages)
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true })
+  }
+})
+
+test('VoiceService: probe treats process.resourcesPath bundle as packaged even without electron.app', async () => {
+  const tempResources = await mkdtemp(join(tmpdir(), 'lucent-voice-resources-'))
+  const audioServiceDir = join(tempResources, 'audio-service')
+  const servicePath = join(audioServiceDir, 'audio_service.py')
+  const originalResourcesPath = process.resourcesPath
+
+  await mkdir(audioServiceDir, { recursive: true })
+  await writeFile(servicePath, '# test\n')
+
+  ;(process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = tempResources
+
+  try {
+    const service = new VoiceService(() => '/not-used')
+    assert.equal((service as any).audioServicePath, null)
+
+    const probe = await service.probe().catch(() => ({ available: false }))
+    assert.equal((service as any).audioServicePath, servicePath)
+    assert.ok(typeof probe.available === 'boolean')
+  } finally {
+    if (originalResourcesPath === undefined) {
+      delete (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+    } else {
+      ;(process as NodeJS.Process & { resourcesPath?: string }).resourcesPath = originalResourcesPath
+    }
+    await rm(tempResources, { recursive: true, force: true })
   }
 })

@@ -106,9 +106,14 @@ The `.app` bundle breaks down roughly as:
 |-----------|------|-------|
 | Electron Frameworks | ~263 MB | Chromium + Node — unavoidable |
 | `runtime/` (pi-coding-agent) | ~400 MB | See below |
-| `audio-service/` | ~120 KB | Small |
+| `audio-service/` | ~120 KB + bundled Python runtime | Includes the Studio voice sidecar and packaged Python deps |
 
 The `runtime/` directory (shipped via `extraResources`) contains the coding-agent Node process and is the main lever for reducing app size.
+
+The voice sidecar is now bundled as:
+- `audio_service.py`
+- `audio-service/.venv-release` for pinned site-packages
+- `audio-service/python-runtime` for the copied Python 3.12 runtime used in packaged builds
 
 ### Runtime size breakdown
 

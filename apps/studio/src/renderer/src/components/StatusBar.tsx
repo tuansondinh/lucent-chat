@@ -28,6 +28,7 @@ interface Props {
   model: string
   sessionName: string
   health: string
+  contextUsagePct?: number | null
   fileViewerOpen?: boolean
   onToggleFileViewer?: () => void
   onOpenModelPicker?: () => void
@@ -43,6 +44,7 @@ export function StatusBar({
   model,
   sessionName,
   health,
+  contextUsagePct,
   fileViewerOpen,
   onToggleFileViewer,
   onOpenModelPicker,

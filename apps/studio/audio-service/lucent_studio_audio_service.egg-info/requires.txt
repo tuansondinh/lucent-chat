@@ -1,0 +1,8 @@
+fastapi==0.135.2
+kokoro==0.9.4
+lucent-voice-bridge==0.1.0
+numpy==2.4.3
+onnxruntime==1.24.4
+pywhispercpp==1.4.1
+uvicorn==0.42.0
+websockets==16.0

@@ -102,6 +102,7 @@ export interface RpcSlashCommand {
 
 export interface RpcSessionState {
 	model?: Model<any>;
+	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto";
 	thinkingLevel: ThinkingLevel;
 	isStreaming: boolean;
 	isCompacting: boolean;

@@ -6,10 +6,13 @@
  * write/resize/destroy helpers for IPC handlers to use.
  */
 
+import { createRequire } from 'node:module'
 import type { IPty } from 'node-pty'
 
 /** Callback invoked whenever a terminal produces output. */
 type DataCallback = (id: string, data: string) => void
+
+const require = createRequire(import.meta.url)
 
 export class TerminalManager {
   private readonly terminals = new Map<string, IPty>()
@@ -31,9 +34,8 @@ export class TerminalManager {
     // Destroy any existing terminal with the same id
     this.destroy(id)
 
-    // Dynamic import so the native module is only loaded when needed and
-    // TypeScript doesn't try to bundle it at compile time.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // Load the native module lazily so bundling stays predictable while
+    // remaining compatible with the ESM test/runtime environment.
     const pty = require('node-pty') as typeof import('node-pty')
 
     const shell = process.env.SHELL ?? '/bin/zsh'

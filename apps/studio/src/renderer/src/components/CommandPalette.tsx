@@ -225,6 +225,22 @@ export function CommandPalette({
               onSelect={handleNewSession}
             />
 
+            <CommandItem
+              icon={<X className="h-4 w-4" />}
+              label="Clear Context"
+              description="Starts a fresh session for this pane"
+              shortcut={
+                <KbdGroup>
+                  <Kbd>/</Kbd>
+                  <Kbd>clear</Kbd>
+                </KbdGroup>
+              }
+              onSelect={() => {
+                onRunSkill?.('clear')
+                onClose()
+              }}
+            />
+
             {/* Switch Session sub-items */}
             {sessions.map((session) => (
               <CommandItem

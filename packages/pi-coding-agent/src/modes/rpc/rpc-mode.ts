@@ -497,6 +497,12 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			case "get_state": {
 				const state: RpcSessionState = {
 					model: session.model,
+					permissionMode:
+						process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit"
+							? "accept-on-edit"
+							: process.env.GSD_STUDIO_PERMISSION_MODE === "auto"
+								? "auto"
+								: "danger-full-access",
 					thinkingLevel: session.thinkingLevel,
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,

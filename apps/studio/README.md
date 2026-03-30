@@ -32,7 +32,7 @@ Lucent Code is a desktop AI chat application with voice input/output capabilitie
 ### Prerequisites
 
 - **Node.js** 20+ (LTS recommended)
-- **Python** 3.12+ with voice dependencies
+- **Python** 3.12+ for local voice development
 - **npm** or **yarn**
 - **macOS**, **Linux**, or **Windows**
 
@@ -48,8 +48,14 @@ npm install
 #### 2. Install Python voice dependencies
 
 ```bash
-# Install the published voice package and its dependencies
-pip install lucent-voice-bridge
+# Create a local audio-service env and install the pinned dependencies
+uv venv audio-service/.venv --python 3.12
+uv pip install --python audio-service/.venv/bin/python -r <(python - <<'PY'
+import tomllib, pathlib
+deps = tomllib.loads(pathlib.Path('audio-service/pyproject.toml').read_text())['project']['dependencies']
+print('\n'.join(deps))
+PY
+)
 ```
 
 #### 3. Start the application
@@ -119,8 +125,9 @@ studio/
 │           ├── chat.ts           # Chat messages state
 │           └── voice-store.ts    # Voice state
 │
-├── audio-service/        # Python FastAPI voice service
-│   └── audio_service.py          # STT/TTS endpoints
+├── audio-service/        # Python voice sidecar project
+│   ├── audio_service.py          # STT/TTS WebSocket service
+│   └── pyproject.toml            # Pinned Python runtime dependencies
 │
 └── package.json
 ```
@@ -177,6 +184,26 @@ npm run release:arm64:dry
 ### Bump version
 
 Edit `version` in `package.json`, then run `npm run release:arm64`.
+
+### Release Voice Learnings
+
+- Detect the packaged voice bundle by checking `process.resourcesPath/audio-service`, not only `electron.app.isPackaged`.
+- Launch the bundled Python runtime in place. Copying `audio-service/` to `/tmp` adds failure modes and can break embedded-runtime assumptions.
+- Keep startup minimal: VAD + STT should be enough to reach `VOICE_SERVICE_READY`. Load TTS lazily so a Kokoro/espeak packaging problem does not take down voice input.
+- For a release-bundle sanity check, run the packaged sidecar directly and wait for `VOICE_SERVICE_READY`:
+
+```bash
+APP="release/mac-arm64/Lucent Code.app/Contents/Resources/audio-service"
+PYTHONPATH="$APP/.venv-release/lib/python3.12/site-packages" \
+"$APP/python-runtime/bin/python3.12" "$APP/audio_service.py"
+```
+
+### Keep It Simple
+
+- Use `npm run pack:arm64` for the fastest local Apple Silicon smoke build. It now skips signing and notarization explicitly.
+- Treat STT/VAD as required and TTS as optional at startup. That keeps release failures narrower and much easier to debug.
+- Prefer resource-presence checks over Electron packaging flags for bundled sidecars.
+- If we want a larger simplification later, the best target is separating TTS into its own optional service or replacing the embedded Python layout with a single frozen binary.
 
 ---
 
@@ -282,7 +309,14 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system architecture, compo
    pip show lucent-voice-bridge
    ```
 
-3. **Check logs** — Open Developer Tools (`Cmd+Option+I`) → Console
+3. **Check release sidecar directly:**
+   ```bash
+   APP="release/mac-arm64/Lucent Code.app/Contents/Resources/audio-service"
+   PYTHONPATH="$APP/.venv-release/lib/python3.12/site-packages" \
+   "$APP/python-runtime/bin/python3.12" "$APP/audio_service.py"
+   ```
+
+4. **Check logs** — Open Developer Tools (`Cmd+Option+I`) → Console
 
 ### Can't split panes
 

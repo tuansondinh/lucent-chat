@@ -110,12 +110,14 @@ function PaneFooter({
   paneId,
   isActive,
   onFocus,
-  onOpenModelPicker
+  onOpenModelPicker,
+  contextUsagePct,
 }: {
   paneId: string
   isActive: boolean
   onFocus: () => void
   onOpenModelPicker: () => void
+  contextUsagePct: number | null
 }) {
   const gitBranch = getPaneStore(paneId)((s) => s.gitBranch)
   const projectRoot = getPaneStore(paneId)((s) => s.projectRoot)
@@ -252,8 +254,16 @@ function PaneFooter({
         </button>
       </div>
 
-      {/* Right side: permission mode indicator + model picker */}
+      {/* Right side: context usage + permission mode indicator + model picker */}
       <div className="flex items-center gap-1">
+      {contextUsagePct !== null && (
+        <div
+          className="rounded-full px-2 py-0.5 text-[10px] font-mono text-text-primary opacity-80"
+          title="Approximate context window usage"
+        >
+          ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
+        </div>
+      )}
       {/* Permission mode indicator */}
       <button
         onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
@@ -402,6 +412,7 @@ export function ChatPane({
     currentModel,
     currentSessionPath,
     projectRoot,
+    contextUsagePct,
   } = store()
 
   const bridge = getBridge()
@@ -418,6 +429,9 @@ export function ChatPane({
   const textToSpeechModeRef = useRef(textToSpeechMode)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
+  // When we interrupt-and-send, we store the aborted turn_id so we can ignore its
+  // stale 'aborted' turn-state event — otherwise it would overwrite isGenerating back to false.
+  const interruptedTurnIdRef = useRef<string | null>(null)
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
   const [pendingUiSelect, setPendingUiSelect] = useState<UiSelectRequest | null>(null)
@@ -435,6 +449,60 @@ export function ChatPane({
       totalBlocks: bridgeState.total,
     })
   }, [paneId])
+
+  const computeContextUsagePct = useCallback((state: Record<string, unknown> | null | undefined): number | null => {
+    if (!state) return null
+
+    const asNumber = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) ? value : null
+
+    const directPctKeys = [
+      'contextUsagePct',
+      'contextPercent',
+      'context_percentage',
+      'contextWindowPercent',
+      'context_window_percent',
+    ] as const
+
+    for (const key of directPctKeys) {
+      const value = asNumber((state as Record<string, unknown>)[key])
+      if (value !== null) return value <= 1 ? value * 100 : value
+    }
+
+    const usage = (state as Record<string, unknown>).usage
+    if (usage && typeof usage === 'object') {
+      const usageObj = usage as Record<string, unknown>
+      for (const key of directPctKeys) {
+        const value = asNumber(usageObj[key])
+        if (value !== null) return value <= 1 ? value * 100 : value
+      }
+
+      const used = asNumber(usageObj.inputTokens ?? usageObj.promptTokens ?? usageObj.tokens ?? usageObj.usedTokens)
+      const max = asNumber(usageObj.maxInputTokens ?? usageObj.maxTokens ?? usageObj.contextWindow ?? usageObj.contextWindowTokens)
+      if (used !== null && max !== null && max > 0) return (used / max) * 100
+    }
+
+    const used = asNumber((state as Record<string, unknown>).inputTokens ?? (state as Record<string, unknown>).promptTokens)
+    const max = asNumber((state as Record<string, unknown>).maxInputTokens ?? (state as Record<string, unknown>).contextWindow)
+    if (used !== null && max !== null && max > 0) return (used / max) * 100
+
+    const modelRef = getModelRefFromState(state)
+    if (modelRef) {
+      const modelWindowGuess = (() => {
+        const lower = modelRef.toLowerCase()
+        if (lower.includes('gpt-5') || lower.includes('gpt-4.1') || lower.includes('gpt-4o')) return 128000
+        if (lower.includes('sonnet') || lower.includes('claude')) return 200000
+        if (lower.includes('gemini')) return 1000000
+        return null
+      })()
+      if (modelWindowGuess && typeof (state as Record<string, unknown>).messageCount === 'number') {
+        const roughUsed = Math.max(0, ((state as Record<string, unknown>).messageCount as number) * 1500)
+        return (roughUsed / modelWindowGuess) * 100
+      }
+    }
+
+    return null
+  }, [])
 
   // Load auto mode state
   useEffect(() => {
@@ -679,6 +747,13 @@ export function ChatPane({
       }),
       bridge.onTurnState(({ paneId: pid, turn_id, state }) => {
         if (pid !== paneId || isStale()) return
+        // If this is the stale 'aborted' event from a turn we intentionally interrupted
+        // (to send the queued message), ignore it — the new turn is already in-flight.
+        if (state === 'aborted' && interruptedTurnIdRef.current === turn_id) {
+          interruptedTurnIdRef.current = null
+          store.getState().markAllToolsErrored(turn_id)
+          return
+        }
         if (state === 'aborted' || state === 'idle') {
           store.getState().setGenerating(false)
         }
@@ -692,6 +767,10 @@ export function ChatPane({
               sessionState.isCompacting === true,
               sessionState.autoCompactionEnabled !== false,
             )
+            // Sync session name so the sidebar can reflect auto-naming after the first prompt
+            if (typeof sessionState.sessionName === 'string' && sessionState.sessionName) {
+              store.getState().setSessionName(sessionState.sessionName)
+            }
           })
           .catch(() => {})
       }),
@@ -748,6 +827,14 @@ export function ChatPane({
     bridge
       .getState(paneId)
       .then((state) => {
+        if (
+          state.permissionMode === 'danger-full-access' ||
+          state.permissionMode === 'accept-on-edit' ||
+          state.permissionMode === 'auto'
+        ) {
+          store.getState().setPermissionMode(state.permissionMode)
+          console.debug('[classifier] agent permission mode', { paneId, permissionMode: state.permissionMode })
+        }
         const modelRef = getModelRefFromState(state)
         if (modelRef) {
           store.getState().setModel(modelRef)
@@ -806,6 +893,7 @@ export function ChatPane({
         if (cancelled) return
         store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
         store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
+        store.getState().setContextUsagePct(computeContextUsagePct(state))
       } catch {
         // Ignore transient git state failures.
       }
@@ -826,16 +914,16 @@ export function ChatPane({
       clearInterval(intervalId)
       window.removeEventListener('focus', handleWindowFocus)
     }
-  }, [bridge, paneId, store])
+  }, [bridge, paneId, store, computeContextUsagePct])
 
   const isReplyAudioPlaying = voiceOwnedByThisPane && voiceStore.ttsPlaying
   const isAssistantBusy = isGenerating || isReplyAudioPlaying
 
   // Submit handler
-  const handleSubmit = useCallback(async (text: string, imageDataUrl?: string) => {
+  const handleSubmit = useCallback(async (text: string, imageDataUrl?: string, force = false) => {
     const displayText = text || '[image]'
 
-    if (isAssistantBusy) {
+    if (!force && isAssistantBusy) {
       if (queuedPrompt) return
       setQueuedPrompt({ label: displayText, text, imageDataUrl })
       return
@@ -862,6 +950,22 @@ export function ChatPane({
     setQueuedPrompt(null)
   }, [currentSessionPath])
 
+  const handleClearContext = useCallback(async () => {
+    setQueuedPrompt(null)
+    stopTts()
+    try {
+      await bridge.newSession(paneId)
+      store.getState().clearSessionView()
+      store.getState().setSessionName('')
+      store.getState().setSessionPath(null)
+      store.getState().setContextUsagePct(0)
+      toast.success('Context cleared')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to clear context'
+      toast.error(msg)
+    }
+  }, [bridge, paneId, store, stopTts])
+
   const handleAbort = useCallback(() => {
     setQueuedPrompt(null)
     store.getState().setGenerating(false)
@@ -884,6 +988,26 @@ export function ChatPane({
   const handleClearQueuedMessage = useCallback(() => {
     setQueuedPrompt(null)
   }, [])
+
+  const handleInterruptAndSend = useCallback(async () => {
+    if (!queuedPrompt) return
+    const nextPrompt = queuedPrompt
+    setQueuedPrompt(null)
+
+    // Capture the current turn_id so we can ignore its stale 'aborted' event
+    // (which would otherwise overwrite isGenerating back to false on the new turn)
+    interruptedTurnIdRef.current = store.getState().currentTurnId ?? null
+    
+    stopTts()
+    try {
+      await bridge.abort(paneId)
+    } catch (err) {
+      console.error('[ChatPane] Failed to abort for interrupt:', err)
+    }
+    
+    store.getState().setGenerating(false)
+    void handleSubmit(nextPrompt.text, nextPrompt.imageDataUrl, true)
+  }, [queuedPrompt, stopTts, bridge, paneId, store, handleSubmit])
 
   const handleScrollToBottom = useCallback(() => {
     isNearBottomRef.current = true
@@ -968,6 +1092,19 @@ export function ChatPane({
       window.removeEventListener('lucent:stop-active-pane', handleStopActivePane as EventListener)
     }
   }, [handleAbort, isActive, paneId])
+
+  useEffect(() => {
+    const handleClearContextEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ paneId: string }>).detail
+      if (!isActive || detail?.paneId !== paneId) return
+      void handleClearContext()
+    }
+
+    window.addEventListener('lucent:clear-context', handleClearContextEvent as EventListener)
+    return () => {
+      window.removeEventListener('lucent:clear-context', handleClearContextEvent as EventListener)
+    }
+  }, [handleClearContext, isActive, paneId])
 
   const inputDisabled = agentHealth === 'crashed' || agentHealth === 'degraded'
   const canQueueMessage = isAssistantBusy && !queuedPrompt
@@ -1220,6 +1357,7 @@ export function ChatPane({
             onStopTts={stopTts}
             onEditQueuedMessage={handleEditQueuedMessage}
             onClearQueuedMessage={handleClearQueuedMessage}
+            onInterruptAndSend={handleInterruptAndSend}
             isMobile={isMobile}
           />
         </div>
@@ -1231,6 +1369,7 @@ export function ChatPane({
             isActive={isActive}
             onFocus={onFocus}
             onOpenModelPicker={() => setModelPickerOpen(true)}
+            contextUsagePct={contextUsagePct}
           />
         )}
       </div>

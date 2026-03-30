@@ -60,9 +60,7 @@ function resolveAgentCommand(entry: string): {
   const mappedEnv = { ...process.env }
   if (!mappedEnv.LUCENT_CODING_AGENT_DIR) {
     mappedEnv.LUCENT_CODING_AGENT_DIR =
-      mappedEnv.LC_CODING_AGENT_DIR
-      ?? mappedEnv.GSD_CODING_AGENT_DIR
-      ?? (mappedEnv.LUCENT_CONFIG_DIR ? join(mappedEnv.LUCENT_CONFIG_DIR, 'agent') : undefined)
+      mappedEnv.LUCENT_CONFIG_DIR ? join(mappedEnv.LUCENT_CONFIG_DIR, 'agent') : join(homedir(), '.lucent', 'agent')
   }
 
   if (process.resourcesPath && entry.startsWith(join(process.resourcesPath, 'runtime'))) {

@@ -257,13 +257,19 @@ app.whenReady().then(async () => {
         // Sync active session ID from agent state so delete guard is accurate
         if (state.sessionFile) {
           sessionService.setActiveSessionId(state.sessionFile)
+          sessionService.setProjectSession(initialProjectRoot, state.sessionFile)
         }
         // Restore persisted session if it differs from the fresh agent session
-        if (persistedId && persistedId !== state.sessionFile) {
+        const persistedProjectSession = await sessionService.getProjectSession(initialProjectRoot)
+        const sessionToRestore = persistedProjectSession ?? persistedId
+        if (sessionToRestore && sessionToRestore !== state.sessionFile) {
           try {
-            await agentBridge.switchSession(persistedId)
+            await agentBridge.switchSession(sessionToRestore)
             const newState = await agentBridge.getState()
-            if (newState.sessionFile) sessionService.setActiveSessionId(newState.sessionFile)
+            if (newState.sessionFile) {
+              sessionService.setActiveSessionId(newState.sessionFile)
+              sessionService.setProjectSession(initialProjectRoot, newState.sessionFile)
+            }
           } catch (err) {
             console.warn('[studio] failed to restore persisted session:', (err as Error).message)
           }
@@ -311,9 +317,9 @@ app.whenReady().then(async () => {
     onTextBlockStart: (d) => broadcast('event:text-block-start', { paneId: 'pane-0', ...d }),
     onTextBlockEnd: (d) => broadcast('event:text-block-end', { paneId: 'pane-0', ...d }),
     onTurnComplete: () => {
-      void sessionService.syncActiveSessionFromAgent()
+      void sessionService.syncProjectSessionFromAgent(initialProjectRoot)
     },
-  })
+  }, { workspaceLabel: initialProjectRoot.split(/[\\/]/).filter(Boolean).pop() ?? 'workspace' })
 
   paneManager.initPane0(processManager, agentBridge, orchestrator, sessionService, attachAgentBridge, initialProjectRoot)
 

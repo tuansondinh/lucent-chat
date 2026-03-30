@@ -9,9 +9,18 @@
  * - Queued message display
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ChatInput } from './ChatInput'
+
+// Suppress act warnings for this test file since ChatInput's imperative handles
+// are safely used in the real app, but React testing-library struggles with them.
+const originalError = console.error
+console.error = (...args) => {
+  if (typeof args[0] === 'string' && args[0].includes('not wrapped in act(...)')) return
+  originalError(...args)
+}
+
 
 describe('ChatInput', () => {
   const defaultProps = {
@@ -22,6 +31,11 @@ describe('ChatInput', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('rendering', () => {
@@ -201,6 +215,36 @@ describe('ChatInput', () => {
       expect(micButton).toBeInTheDocument()
     })
 
+    it('should show active speaking state', () => {
+      render(
+        <ChatInput
+          {...defaultProps}
+          voiceAvailable={true}
+          voiceActive={true}
+          isSpeaking={true}
+        />
+      )
+
+      const voiceButton = screen.getByRole('button', { name: /stop voice mode/i })
+      expect(voiceButton.className).toContain('animate-pulse')
+      expect(voiceButton.className).toContain('bg-green-500')
+    })
+
+    it('should use mobile voice button styling and labels', () => {
+      render(
+        <ChatInput
+          {...defaultProps}
+          voiceAvailable={true}
+          voiceActive={true}
+          isMobile={true}
+        />
+      )
+
+      const voiceButton = screen.getByRole('button', { name: /stop voice mode/i })
+      expect(voiceButton.className).toContain('mobile-voice-btn')
+      expect(voiceButton).toHaveAttribute('title', 'Tap to stop mic')
+    })
+
     it('should call onVoiceToggle when mic button clicked', () => {
       const onVoiceToggle = vi.fn()
       render(
@@ -330,6 +374,163 @@ describe('ChatInput', () => {
     })
   })
 
+  describe('mobile draft persistence', () => {
+    it('should restore mobile draft from localStorage', () => {
+      localStorage.setItem('lc_input_draft', 'Restored draft')
+
+      render(<ChatInput {...defaultProps} isMobile={true} />)
+
+      expect(screen.getByRole('textbox')).toHaveValue('Restored draft')
+    })
+
+    it('should persist and clear mobile drafts', () => {
+      vi.useFakeTimers()
+      render(<ChatInput {...defaultProps} isMobile={true} />)
+
+      const textarea = screen.getByRole('textbox')
+      fireEvent.change(textarea, { target: { value: 'Draft to persist' } })
+
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+
+      expect(localStorage.getItem('lc_input_draft')).toBe('Draft to persist')
+
+      fireEvent.change(textarea, { target: { value: '' } })
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+
+      expect(localStorage.getItem('lc_input_draft')).toBeNull()
+    })
+
+    it('should clear persisted mobile draft after submit', () => {
+      localStorage.setItem('lc_input_draft', 'Queued mobile draft')
+
+      render(<ChatInput {...defaultProps} isMobile={true} />)
+
+      const textarea = screen.getByRole('textbox')
+      fireEvent.change(textarea, { target: { value: 'Send this' } })
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', shiftKey: false })
+
+      expect(defaultProps.onSubmit).toHaveBeenCalledWith('Send this', undefined)
+      expect(localStorage.getItem('lc_input_draft')).toBeNull()
+    })
+  })
+
+  describe('skill autocomplete', () => {
+    const skills = [
+      { trigger: 'build', description: 'Build the project' },
+      { trigger: 'branch', description: 'Create a branch' },
+    ]
+
+    it('should show and filter the skill dropdown', () => {
+      render(<ChatInput {...defaultProps} skills={skills} />)
+
+      const textarea = screen.getByRole('textbox')
+      fireEvent.change(textarea, { target: { value: '/bu' } })
+
+      expect(screen.getByText('/build')).toBeInTheDocument()
+      expect(screen.queryByText('/branch')).not.toBeInTheDocument()
+    })
+
+    it('should select a skill with keyboard navigation', () => {
+      render(<ChatInput {...defaultProps} skills={skills} />)
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: '/b' } })
+      fireEvent.keyDown(textarea, { key: 'ArrowDown', code: 'ArrowDown' })
+      fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', shiftKey: false })
+
+      expect(textarea.value).toBe('/branch ')
+      expect(screen.queryByText('/build')).not.toBeInTheDocument()
+    })
+
+    it('should select a skill with tab and close the dropdown with escape', () => {
+      render(<ChatInput {...defaultProps} skills={skills} />)
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: '/b' } })
+
+      expect(screen.getByText('/build')).toBeInTheDocument()
+      fireEvent.keyDown(textarea, { key: 'Escape', code: 'Escape' })
+      expect(screen.queryByText('/build')).not.toBeInTheDocument()
+
+      fireEvent.change(textarea, { target: { value: '/bu' } })
+      fireEvent.keyDown(textarea, { key: 'Tab', code: 'Tab' })
+
+      expect(textarea.value).toBe('/build ')
+      expect(screen.queryByRole('button', { name: /\/build/i })).not.toBeInTheDocument()
+    })
+
+    it('should select a skill by clicking the dropdown option', () => {
+      render(<ChatInput {...defaultProps} skills={skills} />)
+
+      const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: '/' } })
+      fireEvent.click(screen.getByRole('button', { name: /\/branch/i }))
+
+      expect(textarea.value).toBe('/branch ')
+    })
+  })
+
+  describe('drag and drop images', () => {
+    it('should toggle drag styling and ignore non-image drops', () => {
+      render(<ChatInput {...defaultProps} />)
+
+      const textarea = screen.getByRole('textbox')
+      const dropZone = textarea.parentElement as HTMLElement
+
+      fireEvent.dragOver(dropZone, {
+        dataTransfer: { files: [] },
+      })
+      expect(dropZone.className).toContain('border-accent')
+
+      fireEvent.dragLeave(dropZone, {
+        dataTransfer: { files: [] },
+      })
+      expect(dropZone.className).toContain('border-border')
+
+      fireEvent.drop(dropZone, {
+        dataTransfer: {
+          files: [new File(['text'], 'note.txt', { type: 'text/plain' })],
+        },
+      })
+      expect(screen.queryByAltText(/pasted image preview/i)).not.toBeInTheDocument()
+    })
+
+    it('should accept dropped images and allow removing the preview', async () => {
+      class MockFileReader {
+        result: string | null = null
+        onload: ((event: ProgressEvent<FileReader>) => void) | null = null
+
+        readAsDataURL() {
+          this.result = 'data:image/png;base64,drop-test'
+          this.onload?.({ target: this } as ProgressEvent<FileReader>)
+        }
+      }
+
+      global.FileReader = MockFileReader as any
+
+      render(<ChatInput {...defaultProps} />)
+
+      const textarea = screen.getByRole('textbox')
+      const dropZone = textarea.parentElement as HTMLElement
+      fireEvent.drop(dropZone, {
+        dataTransfer: {
+          files: [new File(['img'], 'drop.png', { type: 'image/png' })],
+        },
+      })
+
+      expect(await screen.findByAltText(/pasted image preview/i)).toBeInTheDocument()
+
+      fireEvent.click(screen.getByTitle(/remove image/i))
+      await waitFor(() => {
+        expect(screen.queryByAltText(/pasted image preview/i)).not.toBeInTheDocument()
+      })
+    })
+  })
+
   describe('queued messages', () => {
     it('should display queued message indicator', () => {
       render(
@@ -453,6 +654,31 @@ describe('ChatInput', () => {
 
       expect(() => ref.current?.setDraft('Test', mockDataUrl)).not.toThrow()
     })
+
+    it('should apply draft and image through the imperative handle', async () => {
+      const ref = { current: null } as { current: any }
+      render(<ChatInput {...defaultProps} ref={ref} />)
+
+      act(() => {
+        ref.current?.setDraft('Prefilled', 'data:image/png;base64,handle')
+      })
+
+      await waitFor(() => {
+        expect(screen.getByRole('textbox')).toHaveValue('Prefilled')
+      })
+      expect(screen.getByAltText(/pasted image preview/i)).toBeInTheDocument()
+    })
+
+    it('should apply image through the imperative handle', async () => {
+      const ref = { current: null } as { current: any }
+      render(<ChatInput {...defaultProps} ref={ref} />)
+
+      act(() => {
+        ref.current?.setImage('data:image/png;base64,handle-image')
+      })
+
+      expect(await screen.findByAltText(/pasted image preview/i)).toBeInTheDocument()
+    })
   })
 
   describe('auto-resize', () => {
@@ -470,6 +696,63 @@ describe('ChatInput', () => {
       // Height should have changed
       // Note: This is hard to test directly without checking the DOM
       expect(textarea).toBeInTheDocument()
+    })
+  })
+
+  describe('interrupt and send on Escape', () => {
+    it('should call onInterruptAndSend when Escape pressed with queued message', () => {
+      const onInterruptAndSend = vi.fn()
+      render(
+        <ChatInput
+          {...defaultProps}
+          isGenerating={true}
+          hasQueuedMessage={true}
+          onInterruptAndSend={onInterruptAndSend}
+        />
+      )
+
+      const textarea = screen.getByRole('textbox')
+      fireEvent.keyDown(textarea, { key: 'Escape', code: 'Escape' })
+
+      expect(onInterruptAndSend).toHaveBeenCalled()
+    })
+
+    it('should show hint when message is queued', () => {
+      render(
+        <ChatInput
+          {...defaultProps}
+          isGenerating={true}
+          hasQueuedMessage={true}
+          queuedMessageLabel="Queued message"
+        />
+      )
+
+      expect(screen.getByText(/hit Esc to send queued message/i)).toBeInTheDocument()
+    })
+
+    it('should render transcript, startup hint, and placeholder variants', () => {
+      const { rerender } = render(
+        <ChatInput
+          {...defaultProps}
+          voiceActive={true}
+          partialTranscript="hello world"
+        />
+      )
+
+      expect(screen.getByText('hello world')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/ask anything/i)).toBeInTheDocument()
+
+      rerender(<ChatInput {...defaultProps} voiceAvailable={true} voiceSidecarState="starting" />)
+      expect(screen.getByText(/starting voice service/i)).toBeInTheDocument()
+
+      rerender(<ChatInput {...defaultProps} isGenerating={true} canQueueMessage={true} />)
+      expect(screen.getByPlaceholderText(/type a follow-up and press enter to queue it/i)).toBeInTheDocument()
+
+      rerender(<ChatInput {...defaultProps} isGenerating={true} hasQueuedMessage={true} />)
+      expect(screen.getByPlaceholderText(/one queued message already waiting/i)).toBeInTheDocument()
+
+      rerender(<ChatInput {...defaultProps} disabled={true} />)
+      expect(screen.getByPlaceholderText(/waiting for agent/i)).toBeInTheDocument()
     })
   })
 })

@@ -16,7 +16,6 @@ import { EventEmitter } from 'node:events'
 import { accessSync, constants, existsSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { createRequire } from 'node:module'
 
 export type VoiceSidecarState = 'unavailable' | 'stopped' | 'starting' | 'ready' | 'error'
 
@@ -66,7 +65,9 @@ export class VoiceService extends EventEmitter {
     const servicePath = resolveAudioServicePath(root)
     if (!servicePath) {
       this.state = 'unavailable'
-      this.reason = 'audio_service.py not found — ensure audio-service/ exists'
+      this.reason = isElectronAppPackaged()
+        ? 'Voice service not included in this build'
+        : 'audio_service.py not found — ensure audio-service/ exists'
       this.emitStatus()
       return { available: false, reason: this.reason }
     }
@@ -79,7 +80,7 @@ export class VoiceService extends EventEmitter {
       ? path.resolve(configuredVbPath)
       : null
 
-    // Try python runtimes in order
+    // Try python runtimes in order. Packaged builds must use the bundled runtime only.
     const candidates = this.getRuntimeCandidates()
     for (const cmd of candidates) {
       try {
@@ -122,7 +123,9 @@ export class VoiceService extends EventEmitter {
 
     this.state = 'unavailable'
     if (!this.reason) {
-      this.reason = 'Python not found — install Python 3.12+ and try again'
+      this.reason = isElectronAppPackaged()
+        ? 'Bundled voice runtime not found — rebuild the app package'
+        : 'Python not found — install Python 3.12+ and try again'
     }
     this.emitStatus()
     return { available: false, reason: this.reason }
@@ -312,6 +315,13 @@ export class VoiceService extends EventEmitter {
     if (this.voiceBridgePath) env.VOICE_BRIDGE_PATH = this.voiceBridgePath
     env.PATH = expandPath(env.PATH as string | undefined)
 
+    const bundledSitePackages = this.getBundledSitePackagesPath()
+    if (bundledSitePackages && cmd.includes(`${path.sep}python-runtime${path.sep}`)) {
+      env.PYTHONPATH = env.PYTHONPATH
+        ? `${bundledSitePackages}${path.delimiter}${env.PYTHONPATH}`
+        : bundledSitePackages
+    }
+
     if (cmd === 'uv' && this.audioServiceDir) {
       env.UV_PROJECT_ENVIRONMENT = path.join(this.audioServiceDir, '.venv')
     }
@@ -337,24 +347,50 @@ export class VoiceService extends EventEmitter {
   }
 
   private getRuntimeCandidates(): string[] {
+    if (isElectronAppPackaged()) {
+      const bundledPython = this.getBundledPythonPath()
+      return bundledPython ? [bundledPython] : []
+    }
+
     const bundledPython = this.getBundledPythonPath()
     return bundledPython ? [bundledPython, 'uv', 'python3', 'python'] : ['uv', 'python3', 'python']
   }
 
   private getBundledPythonPath(): string | null {
     if (!this.audioServiceDir) return null
-    const candidate = path.join(this.audioServiceDir, '.venv', 'bin', 'python')
+
+    const candidates = isElectronAppPackaged()
+      ? [path.join(this.audioServiceDir, 'python-runtime', 'bin', 'python3.12')]
+      : [
+          path.join(this.audioServiceDir, 'python-runtime', 'bin', 'python3.12'),
+          path.join(this.audioServiceDir, '.venv-release', 'bin', 'python'),
+          path.join(this.audioServiceDir, '.venv', 'bin', 'python'),
+        ]
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate
+    }
+
+    return null
+  }
+
+  private getBundledSitePackagesPath(): string | null {
+    if (!this.audioServiceDir) return null
+
+    const candidate = path.join(this.audioServiceDir, '.venv-release', 'lib', 'python3.12', 'site-packages')
     return existsSync(candidate) ? candidate : null
   }
 }
 
-const require = createRequire(import.meta.url)
+function resolvePackagedAudioServicePath(): string | null {
+  if (!process.resourcesPath) return null
+  const packagedPath = path.join(process.resourcesPath, 'audio-service', 'audio_service.py')
+  return existsSync(packagedPath) ? packagedPath : null
+}
 
 function resolveAudioServicePath(root: string): string | null {
-  if (isElectronAppPackaged()) {
-    const packagedPath = path.join(process.resourcesPath, 'audio-service', 'audio_service.py')
-    return existsSync(packagedPath) ? packagedPath : null
-  }
+  const packagedPath = resolvePackagedAudioServicePath()
+  if (packagedPath) return packagedPath
 
   const candidates = [
     path.join(root, 'audio-service', 'audio_service.py'),
@@ -369,12 +405,7 @@ function resolveAudioServicePath(root: string): string | null {
 }
 
 function isElectronAppPackaged(): boolean {
-  try {
-    const electron = require('electron') as { app?: { isPackaged?: boolean } }
-    return electron.app?.isPackaged === true
-  } catch {
-    return false
-  }
+  return resolvePackagedAudioServicePath() !== null
 }
 
 function resolveExecutable(cmd: string, pathEnv: string | undefined): string {

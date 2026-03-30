@@ -122,8 +122,8 @@ const bridge = {
   // -------------------------------------------------------------------------
 
   /** Create a new pane (spawns a fresh agent process). Returns { paneId }. */
-  paneCreate: (): Promise<{ paneId: string }> =>
-    ipcRenderer.invoke('cmd:pane-create'),
+  paneCreate: (projectRoot?: string): Promise<{ paneId: string }> =>
+    ipcRenderer.invoke('cmd:pane-create', projectRoot),
 
   /** Close and destroy a pane. */
   paneClose: (paneId: string): Promise<void> =>
@@ -479,6 +479,25 @@ const bridge = {
     const handler = (_e: any, data: any) => cb(data)
     ipcRenderer.on('event:classifier-decision', handler)
     return () => ipcRenderer.removeListener('event:classifier-decision', handler)
+  },
+
+  /** Subscribe to classifier debug logs. Returns unsubscribe function. */
+  onClassifierDebug: (
+    cb: (data: {
+      kind: string
+      toolName: string
+      pattern?: string
+      candidate?: string
+      matched?: boolean
+      approved?: boolean
+      source?: 'rule' | 'classifier' | 'cache' | 'fallback' | 'timeout'
+      reason?: string
+      result?: string
+    }) => void
+  ): (() => void) => {
+    const handler = (_e: any, data: any) => cb(data)
+    ipcRenderer.on('event:classifier-debug', handler)
+    return () => ipcRenderer.removeListener('event:classifier-debug', handler)
   },
 
   /** Get the current auto mode state for a pane. */

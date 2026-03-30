@@ -103,7 +103,7 @@ export function Sidebar({
   onExplorerFileOpen,
   onOpenDiff,
 }: Props) {
-  const { currentModel } = getPaneStore(activePaneId)()
+  const { currentModel, currentSessionName } = getPaneStore(activePaneId)()
   const changedFiles = getFileTreeStore(activePaneId)((s) => s.changedFiles)
   const [sessions, setSessions] = useState<Session[]>([])
   const bridge = getBridge()
@@ -131,7 +131,7 @@ export function Sidebar({
 
   useEffect(() => {
     void loadSessions()
-  }, [loadSessions, currentSessionPath])
+  }, [loadSessions, currentSessionPath, currentSessionName])
 
   // -------------------------------------------------------------------------
   // Actions

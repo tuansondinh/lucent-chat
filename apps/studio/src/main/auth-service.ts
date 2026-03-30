@@ -219,19 +219,36 @@ export class AuthService {
 
   getProviderStatuses(): ProviderAuthStatus[] {
     this.authStorage.reload()
+
+    // Provider alias map: if the primary provider has no auth, check these fallbacks.
+    // google-gemini-cli can use a plain Gemini API key (same as the 'google' provider).
+    const PROVIDER_FALLBACKS: Record<string, string> = {
+      'google-gemini-cli': 'google',
+    }
+
     return PROVIDER_CATALOG.map((entry) => {
       const hasFileAuth = this.authStorage.has(entry.id)
       const hasEnvAuth = (PROVIDER_ENV_VARS[entry.id] ?? []).some(
         (v) => Boolean(process.env[v]),
       )
+
+      // Check fallback provider if primary has no auth
+      const fallbackId = PROVIDER_FALLBACKS[entry.id]
+      const hasFallbackFileAuth = fallbackId ? this.authStorage.has(fallbackId) : false
+      const hasFallbackEnvAuth = fallbackId
+        ? (PROVIDER_ENV_VARS[fallbackId] ?? []).some((v) => Boolean(process.env[v]))
+        : false
+
+      const configured = hasFileAuth || hasEnvAuth || hasFallbackFileAuth || hasFallbackEnvAuth
       const configuredVia: ProviderAuthStatus['configuredVia'] =
-        hasFileAuth ? 'auth_file' : hasEnvAuth ? 'environment' : null
+        hasFileAuth || hasFallbackFileAuth ? 'auth_file' : hasEnvAuth || hasFallbackEnvAuth ? 'environment' : null
+
       return {
         id: entry.id,
         label: entry.label,
-        configured: hasFileAuth || hasEnvAuth,
+        configured,
         configuredVia,
-        removeAllowed: configuredVia === 'auth_file',
+        removeAllowed: configuredVia === 'auth_file' && (hasFileAuth || hasFallbackFileAuth),
         recommended: entry.recommended,
         supportsApiKey: entry.supportsApiKey,
         supportsOAuth: entry.supportsOAuth,

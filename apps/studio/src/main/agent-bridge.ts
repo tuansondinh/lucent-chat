@@ -14,6 +14,7 @@ import type { ChildProcess } from 'node:child_process'
 
 export interface AgentState {
   model?: { provider: string; id: string }
+  permissionMode?: 'danger-full-access' | 'accept-on-edit' | 'auto'
   thinkingLevel: string
   isStreaming: boolean
   isCompacting: boolean

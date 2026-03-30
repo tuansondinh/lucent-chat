@@ -71,7 +71,7 @@ test('Main entry: SettingsService loads settings on startup', async (t) => {
     assert.equal(settings.lastActiveFilePath, 'src/main.ts')
     assert.equal(settings.onboardingComplete, true)
     assert.equal(settings.voicePttShortcut, 'alt+space')
-    assert.equal(settings.voiceAudioEnabled, true)
+    assert.equal(settings.voiceAudioEnabled, false)
     assert.equal(settings.voiceServiceEnabled, false)
     assert.equal(settings.voiceModelsDownloaded, true)
 
@@ -91,7 +91,10 @@ test('Main entry: SettingsService creates default settings when file missing', a
 
   try {
     const originalEnv = process.env.LUCENT_CONFIG_DIR
+    const originalHome = process.env.HOME
     process.env.LUCENT_CONFIG_DIR = configDir
+    process.env.HOME = join(configDir, 'isolated-home')
+    await mkdir(process.env.HOME, { recursive: true })
 
     // Don't create settings file - should use defaults
     const settingsService = new SettingsService()
@@ -103,7 +106,7 @@ test('Main entry: SettingsService creates default settings when file missing', a
     assert.equal(settings.sidebarCollapsed, false)
     assert.equal(settings.onboardingComplete, false)
     assert.equal(settings.voicePttShortcut, 'space')
-    assert.equal(settings.voiceAudioEnabled, false)
+    assert.equal(settings.voiceAudioEnabled, true)
     assert.equal(settings.voiceServiceEnabled, true)
     assert.equal(settings.voiceModelsDownloaded, false)
 
@@ -117,6 +120,11 @@ test('Main entry: SettingsService creates default settings when file missing', a
       delete process.env.LUCENT_CONFIG_DIR
     } else {
       process.env.LUCENT_CONFIG_DIR = originalEnv
+    }
+    if (originalHome === undefined) {
+      delete process.env.HOME
+    } else {
+      process.env.HOME = originalHome
     }
   } finally {
     await rm(configDir, { recursive: true, force: true })

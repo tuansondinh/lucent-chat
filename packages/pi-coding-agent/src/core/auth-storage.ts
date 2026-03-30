@@ -740,6 +740,17 @@ export class AuthStorage {
 		const envKey = getEnvApiKey(providerId);
 		if (envKey) return envKey;
 
+		// Provider alias fallback: google-gemini-cli can use google (Gemini API key) credentials
+		if (providerId === 'google-gemini-cli') {
+			const googleCredentials = this.getCredentialsForProvider('google');
+			if (googleCredentials.length > 0) {
+				const index = this.selectCredentialIndex('google', googleCredentials, sessionId);
+				if (index >= 0) {
+					return this.resolveCredentialApiKey('google', googleCredentials[index]);
+				}
+			}
+		}
+
 		// Fall back to custom resolver (e.g., models.json custom providers)
 		return this.fallbackResolver?.(providerId) ?? undefined;
 	}

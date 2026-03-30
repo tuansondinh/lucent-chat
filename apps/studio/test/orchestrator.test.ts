@@ -11,6 +11,8 @@ class MockAgentBridge extends EventEmitter {
   public promptError: Error | null = null
   public promptDelay = 0
   public eventSequence: any[] = []
+  public messageCount = 1
+  public sessionName = ''
 
   async prompt(text: string, options?: { streamingBehavior?: 'steer' | 'followUp' }, images?: Array<{ type: 'image'; data: string; mimeType: string }>): Promise<void> {
     this.prompts.push(text)
@@ -34,6 +36,17 @@ class MockAgentBridge extends EventEmitter {
     }
   }
 
+  async getState(): Promise<{ messageCount: number; sessionName: string }> {
+    return {
+      messageCount: this.messageCount,
+      sessionName: this.sessionName,
+    }
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    this.sessionName = name
+  }
+
   onAgentEvent(callback: (event: any) => void): () => void {
     this.on('agent-event', callback)
     return () => this.off('agent-event', callback)
@@ -51,6 +64,8 @@ class MockAgentBridge extends EventEmitter {
     this.abortError = null
     this.promptError = null
     this.eventSequence = []
+    this.messageCount = 1
+    this.sessionName = ''
     this.removeAllListeners()
   }
 }
@@ -79,7 +94,35 @@ function createCallbackCollector() {
   return { events, callbacks }
 }
 
-test('Orchestrator: all 8 states are reachable', async (t) => {
+test('Orchestrator: auto-names first session with workspace tag', async () => {
+  const agentBridge = new MockAgentBridge()
+  const { callbacks } = createCallbackCollector()
+  agentBridge.messageCount = 0
+  agentBridge.sessionName = ''
+
+  const orchestrator = new Orchestrator(agentBridge as any, callbacks, { workspaceLabel: 'lucent-code' })
+  orchestrator.submitTurn('make sessions remember the project it was in')
+
+  await tick()
+
+  assert.equal(agentBridge.sessionName, '[lucent-code] make sessions remember the project it was in')
+})
+
+test('Orchestrator: auto-name truncates long first prompt and keeps workspace tag', async () => {
+  const agentBridge = new MockAgentBridge()
+  const { callbacks } = createCallbackCollector()
+  agentBridge.messageCount = 0
+  agentBridge.sessionName = ''
+
+  const orchestrator = new Orchestrator(agentBridge as any, callbacks, { workspaceLabel: 'workspace-name' })
+  orchestrator.submitTurn('This is a very long first prompt that should be truncated after a reasonable number of characters for readability in the session list')
+
+  await tick()
+
+  assert.match(agentBridge.sessionName, /^\[workspace-name\] This is a very long first prompt that should be truncated/)
+  assert.ok(agentBridge.sessionName.endsWith('...'))
+})
+
   const agentBridge = new MockAgentBridge()
   const { events, callbacks } = createCallbackCollector()
   const orchestrator = new Orchestrator(agentBridge, callbacks)

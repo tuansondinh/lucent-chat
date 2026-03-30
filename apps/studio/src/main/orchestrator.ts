@@ -7,6 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { basename } from 'node:path'
 import type { AgentBridge } from './agent-bridge.js'
 
 // ============================================================================
@@ -70,11 +71,13 @@ export class Orchestrator extends EventEmitter {
   /** Cleanup function for the in-progress turn — clears timers and listeners. */
   private currentTurnCleanup: (() => void) | null = null
   private userMessages: string[] = []
+  private workspaceLabel: string
 
-  constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks) {
+  constructor(agentBridge: AgentBridge, callbacks: OrchestratorCallbacks, options?: { workspaceLabel?: string }) {
     super()
     this.agentBridge = agentBridge
     this.callbacks = callbacks
+    this.workspaceLabel = sanitizeWorkspaceLabel(options?.workspaceLabel)
   }
 
   /**
@@ -110,6 +113,16 @@ export class Orchestrator extends EventEmitter {
     if (this.userMessages.length > 20) {
       this.userMessages.shift()
     }
+
+    // Auto-name the session after its first prompt
+    this.agentBridge.getState().then((agentState) => {
+      if (agentState.messageCount === 0 && !agentState.sessionName && !options?.streamingBehavior) {
+        const shortName = buildAutoSessionName(text, this.workspaceLabel)
+        this.agentBridge.setSessionName(shortName).catch((err) => {
+          console.warn('[orchestrator] failed to auto-name session:', err.message)
+        })
+      }
+    }).catch(() => {})
 
     if (options?.streamingBehavior === 'followUp') {
       this.setTurnState(turn, 'queued')
@@ -244,6 +257,7 @@ export class Orchestrator extends EventEmitter {
           this.releaseLock()
         }
       }, 5 * 60 * 1000)
+      safetyTimerHandle.unref?.()
     }
 
     // Pause safety timer while the user is deciding on an approval request
@@ -467,6 +481,7 @@ export class Orchestrator extends EventEmitter {
         this.releaseLock()
       }
     }, 30_000)
+    firstActivityTimer.unref?.()
 
     // Start the rolling idle safety timer
     resetSafetyTimer()
@@ -496,4 +511,20 @@ export class Orchestrator extends EventEmitter {
     }
 
   }
+}
+
+function sanitizeWorkspaceLabel(value?: string): string {
+  const trimmed = value?.trim()
+  if (!trimmed) return 'workspace'
+  return trimmed.replace(/\s+/g, ' ').slice(0, 40)
+}
+
+function buildAutoSessionName(prompt: string, workspaceLabel: string): string {
+  const raw = prompt.trim().replace(/\s+/g, ' ')
+  const maxPromptLength = 60
+  const normalizedPrompt = raw.length > maxPromptLength
+    ? `${raw.slice(0, maxPromptLength).trimEnd()}...`
+    : raw || 'New session'
+
+  return `[${workspaceLabel}] ${normalizedPrompt}`
 }

@@ -417,7 +417,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     <div className="rounded-md overflow-hidden border border-border/50">
       <button
         className={cn(
-          'flex items-center gap-2 w-full px-2.5 py-1.5 text-xs font-mono text-left transition-colors',
+          'flex items-center gap-2 w-full px-2.5 py-1.5 text-[13px] leading-5 font-mono font-medium text-left transition-colors',
           'hover:bg-bg-hover',
           tc.done
             ? tc.isError
@@ -430,28 +430,30 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
         disabled={!hasDetails}
       >
         {hasDetails && (
-          <span className="text-text-tertiary">
+          <span className="text-text-secondary">
             {expanded
-              ? <ChevronDown className="size-3" />
-              : <ChevronRight className="size-3" />
+              ? <ChevronDown className="size-3.5" />
+              : <ChevronRight className="size-3.5" />
             }
           </span>
         )}
         {statusIcon}
         <span className={cn(
-          'flex-shrink-0',
-          tc.done ? 'text-text-secondary' : 'text-accent',
+          'flex-shrink-0 text-text-primary',
+          tc.done && !tc.isError ? 'text-text-primary' : undefined,
+          !tc.done ? 'text-accent' : undefined,
+          tc.isError ? 'text-red-300' : undefined,
         )}>
           {tc.tool}
         </span>
         {inputSummary && (
-          <span className="truncate flex-1 text-text-secondary min-w-0">
+          <span className="truncate flex-1 text-text-primary/95 min-w-0">
             {inputSummary}
           </span>
         )}
         {!inputSummary && <span className="flex-1" />}
         {!tc.done && (
-          <span className="text-text-secondary text-[10px] flex-shrink-0">running</span>
+          <span className="text-text-primary/80 text-[11px] flex-shrink-0">running</span>
         )}
       </button>
 
@@ -462,7 +464,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
 
       {/* Collapsed summary: shown when done with recorded sub-item tool calls */}
       {showSummary && (
-        <div className="text-[10px] text-text-secondary/70 px-2.5 py-1 border-t border-border/30 font-mono">
+        <div className="text-[11px] text-text-primary/75 px-2.5 py-1 border-t border-border/30 font-mono font-medium">
           {tc.subItemCount} tool calls
         </div>
       )}
@@ -471,18 +473,18 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
         <div className="border-t border-border/50 bg-bg-primary">
           {tc.input !== undefined && (
             <div className="p-2">
-              <p className="text-[10px] text-text-secondary uppercase tracking-wide mb-1 px-1">Input</p>
-              <pre className="text-[11px] text-text-primary/80 font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 bg-bg-tertiary rounded p-2">
+              <p className="text-[10px] text-text-primary/75 uppercase tracking-wide mb-1 px-1 font-medium">Input</p>
+              <pre className="text-[12px] leading-5 text-text-primary font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 bg-bg-tertiary rounded p-2">
                 {JSON.stringify(tc.input, null, 2)}
               </pre>
             </div>
           )}
           {tc.output !== undefined && (
             <div className="p-2 border-t border-border/30">
-              <p className="text-[10px] text-text-secondary uppercase tracking-wide mb-1 px-1">Output</p>
+              <p className="text-[10px] text-text-primary/75 uppercase tracking-wide mb-1 px-1 font-medium">Output</p>
               <pre className={cn(
-                'text-[11px] font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 rounded p-2',
-                tc.isError ? 'text-red-300 bg-red-900/20' : 'text-text-primary/80 bg-bg-tertiary',
+                'text-[12px] leading-5 font-mono overflow-x-auto whitespace-pre-wrap break-words max-h-40 rounded p-2',
+                tc.isError ? 'text-red-200 bg-red-900/20' : 'text-text-primary bg-bg-tertiary',
               )}>
                 {typeof tc.output === 'string'
                   ? tc.output
@@ -798,7 +800,7 @@ export function ChatMessage({ message, projectRoot, onOpenFileReference }: Props
     >
       <div
         className={cn(
-          'relative min-w-0 overflow-hidden rounded-xl px-3 py-1.5 max-w-[85%]',
+          'relative min-w-0 overflow-hidden rounded-xl px-3 py-1.5 w-full',
           isUser
             ? 'bg-accent/15 border border-accent/30 text-text-primary'
             : isError
