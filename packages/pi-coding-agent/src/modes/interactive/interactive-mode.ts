@@ -79,6 +79,7 @@ import { ExtensionSelectorComponent } from "./components/extension-selector.js";
 import { FooterComponent } from "./components/footer.js";
 import { appKey, appKeyHint, editorKey, formatKeyForDisplay, keyHint, rawKeyHint } from "./components/keybinding-hints.js";
 import { LoginDialogComponent } from "./components/login-dialog.js";
+import { CommandPaletteComponent } from "./components/command-palette.js";
 import { ModelSelectorComponent } from "./components/model-selector.js";
 import { OAuthSelectorComponent } from "./components/oauth-selector.js";
 import { ProviderManagerComponent } from "./components/provider-manager.js";
@@ -1913,6 +1914,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("resume", () => this.showSessionSelector());
 		this.defaultEditor.onAction("cyclePermissionMode", () => this.cyclePermissionMode());
+		this.defaultEditor.onAction("commandPalette", () => this.showCommandPalette());
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
@@ -1981,6 +1983,7 @@ export class InteractiveMode {
 			showProviderManager: () => this.showProviderManager(),
 			showOAuthSelector: (mode) => this.showOAuthSelector(mode),
 			showSessionSelector: () => this.showSessionSelector(),
+			showCommandPalette: () => this.showCommandPalette(),
 			handleClearCommand: () => this.handleClearCommand(),
 			handleReloadCommand: () => this.handleReloadCommand(),
 			handleDebugCommand: () => this.handleDebugCommand(),
@@ -2761,6 +2764,50 @@ export class InteractiveMode {
 		this.editorContainer.addChild(component);
 		this.ui.setFocus(focus);
 		this.ui.requestRender();
+	}
+
+	private showCommandPalette(): void {
+		this.showSelector((done) => {
+			const palette = new CommandPaletteComponent(
+				(actionId) => {
+					done();
+					this.dispatchPaletteAction(actionId);
+				},
+				() => {
+					done();
+				},
+			);
+			return { component: palette, focus: palette };
+		});
+	}
+
+	private dispatchPaletteAction(actionId: string): void {
+		switch (actionId) {
+			case "session:new":
+				void this.handleClearCommand();
+				break;
+			case "session:switch":
+				this.showSessionSelector();
+				break;
+			case "model:switch":
+				void this.handleModelCommand();
+				break;
+			case "thinking:change":
+				void dispatchSlashCommand("/thinking", this.getSlashCommandContext());
+				break;
+			case "settings:open":
+				this.showSettingsSelector();
+				break;
+			case "commands:compact":
+				void dispatchSlashCommand("/compact", this.getSlashCommandContext());
+				break;
+			case "commands:clear":
+				void this.handleClearCommand();
+				break;
+			case "mode:toggle":
+				this.cyclePermissionMode();
+				break;
+		}
 	}
 
 	private showSettingsSelector(): void {
