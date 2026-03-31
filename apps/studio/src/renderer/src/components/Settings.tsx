@@ -1639,8 +1639,8 @@ const BUILTIN_AGENT_UI = [
   { name: 'scout', label: 'Scout', description: 'Fast codebase recon that returns compressed context for handoff to other agents', defaultModel: 'gemini-3-flash-preview' },
   { name: 'researcher', label: 'Researcher', description: 'Web researcher that finds and synthesizes current information using Brave Search', defaultModel: 'Default' },
   { name: 'worker', label: 'Worker', description: 'General-purpose subagent with full capabilities, isolated context', defaultModel: 'Default' },
-  { name: 'teams-builder', label: 'Teams Builder', description: 'Builder subagent. Implements a single phase or applies review fixes, verifies, then commits.', defaultModel: 'sonnet' },
-  { name: 'teams-reviewer', label: 'Teams Reviewer', description: 'Opus reviewer subagent. Reviews implementation against acceptance criteria.', defaultModel: 'opus' },
+  { name: 'teams-builder', label: 'Teams Builder', description: 'Builder subagent. Implements a single phase or applies review fixes, verifies, then commits.', defaultModel: 'Default' },
+  { name: 'teams-reviewer', label: 'Teams Reviewer', description: 'Reviewer subagent. Reviews implementation against acceptance criteria.', defaultModel: 'Default' },
 ] as const
 
 function AgentsTab({
@@ -1659,27 +1659,29 @@ function AgentsTab({
           {BUILTIN_AGENT_UI.map((agent) => {
             const currentValue = subagentModels[agent.name] ?? '__default'
             return (
-              <div key={agent.name} className="flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1">
+              <div key={agent.name} className="flex flex-col gap-3 rounded-lg border border-border bg-bg-secondary p-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1 pr-0 lg:pr-4">
                   <div className="text-sm font-medium text-text-primary">{agent.label}</div>
-                  <div className="text-xs text-text-secondary mt-0.5 truncate">{agent.description}</div>
+                  <div className="text-xs text-text-secondary mt-0.5 break-words">{agent.description}</div>
                 </div>
-                <Select
-                  value={currentValue}
-                  onValueChange={(value) => onSubagentModelChange(agent.name, value)}
-                >
-                  <SelectTrigger className="w-72 flex-shrink-0 text-xs">
-                    <SelectValue placeholder={`Default (${agent.defaultModel})`} />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64 overflow-y-auto">
-                    <SelectItem value="__default">Default ({agent.defaultModel})</SelectItem>
-                    {models.map((m) => (
-                      <SelectItem key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
-                        {m.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="w-full lg:w-[260px] lg:flex-shrink-0">
+                  <Select
+                    value={currentValue}
+                    onValueChange={(value) => onSubagentModelChange(agent.name, value)}
+                  >
+                    <SelectTrigger className="w-full text-xs">
+                      <SelectValue placeholder={`Default (${agent.defaultModel})`} />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64 overflow-y-auto">
+                      <SelectItem value="__default">Default ({agent.defaultModel})</SelectItem>
+                      {models.map((m) => (
+                        <SelectItem key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                          {m.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             )
           })}

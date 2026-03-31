@@ -127,7 +127,6 @@ If handing off to another agent (e.g. reviewer), include:
   {
     name: "teams-builder",
     description: "Builder subagent. Implements a single phase or applies review fixes, verifies with Playwright (web) or Maestro (mobile), then commits.",
-    model: "sonnet",
     systemPrompt: `# Teams Builder
 
 You are a builder subagent. You receive a specific assignment from the orchestrator — either a phase to implement or review fixes to apply. You implement it, verify it works, commit, and return.
