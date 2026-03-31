@@ -146,6 +146,15 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
 
   useEffect(() => {
+    // Skip Shiki highlighting while the block is still streaming — the code
+    // text changes on every chunk which would trigger dozens of async
+    // highlight passes per second.  Plain <pre> is shown instead and tokens
+    // are computed once the block is finalised (isStreaming becomes false).
+    if (isStreaming) {
+      setTokens(null)
+      return
+    }
+
     let cancelled = false
 
     const doHighlight = async () => {
@@ -165,7 +174,7 @@ function CodeBlock({ code, language, isStreaming }: CodeBlockProps) {
 
     void doHighlight()
     return () => { cancelled = true }
-  }, [code, language])
+  }, [code, language, isStreaming])
 
   const displayLang = language || 'text'
 
@@ -488,6 +497,15 @@ function extractDiff(output: unknown): string | null {
   return null
 }
 
+/** Extract RTK-rewritten command from bash tool output details. */
+function extractRtkCommand(output: unknown): string | null {
+  if (!output || typeof output !== 'object') return null
+  const out = output as Record<string, unknown>
+  const details = out.details as Record<string, unknown> | undefined
+  if (!details) return null
+  return typeof details.rtkCommand === 'string' ? details.rtkCommand : null
+}
+
 function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
   const isEdit = isFileEditTool(tc.tool)
   const [expanded, setExpanded] = useState(false)
@@ -513,6 +531,7 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
     return typeof p === 'string' ? p : null
   })()
   const inputSummary = filePath ?? (tc.input !== undefined ? getToolInputSummary(tc.tool, tc.input) : null)
+  const rtkCommand = tc.done ? extractRtkCommand(tc.output) : null
 
   // Show live activity feed when running and sub-items are present
   const showActivity = !tc.done && tc.subItems && tc.subItems.length > 0
@@ -656,6 +675,11 @@ function ToolCallItem({ tc }: { tc: ToolUseBlock }) {
           </span>
         )}
         {!inputSummary && <span className="flex-1" />}
+        {rtkCommand && (
+          <span className="flex-shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20" title={rtkCommand}>
+            ⚡ RTK
+          </span>
+        )}
         {!tc.done && (
           <span className="text-text-primary/80 text-[11px] flex-shrink-0">running</span>
         )}
@@ -737,7 +761,8 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
     return () => { cancelled = true }
   }, [])
 
-  // Debounce text updates during streaming (50ms) to reduce Shiki re-renders
+  // Debounce text updates during streaming (200ms) to reduce react-markdown + Shiki re-renders.
+  // At 50ms the parser was running ~20×/sec per pane; 200ms cuts that to ~5×/sec.
   const [debouncedText, setDebouncedText] = useState(text)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -745,7 +770,7 @@ function MarkdownContent({ text, isStreaming, projectRoot, onOpenFileReference }
     if (isStreaming) {
       // Debounce during streaming
       if (debounceRef.current) clearTimeout(debounceRef.current)
-      debounceRef.current = setTimeout(() => setDebouncedText(text), 50)
+      debounceRef.current = setTimeout(() => setDebouncedText(text), 200)
     } else {
       // Apply immediately when done
       if (debounceRef.current) clearTimeout(debounceRef.current)

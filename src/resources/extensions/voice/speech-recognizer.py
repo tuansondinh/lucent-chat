@@ -82,8 +82,8 @@ def ensure_deps():
             emit(
                 "ERROR",
                 "Python environment is externally managed (PEP 668). "
-                "Create a venv first: python3 -m venv ~/.gsd/voice-venv && "
-                "~/.gsd/voice-venv/bin/pip install sounddevice requests",
+                "Create a venv first: python3 -m venv ~/.lucent/voice-venv && "
+                "~/.lucent/voice-venv/bin/pip install sounddevice requests",
             )
         elif "pip not found" in detail:
             emit("ERROR", "pip is not available. Install: sudo apt install python3-pip")

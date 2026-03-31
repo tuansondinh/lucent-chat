@@ -36,7 +36,9 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
 
   if ('thinkingLevel' in partial) {
     if (
-      partial.thinkingLevel !== 'low'
+      partial.thinkingLevel !== 'off'
+      && partial.thinkingLevel !== 'auto'
+      && partial.thinkingLevel !== 'low'
       && partial.thinkingLevel !== 'medium'
       && partial.thinkingLevel !== 'high'
     ) {
@@ -153,6 +155,18 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.textToSpeechMode = partial.textToSpeechMode
   }
 
+  if ('autoCompactThreshold' in partial) {
+    if (
+      typeof partial.autoCompactThreshold !== 'number'
+      || !Number.isFinite(partial.autoCompactThreshold)
+      || partial.autoCompactThreshold < 1
+      || partial.autoCompactThreshold > 100
+    ) {
+      throw new Error('Invalid autoCompactThreshold setting: must be a number between 1 and 100')
+    }
+    validated.autoCompactThreshold = partial.autoCompactThreshold
+  }
+
   if ('remoteAccessEnabled' in partial) {
     if (typeof partial.remoteAccessEnabled !== 'boolean') {
       throw new Error('Invalid remoteAccessEnabled setting')
@@ -219,6 +233,13 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
       throw new Error('Invalid classifierProvider setting')
     }
     validated.classifierProvider = partial.classifierProvider
+  }
+
+  if ('rtkEnabled' in partial) {
+    if (typeof partial.rtkEnabled !== 'boolean') {
+      throw new Error('Invalid rtkEnabled setting')
+    }
+    validated.rtkEnabled = partial.rtkEnabled
   }
 
   const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))

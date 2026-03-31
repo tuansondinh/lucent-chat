@@ -43,6 +43,10 @@ export interface BashExecutorOptions {
 	onChunk?: (chunk: string) => void;
 	/** AbortSignal for cancellation */
 	signal?: AbortSignal;
+	/** Working directory for command execution */
+	cwd?: string;
+	/** Environment for command execution */
+	env?: NodeJS.ProcessEnv;
 }
 
 export interface BashResult {
@@ -80,8 +84,9 @@ export function executeBash(command: string, options?: BashExecutorOptions): Pro
 	return new Promise((resolve, reject) => {
 		const { shell, args } = getShellConfig();
 		const child: ChildProcess = spawn(shell, [...args, sanitizeCommand(command)], {
+			cwd: options?.cwd,
 			detached: true,
-			env: getShellEnv(),
+			env: options?.env ?? getShellEnv(),
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 

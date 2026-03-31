@@ -7,6 +7,7 @@ export {
 	type BashToolOptions,
 	bashTool,
 	createBashTool,
+	resolveSpawnContext,
 	rewriteBackgroundCommand,
 } from "./bash.js";
 export {

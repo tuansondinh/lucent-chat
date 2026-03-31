@@ -48,7 +48,7 @@ export function resolveBgShellPersistenceCwd(
 	liveCwd = process.cwd(),
 	pathExists: (path: string) => boolean = existsSync,
 ): string {
-	const cachedIsAutoWorktree = /(?:^|[\\/])\.gsd[\\/]worktrees[\\/]/.test(cachedCwd);
+	const cachedIsAutoWorktree = /(?:^|[\\/])\.lucent[\\/]worktrees[\\/]/.test(cachedCwd);
 	if (!cachedIsAutoWorktree) return cachedCwd;
 	if (cachedCwd === liveCwd && pathExists(cachedCwd)) return cachedCwd;
 	if (!pathExists(cachedCwd)) return liveCwd;

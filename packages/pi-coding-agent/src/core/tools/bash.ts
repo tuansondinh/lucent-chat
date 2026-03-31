@@ -119,6 +119,8 @@ export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
 	artifactId?: string;
+	/** When RTK rewrote the command, the actual command executed (e.g. "rtk git status"). */
+	rtkCommand?: string;
 }
 
 /**
@@ -238,7 +240,7 @@ export interface BashSpawnContext {
 
 export type BashSpawnHook = (context: BashSpawnContext) => BashSpawnContext;
 
-function resolveSpawnContext(command: string, cwd: string, spawnHook?: BashSpawnHook): BashSpawnContext {
+export function resolveSpawnContext(command: string, cwd: string, spawnHook?: BashSpawnHook): BashSpawnContext {
 	const baseContext: BashSpawnContext = {
 		command,
 		cwd,
@@ -324,6 +326,7 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 			// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 			const resolvedCommand = sanitizeCommand(commandPrefix ? `${commandPrefix}\n${effectiveCommand}` : effectiveCommand);
 			const spawnContext = resolveSpawnContext(resolvedCommand, cwd, spawnHook);
+			const rtkCommand = spawnContext.command !== resolvedCommand ? spawnContext.command : undefined;
 
 			return new Promise((resolve, reject) => {
 				// We'll stream to a file if output gets large
@@ -415,6 +418,7 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 								truncation,
 								fullOutputPath: spillFilePath,
 								...(spillArtifactId ? { artifactId: spillArtifactId } : {}),
+								...(rtkCommand ? { rtkCommand } : {}),
 							};
 
 							// Build actionable notice
@@ -430,6 +434,12 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 							} else {
 								outputText += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Full output: ${outputRef}]`;
 							}
+						}
+
+						if (rtkCommand && !details) {
+							details = { rtkCommand };
+						} else if (rtkCommand && details) {
+							details.rtkCommand = rtkCommand;
 						}
 
 						if (exitCode !== 0 && exitCode !== null) {

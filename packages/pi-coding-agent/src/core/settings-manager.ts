@@ -1,4 +1,5 @@
 import type { Transport } from "@gsd/pi-ai";
+import type { ThinkingLevel } from "@gsd/pi-agent-core";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
@@ -15,6 +16,8 @@ export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
+	/** Trigger auto-compaction when context reaches this percentage of the context window (0–100). Default: 80 */
+	thresholdPercent?: number; // default: 80
 }
 
 export interface BranchSummarySettings {
@@ -113,7 +116,7 @@ export interface Settings {
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
-	defaultThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	defaultThinkingLevel?: ThinkingLevel;
 	transport?: TransportSetting; // default: "sse"
 	steeringMode?: "all" | "one-at-a-time";
 	followUpMode?: "all" | "one-at-a-time";
@@ -151,6 +154,12 @@ export interface Settings {
 	fallback?: FallbackSettings;
 	modelDiscovery?: ModelDiscoverySettings;
 	editMode?: "standard" | "hashline"; // Edit tool mode: "standard" (text match) or "hashline" (LINE#ID anchors). Default: "standard"
+	rtk?: RtkSettings;
+}
+
+export interface RtkSettings {
+	enabled?: boolean; // default: false
+	binaryPath?: string; // default: "rtk" (resolved from PATH)
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -703,11 +712,11 @@ export class SettingsManager {
 		this.setGlobalSetting("theme", theme);
 	}
 
-	getDefaultThinkingLevel(): "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined {
+	getDefaultThinkingLevel(): ThinkingLevel | undefined {
 		return this.settings.defaultThinkingLevel;
 	}
 
-	setDefaultThinkingLevel(level: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"): void {
+	setDefaultThinkingLevel(level: ThinkingLevel): void {
 		this.setGlobalSetting("defaultThinkingLevel", level);
 	}
 
@@ -727,6 +736,10 @@ export class SettingsManager {
 		this.setNestedGlobalSetting("compaction", "enabled", enabled);
 	}
 
+	setCompactionThresholdPercent(percent: number): void {
+		this.setNestedGlobalSetting("compaction", "thresholdPercent", percent);
+	}
+
 	getCompactionReserveTokens(): number {
 		return this.settings.compaction?.reserveTokens ?? COMPACTION_RESERVE_TOKENS;
 	}
@@ -735,11 +748,12 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? COMPACTION_KEEP_RECENT_TOKENS;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number; thresholdPercent: number } {
 		return {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			thresholdPercent: this.settings.compaction?.thresholdPercent ?? 80,
 		};
 	}
 
@@ -1086,5 +1100,13 @@ export class SettingsManager {
 
 	setEditMode(mode: "standard" | "hashline"): void {
 		this.setGlobalSetting("editMode", mode);
+	}
+
+	getRtkEnabled(): boolean {
+		return this.settings.rtk?.enabled ?? false;
+	}
+
+	getRtkBinaryPath(): string {
+		return this.settings.rtk?.binaryPath ?? "rtk";
 	}
 }

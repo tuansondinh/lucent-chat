@@ -17,7 +17,7 @@ export interface AppSettings {
   /** Default model to use when starting the app. */
   defaultModel?: { provider: string; modelId: string }
   /** Runtime thinking/reasoning level exposed by Pi/GSD. */
-  thinkingLevel?: 'low' | 'medium' | 'high'
+  thinkingLevel?: 'off' | 'auto' | 'low' | 'medium' | 'high'
   /** UI theme — only dark for now. */
   theme: 'dark'
   /** Editor/chat font size in px. */
@@ -49,6 +49,9 @@ export interface AppSettings {
   /** When true, all text responses are spoken aloud (TTS-only mode, no mic). */
   textToSpeechMode?: boolean
 
+  /** Context-usage percentage (1–100) at which auto-compaction triggers. Default: 80. */
+  autoCompactThreshold?: number
+
   // ---------------------------------------------------------------------------
   // Remote Access (PWA / Tailscale)
   // ---------------------------------------------------------------------------
@@ -74,6 +77,13 @@ export interface AppSettings {
 
   /** Which LLM provider to use for the Auto mode classifier. Defaults to 'anthropic'. */
   classifierProvider?: 'anthropic' | 'google'
+
+  // ---------------------------------------------------------------------------
+  // RTK (Rust Token Killer)
+  // ---------------------------------------------------------------------------
+
+  /** Whether RTK command rewriting is enabled for bash tool calls. Default: false. */
+  rtkEnabled?: boolean
 }
 
 // ============================================================================

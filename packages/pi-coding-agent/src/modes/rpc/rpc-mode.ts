@@ -63,6 +63,20 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 		registerStdioClassifierHandler();
 	}
 
+	// Apply auto-compact threshold from Studio env if provided
+	const compactThresholdEnv = process.env.GSD_STUDIO_COMPACT_THRESHOLD;
+	if (compactThresholdEnv) {
+		const parsed = Number(compactThresholdEnv);
+		if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 100) {
+			session.setCompactionThresholdPercent(parsed);
+		}
+	}
+
+	// Apply RTK setting from Studio env if provided
+	if (process.env.LUCENT_STUDIO_RTK_ENABLED === "1") {
+		session.setRtkEnabled(true);
+	}
+
 
 	const output = (obj: RpcResponse | RpcExtensionUIRequest | object) => {
 		process.stdout.write(serializeJsonLine(obj));
@@ -504,6 +518,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 								? "auto"
 								: "danger-full-access",
 					thinkingLevel: session.thinkingLevel,
+					availableThinkingLevels: session.getAvailableThinkingLevels(),
 					isStreaming: session.isStreaming,
 					isCompacting: session.isCompacting,
 					steeringMode: session.steeringMode,
@@ -593,6 +608,11 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 			case "set_auto_compaction": {
 				session.setAutoCompactionEnabled(command.enabled);
 				return success(id, "set_auto_compaction");
+			}
+
+			case "set_compaction_threshold": {
+				session.setCompactionThresholdPercent(command.percent);
+				return success(id, "set_compaction_threshold");
 			}
 
 			// =================================================================

@@ -24,7 +24,7 @@ import type {
 	ThinkingLevel,
 } from "@gsd/pi-agent-core";
 import type { AssistantMessage, ImageContent, Message, Model, TextContent } from "@gsd/pi-ai";
-import { modelsAreEqual, resetApiProviders, supportsXhigh } from "@gsd/pi-ai";
+import { modelsAreEqual, resetApiProviders, supportsAdaptiveThinking, supportsXhigh } from "@gsd/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { getDocsPath } from "../config.js";
 import { getErrorMessage } from "../utils/error.js";
@@ -77,8 +77,9 @@ import { getLatestCompactionEntry } from "./session-manager.js";
 import type { SettingsManager } from "./settings-manager.js";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocation } from "./slash-commands.js";
 import { buildSystemPrompt } from "./system-prompt.js";
-import type { BashOperations } from "./tools/bash.js";
+import { resolveSpawnContext, type BashOperations } from "./tools/bash.js";
 import { createAllTools } from "./tools/index.js";
+import { createRtkSpawnHook } from "./tools/rtk-hook.js";
 import {
 	getPermissionMode,
 	MUTATING_TOOLS,
@@ -225,6 +226,9 @@ export interface SessionStats {
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
+/** Thinking levels for adaptive-capable models (Opus 4.6, Sonnet 4.6) */
+const THINKING_LEVELS_ADAPTIVE: ThinkingLevel[] = ["off", "auto", "minimal", "low", "medium", "high"];
+
 /** Thinking levels including xhigh (for supported models) */
 const THINKING_LEVELS_WITH_XHIGH: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -264,6 +268,7 @@ export class AgentSession {
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
 	private _pendingBashMessages: BashExecutionMessage[] = [];
+	private _rtkEnabled = false;
 
 	// Extension system
 	private _extensionRunner: ExtensionRunner | undefined = undefined;
@@ -1774,7 +1779,9 @@ export class AgentSession {
 	 */
 	getAvailableThinkingLevels(): ThinkingLevel[] {
 		if (!this.supportsThinking()) return ["off"];
-		return this.supportsXhighThinking() ? THINKING_LEVELS_WITH_XHIGH : THINKING_LEVELS;
+		if (this.supportsXhighThinking()) return THINKING_LEVELS_WITH_XHIGH;
+		if (this.supportsAdaptiveThinking()) return THINKING_LEVELS_ADAPTIVE;
+		return THINKING_LEVELS;
 	}
 
 	/**
@@ -1782,6 +1789,13 @@ export class AgentSession {
 	 */
 	supportsXhighThinking(): boolean {
 		return this.model ? supportsXhigh(this.model) : false;
+	}
+
+	/**
+	 * Check if current model supports adaptive thinking (pure auto mode).
+	 */
+	supportsAdaptiveThinking(): boolean {
+		return this.model ? supportsAdaptiveThinking(this.model) : false;
 	}
 
 	/**
@@ -1802,7 +1816,9 @@ export class AgentSession {
 	}
 
 	private _clampThinkingLevel(level: ThinkingLevel, availableLevels: ThinkingLevel[]): ThinkingLevel {
-		const ordered = THINKING_LEVELS_WITH_XHIGH;
+		// Build a canonical ordering that covers every known level, including "auto".
+		// "auto" sits between "off" and "low" in effort terms.
+		const ordered: ThinkingLevel[] = ["off", "auto", "minimal", "low", "medium", "high", "xhigh"];
 		const available = new Set(availableLevels);
 		const requestedIndex = ordered.indexOf(level);
 		if (requestedIndex === -1) {
@@ -1870,6 +1886,20 @@ export class AgentSession {
 	setAutoCompactionEnabled(enabled: boolean): void {
 		this._compactionOrchestrator.setAutoCompactionEnabled(enabled);
 		this._emitSessionStateChanged("set_auto_compaction");
+	}
+
+	/** Set the context-usage percentage at which auto-compaction triggers (1–100) */
+	setCompactionThresholdPercent(percent: number): void {
+		this._compactionOrchestrator.setCompactionThresholdPercent(percent);
+	}
+
+	/** Enable or disable RTK (Rust Token Killer) command rewriting for the bash tool */
+	setRtkEnabled(enabled: boolean): void {
+		this._rtkEnabled = enabled;
+		this._buildRuntime({
+			activeToolNames: this.getActiveToolNames(),
+			includeAllExtensionTools: true,
+		});
 	}
 
 	/** Whether auto-compaction is enabled */
@@ -2157,12 +2187,15 @@ export class AgentSession {
 	}): void {
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
+		const rtkEnabled = this._rtkEnabled || this.settingsManager.getRtkEnabled();
+		const rtkBinary = this.settingsManager.getRtkBinaryPath();
 		const baseTools = this._baseToolsOverride
 			? this._baseToolsOverride
 			: createAllTools(this._cwd, {
 					read: { autoResizeImages },
 					bash: {
 						commandPrefix: shellCommandPrefix,
+						spawnHook: rtkEnabled ? createRtkSpawnHook(rtkBinary) : undefined,
 						interceptor: {
 							enabled: this.settingsManager.getBashInterceptorEnabled(),
 							rules: this.settingsManager.getBashInterceptorRules(),
@@ -2284,16 +2317,26 @@ export class AgentSession {
 		// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 		const prefix = this.settingsManager.getShellCommandPrefix();
 		const resolvedCommand = prefix ? `${prefix}\n${command}` : command;
+		const rtkEnabled = this._rtkEnabled || this.settingsManager.getRtkEnabled();
+		const rtkBinary = this.settingsManager.getRtkBinaryPath();
+		const spawnContext = resolveSpawnContext(
+			resolvedCommand,
+			this._cwd,
+			rtkEnabled ? createRtkSpawnHook(rtkBinary) : undefined,
+		);
 
 		try {
 			const result = options?.operations
-				? await executeBashWithOperations(resolvedCommand, process.cwd(), options.operations, {
+				? await executeBashWithOperations(spawnContext.command, spawnContext.cwd, options.operations, {
 						onChunk,
 						signal: this._bashAbortController.signal,
+						env: spawnContext.env,
 					})
-				: await executeBashCommand(resolvedCommand, {
+				: await executeBashCommand(spawnContext.command, {
 						onChunk,
 						signal: this._bashAbortController.signal,
+						cwd: spawnContext.cwd,
+						env: spawnContext.env,
 					});
 
 			this.recordBashResult(command, result, options);

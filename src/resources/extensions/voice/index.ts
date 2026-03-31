@@ -17,7 +17,7 @@ const IS_DARWIN = process.platform === "darwin";
 const IS_LINUX = process.platform === "linux";
 const VOICE_VENV_PYTHON = path.join(
 	process.env.HOME || process.env.USERPROFILE || os.homedir(),
-	".gsd",
+	".lucent",
 	"voice-venv",
 	"bin",
 	"python3",

@@ -42,6 +42,7 @@ export type RpcCommand =
 	// Compaction
 	| { id?: string; type: "compact"; customInstructions?: string }
 	| { id?: string; type: "set_auto_compaction"; enabled: boolean }
+	| { id?: string; type: "set_compaction_threshold"; percent: number }
 
 	// Retry
 	| { id?: string; type: "set_auto_retry"; enabled: boolean }
@@ -104,6 +105,8 @@ export interface RpcSessionState {
 	model?: Model<any>;
 	permissionMode?: "danger-full-access" | "accept-on-edit" | "auto";
 	thinkingLevel: ThinkingLevel;
+	/** Thinking levels available for the current model. Drives UI cycle and picker. */
+	availableThinkingLevels: ThinkingLevel[];
 	isStreaming: boolean;
 	isCompacting: boolean;
 	steeringMode: "all" | "one-at-a-time";
@@ -183,6 +186,7 @@ export type RpcResponse =
 	// Compaction
 	| { id?: string; type: "response"; command: "compact"; success: true; data: CompactionResult }
 	| { id?: string; type: "response"; command: "set_auto_compaction"; success: true }
+	| { id?: string; type: "response"; command: "set_compaction_threshold"; success: true }
 
 	// Retry
 	| { id?: string; type: "response"; command: "set_auto_retry"; success: true }

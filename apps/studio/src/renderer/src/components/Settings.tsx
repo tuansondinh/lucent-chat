@@ -67,10 +67,14 @@ interface SettingsProps {
   onVoiceAudioEnabledChange: (enabled: boolean) => void
   textToSpeechMode: boolean
   onTextToSpeechModeChange: (enabled: boolean) => void
-  thinkingLevel: 'low' | 'medium' | 'high'
-  onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
+  thinkingLevel: 'off' | 'auto' | 'low' | 'medium' | 'high'
+  onThinkingLevelChange: (value: 'off' | 'auto' | 'low' | 'medium' | 'high') => void
+  /** Whether the active model supports adaptive thinking — shows "Auto" in the dropdown. */
+  showAdaptiveThinkingOption: boolean
   notificationSoundEnabled: boolean
   onNotificationSoundEnabledChange: (enabled: boolean) => void
+  /** Called when the user changes the auto-compact threshold. */
+  onAutoCompactThresholdChange: (percent: number) => void
   /** When true, renders with a close button suitable for full-screen mobile overlay. */
   isMobile?: boolean
 }
@@ -190,6 +194,7 @@ export function Settings({
   onThinkingLevelChange,
   notificationSoundEnabled,
   onNotificationSoundEnabledChange,
+  onAutoCompactThresholdChange,
   isMobile = false,
 }: SettingsProps) {
   const bridge = getBridge()
@@ -204,7 +209,7 @@ export function Settings({
   const [keySaved, setKeySaved] = useState(false)
   const [models, setModels] = useState<Model[]>([])
   const [defaultModel, setDefaultModel] = useState<string>('')
-  const [localThinkingLevel, setLocalThinkingLevel] = useState<'low' | 'medium' | 'high'>(thinkingLevel)
+  const [localThinkingLevel, setLocalThinkingLevel] = useState<'off' | 'auto' | 'low' | 'medium' | 'high'>(thinkingLevel)
   const [localVoiceAudioEnabled, setLocalVoiceAudioEnabled] = useState(voiceAudioEnabled)
   const [localVoiceServiceEnabled, setLocalVoiceServiceEnabled] = useState(false)
   const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(textToSpeechMode)
@@ -216,6 +221,8 @@ export function Settings({
   const [loadingSkills, setLoadingSkills] = useState(false)
   const [autoModeRules, setAutoModeRules] = useState<ClassifierRule[]>([])
   const [classifierProvider, setClassifierProvider] = useState<'anthropic' | 'google'>('anthropic')
+  const [autoCompactThreshold, setAutoCompactThreshold] = useState(80)
+  const [rtkEnabled, setRtkEnabled] = useState(false)
 
   // ---- Remote Access state ----
   const [remoteAccessEnabled, setRemoteAccessEnabled] = useState(false)
@@ -302,7 +309,7 @@ export function Settings({
         } else {
           setDefaultModel('')
         }
-        if (s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
+        if (s.thinkingLevel === 'off' || s.thinkingLevel === 'auto' || s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
           setLocalThinkingLevel(s.thinkingLevel)
         } else {
           setLocalThinkingLevel(thinkingLevel)
@@ -312,6 +319,12 @@ export function Settings({
         }
         if (s.classifierProvider === 'anthropic' || s.classifierProvider === 'google') {
           setClassifierProvider(s.classifierProvider)
+        }
+        if (typeof s.autoCompactThreshold === 'number') {
+          setAutoCompactThreshold(s.autoCompactThreshold)
+        }
+        if (typeof s.rtkEnabled === 'boolean') {
+          setRtkEnabled(s.rtkEnabled)
         }
         // Remote Access
         if (typeof s.remoteAccessEnabled === 'boolean') setRemoteAccessEnabled(s.remoteAccessEnabled)
@@ -365,7 +378,7 @@ export function Settings({
     bridge.setSettings({ defaultModel: { provider, modelId } }).catch(() => {})
   }, [bridge])
 
-  const handleThinkingLevelChange = useCallback((value: 'low' | 'medium' | 'high') => {
+  const handleThinkingLevelChange = useCallback((value: 'off' | 'auto' | 'low' | 'medium' | 'high') => {
     setLocalThinkingLevel(value)
     onThinkingLevelChange(value)
   }, [onThinkingLevelChange])
@@ -405,6 +418,17 @@ export function Settings({
   const handleClassifierProviderChange = useCallback((provider: 'anthropic' | 'google') => {
     setClassifierProvider(provider)
     bridge.setSettings({ classifierProvider: provider }).catch(() => {})
+  }, [bridge])
+
+  const handleAutoCompactThresholdChange = useCallback((percent: number) => {
+    setAutoCompactThreshold(percent)
+    bridge.setSettings({ autoCompactThreshold: percent }).catch(() => {})
+    onAutoCompactThresholdChange(percent)
+  }, [bridge, onAutoCompactThresholdChange])
+
+  const handleRtkEnabledChange = useCallback((enabled: boolean) => {
+    setRtkEnabled(enabled)
+    bridge.setSettings({ rtkEnabled: enabled }).catch(() => {})
   }, [bridge])
 
   // Remote Access handlers
@@ -502,6 +526,10 @@ export function Settings({
                 onTextToSpeechModeChange={handleTextToSpeechModeChange}
                 notificationSoundEnabled={localNotificationSoundEnabled}
                 onNotificationSoundEnabledChange={handleNotificationSoundEnabledChange}
+                autoCompactThreshold={autoCompactThreshold}
+                onAutoCompactThresholdChange={handleAutoCompactThresholdChange}
+                rtkEnabled={rtkEnabled}
+                onRtkEnabledChange={handleRtkEnabledChange}
               />
             )}
             {activeTab === 'updates' && <UpdatesTab />}
@@ -528,6 +556,7 @@ export function Settings({
                 onDefaultModelChange={handleDefaultModelChange}
                 thinkingLevel={localThinkingLevel}
                 onThinkingLevelChange={handleThinkingLevelChange}
+                showAdaptiveOption={showAdaptiveThinkingOption}
               />
             )}
             {activeTab === 'permissions' && (
@@ -587,6 +616,10 @@ interface GeneralTabProps {
   onTextToSpeechModeChange: (enabled: boolean) => void
   notificationSoundEnabled: boolean
   onNotificationSoundEnabledChange: (enabled: boolean) => void
+  autoCompactThreshold: number
+  onAutoCompactThresholdChange: (percent: number) => void
+  rtkEnabled: boolean
+  onRtkEnabledChange: (enabled: boolean) => void
 }
 
 function GeneralTab({
@@ -600,6 +633,10 @@ function GeneralTab({
   onTextToSpeechModeChange,
   notificationSoundEnabled,
   onNotificationSoundEnabledChange,
+  autoCompactThreshold,
+  onAutoCompactThresholdChange,
+  rtkEnabled,
+  onRtkEnabledChange,
 }: GeneralTabProps) {
   return (
     <div className="p-6 space-y-6">
@@ -632,6 +669,64 @@ function GeneralTab({
         <Field label="Theme" hint="Additional themes coming soon">
           <div className="flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-bg-tertiary text-sm text-text-secondary select-none w-fit">
             Dark
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Context">
+        <Field
+          label="Auto-compact threshold"
+          hint="Automatically compact context when it reaches this percentage of the model's context window."
+        >
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={50}
+              max={95}
+              step={5}
+              value={autoCompactThreshold}
+              onChange={(e) => onAutoCompactThresholdChange(Number(e.target.value))}
+              className="w-36 accent-accent"
+            />
+            <span className="w-10 text-sm text-text-primary tabular-nums">{autoCompactThreshold}%</span>
+          </div>
+        </Field>
+      </Section>
+
+      <Section title="Token Optimization">
+        <Field
+          label="RTK (Rust Token Killer)"
+          hint="Automatically rewrites bash commands to token-optimized equivalents (60-90% token savings). RTK must be installed separately."
+        >
+          <div className="space-y-2">
+            <div className="inline-flex rounded-lg border border-border bg-bg-tertiary p-1">
+              <button
+                onClick={() => onRtkEnabledChange(true)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-sm transition-colors',
+                  rtkEnabled
+                    ? 'bg-accent/20 text-accent'
+                    : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                On
+              </button>
+              <button
+                onClick={() => onRtkEnabledChange(false)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-sm transition-colors',
+                  !rtkEnabled
+                    ? 'bg-accent/20 text-accent'
+                    : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                Off
+              </button>
+            </div>
+            <p className="text-[11px] text-text-tertiary">
+              Install:{' '}
+              <code className="font-mono bg-bg-tertiary px-1 py-0.5 rounded text-text-secondary">brew install rtk</code>
+            </p>
           </div>
         </Field>
       </Section>
@@ -1438,8 +1533,10 @@ interface ModelsTabProps {
   loading: boolean
   defaultModel: string
   onDefaultModelChange: (v: string) => void
-  thinkingLevel: 'low' | 'medium' | 'high'
-  onThinkingLevelChange: (value: 'low' | 'medium' | 'high') => void
+  thinkingLevel: 'off' | 'auto' | 'low' | 'medium' | 'high'
+  onThinkingLevelChange: (value: 'off' | 'auto' | 'low' | 'medium' | 'high') => void
+  /** Whether the current model supports adaptive thinking (shows "Auto" option). */
+  showAdaptiveOption: boolean
 }
 
 function ModelsTab({
@@ -1449,6 +1546,7 @@ function ModelsTab({
   onDefaultModelChange,
   thinkingLevel,
   onThinkingLevelChange,
+  showAdaptiveOption,
 }: ModelsTabProps) {
   return (
     <div className="p-6 space-y-6">
@@ -1486,11 +1584,15 @@ function ModelsTab({
           label="Thinking level"
           hint="Controls the runtime thinking/reasoning level when supported by the current Pi/GSD runtime and selected model."
         >
-          <Select value={thinkingLevel} onValueChange={(value) => onThinkingLevelChange(value as 'low' | 'medium' | 'high')}>
+          <Select value={thinkingLevel} onValueChange={(value) => onThinkingLevelChange(value as 'off' | 'auto' | 'low' | 'medium' | 'high')}>
             <SelectTrigger className="w-72 h-8 text-sm">
               <SelectValue placeholder="Select a thinking level..." />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="off">Off</SelectItem>
+              {showAdaptiveOption && (
+                <SelectItem value="auto">Auto (adaptive)</SelectItem>
+              )}
               <SelectItem value="low">Low</SelectItem>
               <SelectItem value="medium">Medium</SelectItem>
               <SelectItem value="high">High</SelectItem>
@@ -1917,7 +2019,7 @@ function AutoModeTab({ rules, onRulesChange, classifierProvider, onClassifierPro
         <div className="flex gap-3">
           {([
             { value: 'anthropic', label: 'Anthropic (Claude Haiku)', providerId: 'anthropic' },
-            { value: 'google', label: 'Google (Gemini 3 Flash Preview)', providerId: 'google' },
+            { value: 'google', label: 'Google (Gemini 3.1 Flash Lite)', providerId: 'google' },
           ] as const).map(({ value, label, providerId }) => {
             const status = providerStatuses.find((s) => s.id === providerId)
             const isConfigured = status?.configured ?? false

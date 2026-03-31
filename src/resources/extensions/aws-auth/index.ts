@@ -55,10 +55,10 @@ const AWS_AUTH_ERROR_RE =
 
 /**
  * Reads the `awsAuthRefresh` command from settings.json.
- * Checks project-level first, then global (~/.gsd/agent/settings.json).
+ * Checks project-level first, then global (~/.lucent/agent/settings.json).
  */
 function getAwsAuthRefreshCommand(): string | undefined {
-	const configDir = process.env.PI_CONFIG_DIR || ".gsd";
+	const configDir = process.env.PI_CONFIG_DIR || ".lucent";
 	const paths = [
 		join(process.cwd(), configDir, "settings.json"),
 		join(homedir(), configDir, "agent", "settings.json"),

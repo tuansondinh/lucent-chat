@@ -120,6 +120,12 @@ export class PaneManager {
     // Pass permission mode so the agent registers the stdio approval handler
     agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
     agentEnv.GSD_STUDIO_THINKING_LEVEL = settings.thinkingLevel ?? 'medium'
+    if (typeof settings.autoCompactThreshold === 'number') {
+      agentEnv.GSD_STUDIO_COMPACT_THRESHOLD = String(settings.autoCompactThreshold)
+    }
+    if (settings.rtkEnabled === true) {
+      agentEnv.LUCENT_STUDIO_RTK_ENABLED = '1'
+    }
 
     const processManager = this.processManagerFactory()
     const agentBridge = new AgentBridge()

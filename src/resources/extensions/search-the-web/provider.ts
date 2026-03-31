@@ -15,10 +15,10 @@ import { join } from 'path'
 import { resolveSearchProviderFromPreferences } from './preferences-stub.js'
 
 // Compute authFilePath locally instead of importing from app-paths.ts,
-// because extensions are copied to ~/.gsd/agent/extensions/ at runtime
+// because extensions are copied to ~/.lucent/agent/extensions/ at runtime
 // where the relative import '../../../app-paths.ts' doesn't resolve.
-const gsdHome = process.env.GSD_HOME || join(homedir(), '.gsd')
-const authFilePath = join(gsdHome, 'agent', 'auth.json')
+const agentDir = process.env.LUCENT_CODING_AGENT_DIR || join(homedir(), '.lucent', 'agent')
+const authFilePath = join(agentDir, 'auth.json')
 
 export type SearchProvider = 'tavily' | 'brave' | 'ollama'
 export type SearchProviderPreference = SearchProvider | 'auto'

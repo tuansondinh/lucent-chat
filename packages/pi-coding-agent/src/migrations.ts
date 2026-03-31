@@ -3,7 +3,8 @@
  */
 
 import chalk from "chalk";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { homedir } from "os";
 import { dirname, join } from "path";
 import { CONFIG_DIR_NAME, getAgentDir, getBinDir } from "./config.js";
 
@@ -279,6 +280,27 @@ export async function showDeprecationWarnings(warnings: string[]): Promise<void>
 }
 
 /**
+ * Migrate ~/.gsd/agent → ~/.lucent/agent if the old dir exists and the new one doesn't.
+ * This is a one-time migration for users upgrading from the .gsd config dir.
+ */
+function migrateGsdToLucent(): void {
+	const oldBase = join(homedir(), ".gsd");
+	const newBase = join(homedir(), ".lucent");
+	const oldAgentDir = join(oldBase, "agent");
+	const newAgentDir = getAgentDir(); // resolves to ~/.lucent/agent after pkg/package.json change
+
+	if (!existsSync(oldAgentDir)) return;
+	if (existsSync(newAgentDir)) return;
+
+	try {
+		mkdirSync(newBase, { recursive: true });
+		cpSync(oldAgentDir, newAgentDir, { recursive: true });
+	} catch {
+		// Non-fatal — user can migrate manually
+	}
+}
+
+/**
  * Run all migrations. Called once on startup.
  *
  * @returns Object with migration results and deprecation warnings
@@ -287,6 +309,7 @@ export function runMigrations(cwd: string = process.cwd()): {
 	migratedAuthProviders: string[];
 	deprecationWarnings: string[];
 } {
+	migrateGsdToLucent();
 	const migratedAuthProviders = migrateAuthToAuthJson();
 	migrateSessionsFromAgentRoot();
 	migrateToolsToBin();
