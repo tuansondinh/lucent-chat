@@ -389,7 +389,6 @@ export function initResources(agentDir: string): void {
   // Sync bundled resources — overwrite so updates land on next launch.
 
   syncResourceDir(bundledExtensionsDir, join(agentDir, 'extensions'))
-  syncResourceDir(join(resourcesDir, 'agents'), join(agentDir, 'agents'))
   syncResourceDir(join(resourcesDir, 'skills'), join(agentDir, 'skills'))
 
   // Sync GSD-WORKFLOW.md to agentDir as a fallback for when GSD_WORKFLOW_PATH

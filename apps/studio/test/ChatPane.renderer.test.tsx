@@ -1,7 +1,12 @@
 import React from 'react'
+import { act } from 'react'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChatPane } from '@/components/ChatPane'
+
+const bridgeCallbacks: {
+  onAgentChunk?: (payload: { paneId: string; turn_id: string; text: string }) => void
+} = {}
 
 const paneState = {
   messages: [],
@@ -67,7 +72,10 @@ vi.mock('@/lib/bridge', () => ({
     abort: vi.fn().mockResolvedValue(undefined),
     setThinkingLevel: vi.fn().mockResolvedValue(undefined),
     approvalRespond: vi.fn().mockResolvedValue(undefined),
-    onAgentChunk: vi.fn(() => () => {}),
+    onAgentChunk: vi.fn((cb) => {
+      bridgeCallbacks.onAgentChunk = cb
+      return () => {}
+    }),
     onAgentDone: vi.fn(() => () => {}),
     onToolStart: vi.fn(() => () => {}),
     onToolEnd: vi.fn(() => () => {}),
@@ -103,12 +111,17 @@ vi.mock('@/lib/useNotificationSound', () => ({
   useNotificationSound: () => ({ play: vi.fn() }),
 }))
 
-vi.mock('@/store/voice-store', () => ({
-  useVoiceStore: () => ({
-    active: false,
-    activePaneId: null,
-  }),
-}))
+const voiceStoreState = {
+  active: false,
+  activePaneId: null,
+  ttsPlaying: false,
+}
+
+vi.mock('@/store/voice-store', () => {
+  const useVoiceStore = () => voiceStoreState
+  ;(useVoiceStore as typeof useVoiceStore & { getState: () => typeof voiceStoreState }).getState = () => voiceStoreState
+  return { useVoiceStore }
+})
 
 vi.mock('@/lib/pane-refs', () => ({
   registerPaneElement: vi.fn(),
@@ -139,6 +152,9 @@ vi.mock('@/components/ui/kbd', () => ({
 describe('ChatPane hover strip', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useRealTimers()
+    bridgeCallbacks.onAgentChunk = undefined
+    paneState.appendChunk.mockReset()
   })
 
   it('keeps a non-zero-height hover target for pane drag and close controls', () => {
@@ -162,5 +178,35 @@ describe('ChatPane hover strip', () => {
     expect(dragHandle.className).toContain('h-2')
     expect(dragHandle.className).toContain('hover:h-5')
     expect(closeButton.className).toContain('group-hover:opacity-100')
+  })
+
+  it('batches streaming chunk updates before writing to pane state', async () => {
+    render(
+      <ChatPane
+        paneId="pane-1"
+        isActive
+        sidebarCollapsed={false}
+        voicePttShortcut="space"
+        voiceAudioEnabled={false}
+        textToSpeechMode={false}
+        notificationSoundEnabled={false}
+        onFocus={() => {}}
+      />,
+    )
+
+    expect(bridgeCallbacks.onAgentChunk).toBeTypeOf('function')
+
+    act(() => {
+      bridgeCallbacks.onAgentChunk?.({ paneId: 'pane-1', turn_id: 'turn-1', text: 'Hel' })
+      bridgeCallbacks.onAgentChunk?.({ paneId: 'pane-1', turn_id: 'turn-1', text: 'lo' })
+      bridgeCallbacks.onAgentChunk?.({ paneId: 'pane-1', turn_id: 'turn-1', text: ' world' })
+    })
+
+    expect(paneState.appendChunk).not.toHaveBeenCalled()
+
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
+    expect(paneState.appendChunk).toHaveBeenCalledTimes(1)
+    expect(paneState.appendChunk).toHaveBeenCalledWith('turn-1', 'Hello world')
   })
 })

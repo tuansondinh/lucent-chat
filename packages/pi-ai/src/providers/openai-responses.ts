@@ -22,7 +22,7 @@ import {
 	finalizeStream,
 	handleStreamError,
 } from "./openai-shared.js";
-import { buildBaseOptions, clampReasoning } from "./simple-options.js";
+import { buildBaseOptions, clampReasoning, resolveReasoning } from "./simple-options.js";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 
@@ -118,7 +118,7 @@ export const streamSimpleOpenAIResponses: StreamFunction<"openai-responses", Sim
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const reasoningEffort = supportsXhigh(model) ? resolveReasoning(options?.reasoning) : clampReasoning(options?.reasoning);
 
 	return streamOpenAIResponses(model, context, {
 		...base,

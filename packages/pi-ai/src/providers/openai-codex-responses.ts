@@ -28,7 +28,7 @@ import type {
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
-import { buildBaseOptions, clampReasoning } from "./simple-options.js";
+import { buildBaseOptions, clampReasoning, resolveReasoning } from "./simple-options.js";
 
 // ============================================================================
 // Configuration
@@ -273,7 +273,7 @@ export const streamSimpleOpenAICodexResponses: StreamFunction<"openai-codex-resp
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const reasoningEffort = supportsXhigh(model) ? resolveReasoning(options?.reasoning) : clampReasoning(options?.reasoning);
 
 	return streamOpenAICodexResponses(model, context, {
 		...base,

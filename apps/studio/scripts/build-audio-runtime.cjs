@@ -2,7 +2,7 @@
 'use strict'
 
 const { execFileSync } = require('child_process')
-const { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } = require('fs')
+const { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } = require('fs')
 const { createHash } = require('crypto')
 const { join } = require('path')
 
@@ -42,6 +42,7 @@ function computeInputHash() {
   }
   // Also include the voice-bridge pin so a version bump triggers a rebuild
   h.update(VOICE_BRIDGE_REQUIREMENT)
+  h.update(String(statSync(__filename).mtimeMs))
   return h.digest('hex')
 }
 
@@ -79,6 +80,22 @@ function prunePythonPayload(sitePackagesDir) {
       }
     }
   }
+}
+
+function rewriteBundledPythonShims() {
+  const binDir = join(RELEASE_ENV_DIR, 'bin')
+  const pythonShim = join(binDir, 'python')
+  const python3Shim = join(binDir, 'python3')
+  const python312Shim = join(binDir, 'python3.12')
+  const bundledInterpreter = '../../python-runtime/bin/python3.12'
+
+  rmSync(pythonShim, { force: true })
+  rmSync(python3Shim, { force: true })
+  rmSync(python312Shim, { force: true })
+
+  symlinkSync(bundledInterpreter, pythonShim)
+  symlinkSync('python', python3Shim)
+  symlinkSync('python', python312Shim)
 }
 
 function ensureFile(pathname, message) {
@@ -151,6 +168,7 @@ cpSync(AUDIO_SERVICE_PY, join(AUDIO_SERVICE_BUNDLE_DIR, 'audio_service.py'))
 cpSync(PYPROJECT_PATH, join(AUDIO_SERVICE_BUNDLE_DIR, 'pyproject.toml'))
 
 prunePythonPayload(sitePackages)
+rewriteBundledPythonShims()
 
 run(runtimePython, [
   '-c',

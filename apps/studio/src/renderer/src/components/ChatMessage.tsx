@@ -1023,6 +1023,7 @@ export const ChatMessage = React.memo(function ChatMessage({ message, projectRoo
 
   return (
     <div
+      data-chat-message="true"
       className={cn(`flex w-full ${MSG_GAP}`, isUser ? 'justify-end' : 'justify-start')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

@@ -265,8 +265,12 @@ export class WebBridge implements Bridge {
     return this.cmd('set-settings', settings)
   }
 
-  setThinkingLevel(paneId: string, level: 'low' | 'medium' | 'high'): Promise<void> {
+  setThinkingLevel(paneId: string, level: 'off' | 'auto' | 'low' | 'medium' | 'high'): Promise<void> {
     return this.cmd('set-thinking-level', paneId, level)
+  }
+
+  setCompactionThreshold(paneId: string, percent: number): Promise<void> {
+    return this.cmd('set-compaction-threshold', paneId, percent)
   }
 
   openExternal(url: string): Promise<void> {

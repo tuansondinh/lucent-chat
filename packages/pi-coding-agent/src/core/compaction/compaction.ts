@@ -85,12 +85,14 @@ export interface CompactionSettings {
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
+	thresholdPercent: number;
 }
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	enabled: true,
 	reserveTokens: COMPACTION_RESERVE_TOKENS,
 	keepRecentTokens: COMPACTION_KEEP_RECENT_TOKENS,
+	thresholdPercent: 80,
 };
 
 // ============================================================================
@@ -184,9 +186,16 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 
 /**
  * Check if compaction should trigger based on context usage.
+ * Uses thresholdPercent (e.g. 80 = trigger at 80% of context window) when contextWindow > 0.
+ * Falls back to reserveTokens for overflow/unknown-window cases.
  */
 export function shouldCompact(contextTokens: number, contextWindow: number, settings: CompactionSettings): boolean {
 	if (!settings.enabled) return false;
+	if (contextWindow > 0) {
+		const threshold = Math.floor(contextWindow * (settings.thresholdPercent / 100));
+		return contextTokens >= threshold;
+	}
+	// No context window info — fall back to reserve-token guard
 	return contextTokens > contextWindow - settings.reserveTokens;
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "@gsd/studio",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
@@ -19,10 +19,13 @@
     "bundle-audio-service": "node scripts/build-audio-runtime.cjs",
     "bundle-audio-service:none": "LUCENT_INCLUDE_AUDIO_SERVICE=0 node scripts/build-audio-runtime.cjs",
     "prebundle-runtime": "npm run build -w @gsd/pi-coding-agent",
-    "bundle-runtime": "npm run bundle -w @gsd/pi-coding-agent",
-    "bundle-runtime:force": "npm run bundle -w @gsd/pi-coding-agent -- -- --force",
-    "pack": "SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false npm run bundle-audio-service && npm run bundle-runtime && electron-builder --dir --config.mac.identity=null",
-    "pack:arm64": "SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder --dir --arm64 --config.mac.identity=null",
+    "prebundle-runtime:force": "npm run build -w @gsd/pi-coding-agent",
+    "bundle-runtime": "node ../../packages/pi-coding-agent/scripts/bundle.cjs --out-dir apps/studio/build/runtime-bundle",
+    "bundle-runtime:force": "node ../../packages/pi-coding-agent/scripts/bundle.cjs --out-dir apps/studio/build/runtime-bundle --force",
+    "bundle:all": "npm run bundle-audio-service && npm run bundle-runtime",
+    "bundle:all:no-audio": "npm run bundle-audio-service:none && npm run bundle-runtime",
+    "pack": "npm run bundle-audio-service && npm run bundle-runtime && SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --config.mac.identity=null",
+    "pack:arm64": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && SKIP_NOTARIZE=true CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --arm64 --config.mac.identity=null",
     "dist": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -wml",
     "dist:mac": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m",
     "dist:mac:arm64": "npm run build && npm run bundle-audio-service && npm run bundle-runtime && electron-builder -m --arm64",
@@ -32,6 +35,7 @@
     "release:arm64": "node scripts/release.cjs",
     "release:arm64:no-audio": "node scripts/release.cjs --without-audio",
     "release:arm64:notarize": "node scripts/release.cjs --notarize",
+    "release:arm64:no-audio:notarize": "node scripts/release.cjs --notarize --without-audio",
     "release:arm64:dry": "node scripts/release.cjs --dry-run",
     "release:arm64:no-audio:dry": "node scripts/release.cjs --dry-run --without-audio"
   },
@@ -126,7 +130,7 @@
     ],
     "extraResources": [
       {
-        "from": "../../packages/pi-coding-agent/bundle",
+        "from": "build/runtime-bundle",
         "to": "runtime",
         "filter": [
           "**/*"

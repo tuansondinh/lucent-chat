@@ -65,6 +65,20 @@ export function supportsXhigh<TApi extends Api>(model: Model<TApi>): boolean {
 }
 
 /**
+ * Check if a model uses adaptive thinking (Opus 4.6, Sonnet 4.6 on Anthropic/Vertex/Bedrock).
+ * Adaptive models let Claude decide its own thinking budget when no effort is pinned.
+ */
+export function supportsAdaptiveThinking<TApi extends Api>(model: Model<TApi>): boolean {
+	const id = model.id;
+	return (
+		id.includes("opus-4-6") ||
+		id.includes("opus-4.6") ||
+		id.includes("sonnet-4-6") ||
+		id.includes("sonnet-4.6")
+	);
+}
+
+/**
  * Check if two models are equal by comparing both their id and provider.
  * Returns false if either model is null or undefined.
  */

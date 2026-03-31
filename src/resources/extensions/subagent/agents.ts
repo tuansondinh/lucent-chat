@@ -4,7 +4,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { homedir } from "node:os";
 import { getAgentDir, parseFrontmatter } from "@gsd/pi-coding-agent";
+import { BUILTIN_AGENTS } from "./builtin-agents.js";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -14,7 +16,7 @@ export interface AgentConfig {
 	tools?: string[];
 	model?: string;
 	systemPrompt: string;
-	source: "user" | "project";
+	source: "user" | "project" | "builtin";
 	filePath: string;
 }
 
@@ -94,12 +96,36 @@ function findNearestProjectAgentsDir(cwd: string): string | null {
 	}
 }
 
+function readSubagentModelOverrides(): Record<string, string> {
+	try {
+		const configDir = process.env.LUCENT_CONFIG_DIR ?? path.join(homedir(), ".lucent");
+		const settingsPath = path.join(configDir, "settings.json");
+		const raw = fs.readFileSync(settingsPath, "utf-8");
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		if (parsed.subagentModels && typeof parsed.subagentModels === "object" && !Array.isArray(parsed.subagentModels)) {
+			return parsed.subagentModels as Record<string, string>;
+		}
+	} catch {
+		// non-fatal
+	}
+	return {};
+}
+
 export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryResult {
 	const userDir = path.join(getAgentDir(), "agents");
 	const projectAgentsDir = findNearestProjectAgentsDir(cwd);
 
 	const userAgents = scope === "project" ? [] : loadAgentsFromDir(userDir, "user");
 	const projectAgents = scope === "user" || !projectAgentsDir ? [] : loadAgentsFromDir(projectAgentsDir, "project");
+
+	const modelOverrides = readSubagentModelOverrides();
+	const builtinAgents = BUILTIN_AGENTS.map((agent) => {
+		const override = modelOverrides[agent.name];
+		if (override !== undefined && override !== "") {
+			return { ...agent, model: override };
+		}
+		return agent;
+	});
 
 	const agentMap = new Map<string, AgentConfig>();
 
@@ -111,6 +137,9 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	} else {
 		for (const agent of projectAgents) agentMap.set(agent.name, agent);
 	}
+
+	// Built-in agents are inserted last so they always win over user/project agents
+	for (const agent of builtinAgents) agentMap.set(agent.name, agent);
 
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };
 }

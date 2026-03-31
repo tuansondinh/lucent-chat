@@ -1,12 +1,27 @@
 #!/usr/bin/env node
 'use strict'
 /**
- * notarize.cjs — Post-build notarization for Lucent Chat.
+ * notarize.cjs — Post-build notarization for Lucent Code.
  * Runs automatically via electron-builder afterSign hook.
  */
 const { execSync } = require('child_process')
 const { join } = require('path')
 const { existsSync } = require('fs')
+
+function resolveNotaryProfile() {
+  const candidates = ['lucent-code-notary', 'lucent-chat-notary']
+  for (const profile of candidates) {
+    try {
+      execSync(`xcrun notarytool history --keychain-profile "${profile}"`, {
+        stdio: 'ignore',
+      })
+      return profile
+    } catch {}
+  }
+  throw new Error(
+    '[notarize] No usable notarytool keychain profile found. Expected one of: lucent-code-notary, lucent-chat-notary.'
+  )
+}
 
 module.exports = async function notarize({ appOutDir, packager }) {
   const platform = packager.platform.name
@@ -29,9 +44,10 @@ module.exports = async function notarize({ appOutDir, packager }) {
   console.log(`[notarize] Zipping ${appPath}...`)
   execSync(`ditto -c -k --keepParent "${appPath}" "${zipPath}"`)
 
+  const keychainProfile = resolveNotaryProfile()
   console.log('[notarize] Submitting to Apple notarization service...')
   execSync(
-    `xcrun notarytool submit "${zipPath}" --keychain-profile "lucent-chat-notary" --wait`,
+    `xcrun notarytool submit "${zipPath}" --keychain-profile "${keychainProfile}" --wait`,
     { stdio: 'inherit' }
   )
 

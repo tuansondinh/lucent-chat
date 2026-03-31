@@ -149,8 +149,7 @@ test("initResources syncs extensions, agents, and skills to target dir", async (
     assertExtensionIndexExists(fakeAgentDir, "context7");
     assertExtensionIndexExists(fakeAgentDir, "subagent");
 
-    // Agents synced
-    assert.ok(existsSync(join(fakeAgentDir, "agents", "scout.md")), "scout agent synced");
+    // Agents dir may be absent since built-in agents are now code-embedded
 
     // Skills synced
     assert.ok(existsSync(join(fakeAgentDir, "skills")), "skills directory synced");

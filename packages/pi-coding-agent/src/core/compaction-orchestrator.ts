@@ -277,6 +277,11 @@ export class CompactionOrchestrator {
 		this._deps.settingsManager.setCompactionEnabled(enabled);
 	}
 
+	/** Set the context-usage percentage at which auto-compaction triggers (1–100) */
+	setCompactionThresholdPercent(percent: number): void {
+		this._deps.settingsManager.setCompactionThresholdPercent(percent);
+	}
+
 	/** Whether auto-compaction is enabled */
 	get autoCompactionEnabled(): boolean {
 		return this._deps.settingsManager.getCompactionEnabled();

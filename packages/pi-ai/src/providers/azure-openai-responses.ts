@@ -20,7 +20,7 @@ import {
 	finalizeStream,
 	handleStreamError,
 } from "./openai-shared.js";
-import { buildBaseOptions, clampReasoning } from "./simple-options.js";
+import { buildBaseOptions, clampReasoning, resolveReasoning } from "./simple-options.js";
 
 let _AzureOpenAIClass: typeof AzureOpenAI | undefined;
 async function getAzureOpenAIClass(): Promise<typeof AzureOpenAI> {
@@ -118,7 +118,7 @@ export const streamSimpleAzureOpenAIResponses: StreamFunction<"azure-openai-resp
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	const reasoningEffort = supportsXhigh(model) ? options?.reasoning : clampReasoning(options?.reasoning);
+	const reasoningEffort = supportsXhigh(model) ? resolveReasoning(options?.reasoning) : clampReasoning(options?.reasoning);
 
 	return streamAzureOpenAIResponses(model, context, {
 		...base,

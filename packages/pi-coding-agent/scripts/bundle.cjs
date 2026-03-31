@@ -22,22 +22,56 @@ const {
   cpSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   rmSync,
   writeFileSync,
   readFileSync,
   readdirSync,
   chmodSync,
+  realpathSync,
   statSync,
 } = require('fs')
-const { join, relative, dirname } = require('path')
+const { join, relative, dirname, resolve } = require('path')
 const { execSync } = require('child_process')
 const { createHash } = require('crypto')
 
+function removeNestedBinDirs(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === '.bin') {
+        rmSync(entryPath, { recursive: true, force: true })
+        continue
+      }
+      removeNestedBinDirs(entryPath)
+    }
+  }
+}
+
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
-const RUNTIME_DIR = join(__dirname, '..')           // packages/runtime/
-const PROJECT_ROOT = join(RUNTIME_DIR, '..', '..') // repo root
-const BUNDLE_DIR   = join(RUNTIME_DIR, 'bundle')   // packages/runtime/bundle/
+const RUNTIME_DIR = join(__dirname, '..')
+const PROJECT_ROOT = join(RUNTIME_DIR, '..', '..')
+
+function parseBundleOutDir() {
+  const outArgIndex = process.argv.indexOf('--out-dir')
+  if (outArgIndex !== -1) {
+    const candidate = process.argv[outArgIndex + 1]
+    if (!candidate) {
+      console.error('[bundle] ERROR: --out-dir requires a value.')
+      process.exit(1)
+    }
+    return resolve(PROJECT_ROOT, candidate)
+  }
+
+  if (process.env.LUCENT_RUNTIME_BUNDLE_DIR) {
+    return resolve(PROJECT_ROOT, process.env.LUCENT_RUNTIME_BUNDLE_DIR)
+  }
+
+  return join(RUNTIME_DIR, 'bundle')
+}
+
+const BUNDLE_DIR = parseBundleOutDir()
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -54,23 +88,38 @@ function safeCpSync(src, dest, options = {}) {
     cpSync(src, dest, { recursive: true, ...options })
   } catch {
     if (options.recursive !== false) {
-      copyDirRecursive(src, dest, options.filter)
+      copyDirRecursive(src, dest, options.filter, options)
     } else {
       copyFileSync(src, dest)
     }
   }
 }
 
-function copyDirRecursive(src, dest, filter) {
+function copyDirRecursive(src, dest, filter, options = {}) {
+  const srcPath = options.dereference ? realpathSync(src) : src
+  const srcStat = lstatSync(src)
+
+  if (srcStat.isSymbolicLink() && !options.dereference) {
+    copyFileSync(src, dest)
+    return
+  }
+
+  if (!statSync(srcPath).isDirectory()) {
+    copyFileSync(srcPath, dest)
+    return
+  }
+
   mkdirSync(dest, { recursive: true })
-  for (const entry of readdirSync(src, { withFileTypes: true })) {
-    const srcPath = join(src, entry.name)
+  for (const entry of readdirSync(srcPath, { withFileTypes: true })) {
+    const childSrcPath = join(srcPath, entry.name)
     const destPath = join(dest, entry.name)
-    if (filter && !filter(srcPath, destPath)) continue
+    if (filter && !filter(childSrcPath, destPath)) continue
     if (entry.isDirectory()) {
-      copyDirRecursive(srcPath, destPath, filter)
+      copyDirRecursive(childSrcPath, destPath, filter, options)
+    } else if (entry.isSymbolicLink() && options.dereference) {
+      copyDirRecursive(realpathSync(childSrcPath), destPath, filter, options)
     } else {
-      copyFileSync(srcPath, destPath)
+      copyFileSync(childSrcPath, destPath)
     }
   }
 }
@@ -203,11 +252,11 @@ import('./dist/entrypoint.js')
 
 console.log('[bundle] Copying workspace package dists → bundle/packages/ ...')
 const wsPackages = [
-  { dir: 'agent-core', name: 'agent-core' },
-  { dir: 'ai', name: 'ai' },
-  { dir: 'tui', name: 'tui' },
+  { dir: 'pi-agent-core', name: 'pi-agent-core' },
+  { dir: 'pi-ai', name: 'pi-ai' },
+  { dir: 'pi-tui', name: 'pi-tui' },
   { dir: 'native', name: 'native' },
-  { dir: 'runtime', name: 'runtime' },
+  { dir: 'pi-coding-agent', name: 'pi-coding-agent' },
 ]
 
 for (const { dir, name } of wsPackages) {
@@ -311,6 +360,7 @@ const DEV_ONLY_DIRS = new Set([
   '@radix-ui',
   '@phosphor-icons',
   '@xterm',
+  '@gsd',
   'cmdk',
   'lucide-react',
   'node-pty',
@@ -355,11 +405,11 @@ for (const entry of topLevelEntries) {
     for (const scopedEntry of scopedEntries) {
       const scopedSrc = join(src, scopedEntry.name)
       const scopedDest = join(dest, scopedEntry.name)
-      safeCpSync(scopedSrc, scopedDest)
+      safeCpSync(scopedSrc, scopedDest, { dereference: true })
       copiedCount++
     }
   } else {
-    safeCpSync(src, dest)
+    safeCpSync(src, dest, { dereference: true })
     copiedCount++
   }
 }
@@ -409,19 +459,28 @@ if (existsSync(sqlJsDistDir)) {
   console.log(`  [size] sql.js: stripped ${sqlStripped} unused dist variants`)
 }
 
-// ─── Step 11: Link workspace packages into bundle/node_modules/@lc/ ──────────
-// This makes @lc/* imports in entrypoint.js resolve correctly at runtime.
+// 9c: Strip nested node_modules/.bin directories. These are build-time shims and
+// are commonly absolute symlinks back into the workspace, which breaks app signing.
+removeNestedBinDirs(bundleNodeModules)
+console.log('  [size] stripped nested node_modules/.bin directories')
 
-console.log('[bundle] Linking workspace packages into bundle/node_modules/@lc/ ...')
+// ─── Step 11: Materialize workspace packages into bundle/node_modules ────────
+// This avoids preserving workspace symlinks that point back out of the app
+// bundle, which breaks macOS code signing verification.
+
+console.log('[bundle] Materializing workspace packages into bundle/node_modules/@lc/ and @gsd/ ...')
 const bundleLcScope = join(bundleNodeModules, '@lc')
+const bundleGsdScope = join(bundleNodeModules, '@gsd')
 mkdirSync(bundleLcScope, { recursive: true })
+mkdirSync(bundleGsdScope, { recursive: true })
 
 for (const { name } of wsPackages) {
   const pkgSrc  = join(BUNDLE_DIR, 'packages', name)
-  const pkgDest = join(bundleLcScope, name)
   if (existsSync(pkgSrc)) {
-    safeCpSync(pkgSrc, pkgDest)
+    safeCpSync(pkgSrc, join(bundleLcScope, name))
+    safeCpSync(pkgSrc, join(bundleGsdScope, name))
     console.log(`  → @lc/${name}`)
+    console.log(`  → @gsd/${name}`)
   }
 }
 

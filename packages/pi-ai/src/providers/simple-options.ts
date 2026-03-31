@@ -15,8 +15,28 @@ export function buildBaseOptions(model: Model<Api>, options?: SimpleStreamOption
 	};
 }
 
-export function clampReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "xhigh"> | undefined {
+/**
+ * Normalise a ThinkingLevel for providers that don't support "xhigh", "off", or "auto".
+ * - "off" / undefined → undefined (thinking disabled)
+ * - "auto"            → "medium" (fallback for non-adaptive providers)
+ * - "xhigh"           → "high"   (clamp for providers that don't support xhigh)
+ */
+export function clampReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "xhigh" | "off" | "auto"> | undefined {
+	if (!effort || effort === "off") return undefined;
+	if (effort === "auto") return "medium";
 	return effort === "xhigh" ? "high" : effort;
+}
+
+/**
+ * Resolve a ThinkingLevel for providers that support "xhigh".
+ * - "off" / undefined → undefined (thinking disabled)
+ * - "auto"            → "medium" (fallback for non-adaptive providers)
+ * - level unchanged (including "xhigh")
+ */
+export function resolveReasoning(effort: ThinkingLevel | undefined): Exclude<ThinkingLevel, "off" | "auto"> | undefined {
+	if (!effort || effort === "off") return undefined;
+	if (effort === "auto") return "medium";
+	return effort;
 }
 
 export function adjustMaxTokensForThinking(

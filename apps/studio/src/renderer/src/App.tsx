@@ -12,7 +12,8 @@
  *   Cmd+1-4     → focus pane 1-4
  *   Cmd+E       → toggle explorer in sidebar
  *   Cmd+Shift+F → toggle file viewer
- *   Cmd+T       → toggle active pane terminal mode
+ *   Cmd+T       → cycle thinking level
+ *   Cmd+Shift+T → toggle active pane terminal mode
  *   Shift+T     → cycle thinking level
  *   Voice PTT   → configurable in Settings (default: hold Space)
  */
@@ -104,7 +105,7 @@ function PaneTerminal({
       className={[
         'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden transition-all duration-200',
         !isActive && !hasUnreadResponse ? 'opacity-60 hover:opacity-80' : '',
-        !isActive && hasUnreadResponse ? 'opacity-60 hover:opacity-80 border border-orange-500/40 pane-attention-orange-soft' : '',
+        !isActive && hasUnreadResponse ? 'opacity-60 hover:opacity-80 outline outline-2 outline-orange-400/80' : '',
         isActive ? 'outline outline-1 outline-accent/30' : '',
       ].join(' ')}
     >
@@ -249,6 +250,7 @@ export default function App() {
     isCompacting: activePaneCompacting,
     autoCompactionEnabled: activePaneAutoCompactionEnabled,
     contextUsagePct: activePaneContextUsagePct,
+    availableThinkingLevels: activePaneAvailableThinkingLevels,
   } = activePaneStore()
 
   // Mobile detection
@@ -279,7 +281,7 @@ export default function App() {
   const [sidebarView, setSidebarView] = useState<SidebarView>('sessions')
   const [voicePttShortcut, setVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>('space')
   const [voiceAudioEnabled, setVoiceAudioEnabled] = useState(false)
-  const [thinkingLevel, setThinkingLevel] = useState<'low' | 'medium' | 'high'>('medium')
+  const [thinkingLevel, setThinkingLevel] = useState<'off' | 'auto' | 'low' | 'medium' | 'high'>('medium')
   const [textToSpeechMode, setTextToSpeechMode] = useState(false)
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(false)
   const [voiceModelsDownloaded, setVoiceModelsDownloaded] = useState(false)
@@ -326,10 +328,10 @@ export default function App() {
         if (s.voicePttShortcut === 'space' || s.voicePttShortcut === 'alt+space' || s.voicePttShortcut === 'cmd+shift+space') {
           setVoicePttShortcut(s.voicePttShortcut)
         }
-        if (s.voiceAudioEnabled === false) {
-          setVoiceAudioEnabled(false)
+        if (s.voiceAudioEnabled === true) {
+          setVoiceAudioEnabled(true)
         }
-        if (s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
+        if (s.thinkingLevel === 'off' || s.thinkingLevel === 'auto' || s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
           setThinkingLevel(s.thinkingLevel)
           // Apply default thinking level to the initial pane
           getPaneStore(usePanesStore.getState().activePaneId).getState().setThinkingLevel(s.thinkingLevel)
@@ -576,20 +578,28 @@ export default function App() {
     bridge.setSettings({ notificationSoundEnabled: enabled }).catch(() => {})
   }, [bridge])
 
-  const handleThinkingLevelChange = useCallback((level: 'low' | 'medium' | 'high') => {
+  const handleThinkingLevelChange = useCallback((level: 'off' | 'auto' | 'low' | 'medium' | 'high') => {
     setThinkingLevel(level)
     bridge.setSettings({ thinkingLevel: level }).catch(() => {})
+  }, [bridge])
+
+  const handleAutoCompactThresholdChange = useCallback((percent: number) => {
+    if (!bridge.setCompactionThreshold) return
+    const paneIds = collectLeafIds(usePanesStore.getState().layout)
+    for (const paneId of paneIds) {
+      bridge.setCompactionThreshold(paneId, percent).catch(() => {})
+    }
   }, [bridge])
 
   const cycleThinkingLevel = useCallback(() => {
     const paneId = usePanesStore.getState().activePaneId
     const paneStore = getPaneStore(paneId).getState()
+    const available = paneStore.availableThinkingLevels.filter(
+      (l) => l !== 'minimal' && l !== 'xhigh'
+    ) as Array<'off' | 'auto' | 'low' | 'medium' | 'high'>
     const currentLevel = paneStore.thinkingLevel
-    const nextLevel: 'low' | 'medium' | 'high' = currentLevel === 'low'
-      ? 'medium'
-      : currentLevel === 'medium'
-        ? 'high'
-        : 'low'
+    const idx = available.indexOf(currentLevel)
+    const nextLevel = available[(idx + 1) % available.length]
     paneStore.setThinkingLevel(nextLevel)
     bridge.setThinkingLevel(paneId, nextLevel).catch(() => {})
   }, [bridge])
@@ -916,8 +926,15 @@ export default function App() {
         return
       }
 
-      // Cmd+T — toggle active pane terminal mode (desktop only)
+      // Cmd+T — cycle thinking level (desktop only)
       if (!mobile && e.metaKey && !e.shiftKey && e.key.toLowerCase() === 't') {
+        e.preventDefault()
+        cycleThinkingLevel()
+        return
+      }
+
+      // Cmd+Shift+T — toggle active pane terminal mode (desktop only)
+      if (!mobile && e.metaKey && e.shiftKey && e.code === 'KeyT') {
         e.preventDefault()
         const paneId = usePanesStore.getState().activePaneId
         const currentMode = usePanesStore.getState().paneModes[paneId] ?? 'chat'
@@ -1063,8 +1080,6 @@ export default function App() {
         onRefresh={handleRefresh}
         isCompacting={activePaneCompacting}
         autoCompactionEnabled={activePaneAutoCompactionEnabled}
-      voiceAudioEnabled={voiceAudioEnabled}
-      onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
       onOpenModelPicker={() => setModelPickerOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
       onExplorerFileOpen={openFileViewer}
@@ -1161,8 +1176,10 @@ export default function App() {
           onTextToSpeechModeChange={handleTextToSpeechModeChange}
           thinkingLevel={thinkingLevel}
           onThinkingLevelChange={handleThinkingLevelChange}
+          showAdaptiveThinkingOption={activePaneAvailableThinkingLevels.includes('auto')}
           notificationSoundEnabled={notificationSoundEnabled}
           onNotificationSoundEnabledChange={handleNotificationSoundEnabledChange}
+          onAutoCompactThresholdChange={handleAutoCompactThresholdChange}
           isMobile={isMobile}
         />
       </div>
@@ -1365,8 +1382,6 @@ export default function App() {
             onRefresh={handleRefresh}
             isCompacting={activePaneCompacting}
             autoCompactionEnabled={activePaneAutoCompactionEnabled}
-            voiceAudioEnabled={voiceAudioEnabled}
-            onVoiceAudioEnabledChange={handleVoiceAudioEnabledChange}
             onOpenModelPicker={() => { setModelPickerOpen(true); setMobileDrawerOpen(false) }}
             onOpenSettings={() => { setSettingsOpen(true); setMobileDrawerOpen(false) }}
             onExplorerFileOpen={() => { openFileViewer(); setMobileDrawerOpen(false) }}
@@ -1384,23 +1399,29 @@ export default function App() {
     <div className="flex h-screen flex-col bg-bg-primary text-text-primary overflow-hidden">
       {/* Fixed top bar — spans full width */}
       <header
-        className={`flex h-9 flex-shrink-0 items-center border-b border-border ${chrome.bar} ${chrome.text}`}
+        className={`relative flex h-9 flex-shrink-0 items-center border-b border-border ${chrome.bar} ${chrome.text}`}
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
         {/* Spacer for traffic lights (always) + collapsed sidebar (when collapsed) */}
         <div className={sidebarCollapsed ? 'pl-32 flex-shrink-0' : 'pl-20 flex-shrink-0'} />
 
-        {/* App name */}
-        <div className="flex-1 font-semibold">
+        {/* App name — centered horizontally */}
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-semibold pointer-events-none">
           Lucent Code
         </div>
 
+        {/* Spacer to push status to the right */}
+        <div className="flex-1" />
+
         {/* Agent health / status */}
         <div
-          className="pr-4 capitalize flex-shrink-0"
+          className="pr-4 flex items-center gap-2 flex-shrink-0"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          {activePaneHealth === 'unknown' ? 'connecting' : activePaneHealth}
+          <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${healthDotColor}`} />
+          <span className="text-sm">
+            v{packageJson.version}
+          </span>
         </div>
       </header>
 
@@ -1437,10 +1458,8 @@ export default function App() {
                 aria-label="Resize sidebar"
                 aria-orientation="vertical"
                 onMouseDown={handleSidebarResizeStart}
-                className="group flex w-2 flex-shrink-0 cursor-col-resize items-stretch justify-center bg-transparent"
-              >
-                <div className="w-px bg-border transition-colors group-hover:bg-accent-gray/50" />
-              </div>
+                className="group flex w-0.5 flex-shrink-0 cursor-col-resize items-stretch justify-center bg-transparent"
+              />
             )}
 
             {/* Unified horizontal PanelGroup */}

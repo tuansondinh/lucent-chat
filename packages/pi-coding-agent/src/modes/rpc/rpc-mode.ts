@@ -56,10 +56,10 @@ export type {
 export async function runRpcMode(session: AgentSession): Promise<never> {
 	// Register the stdio-based approval handler so edit/write tools block
 	// until the Studio host approves or denies the operation.
-	if (process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit") {
+	if (process.env.LUCENT_CODE_PERMISSION_MODE === "accept-on-edit") {
 		registerStdioApprovalHandler();
 	}
-	if (process.env.GSD_STUDIO_PERMISSION_MODE === "auto") {
+	if (process.env.LUCENT_CODE_PERMISSION_MODE === "auto") {
 		registerStdioClassifierHandler();
 	}
 
@@ -512,9 +512,9 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 				const state: RpcSessionState = {
 					model: session.model,
 					permissionMode:
-						process.env.GSD_STUDIO_PERMISSION_MODE === "accept-on-edit"
+						process.env.LUCENT_CODE_PERMISSION_MODE === "accept-on-edit"
 							? "accept-on-edit"
-							: process.env.GSD_STUDIO_PERMISSION_MODE === "auto"
+							: process.env.LUCENT_CODE_PERMISSION_MODE === "auto"
 								? "auto"
 								: "danger-full-access",
 					thinkingLevel: session.thinkingLevel,
@@ -742,7 +742,7 @@ export async function runRpcMode(session: AgentSession): Promise<never> {
 
 			case "set_permission_mode": {
 				const mode = command.mode;
-				process.env.GSD_STUDIO_PERMISSION_MODE = mode;
+				process.env.LUCENT_CODE_PERMISSION_MODE = mode;
 				if (mode === "accept-on-edit") {
 					registerStdioApprovalHandler();
 					setClassifierHandler(null);

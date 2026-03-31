@@ -82,7 +82,9 @@ export interface PaneChatState {
   /** Per-pane permission mode. */
   permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
   /** Per-pane runtime thinking level. */
-  thinkingLevel: 'low' | 'medium' | 'high'
+  thinkingLevel: 'off' | 'auto' | 'low' | 'medium' | 'high'
+  /** Thinking levels available for the current model — drives cycle and picker. */
+  availableThinkingLevels: Array<'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>
   /** Auto mode block-tracking state. */
   autoModeState: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }
 
@@ -131,7 +133,9 @@ export interface PaneChatState {
   /** Set the per-pane permission mode. */
   setPermissionMode: (mode: 'danger-full-access' | 'accept-on-edit' | 'auto') => void
   /** Set the per-pane thinking level. */
-  setThinkingLevel: (level: 'low' | 'medium' | 'high') => void
+  setThinkingLevel: (level: 'off' | 'auto' | 'low' | 'medium' | 'high') => void
+  /** Set the available thinking levels (model-dependent). */
+  setAvailableThinkingLevels: (levels: Array<'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>) => void
   /** Update the auto mode block-tracking state. */
   setAutoModeState: (state: { paused: boolean; consecutiveBlocks: number; totalBlocks: number }) => void
   /** Add a new skill block to a turn's assistant message. */
@@ -250,6 +254,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     recentFiles: [],
     permissionMode: 'auto',
     thinkingLevel: 'medium',
+    availableThinkingLevels: ['off', 'low', 'medium', 'high'],
     autoModeState: { paused: false, consecutiveBlocks: 0, totalBlocks: 0 },
 
     addUserMessage: (text, turn_id) =>
@@ -271,32 +276,48 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
 
     appendChunk: (turn_id, text) =>
       set((s) => {
-        let messages = ensureAssistantMessage(s.messages, turn_id)
-        messages = messages.map((m) => {
-          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-          const blocks = m.contentBlocks
-          const last = blocks[blocks.length - 1]
-          if (last && last.type === 'text' && last.isStreaming) {
-            return {
-              ...m,
-              isStreaming: true,
-              contentBlocks: [
-                ...blocks.slice(0, -1),
-                { ...last, text: mergeStreamingText(last.text, text) },
-              ],
-            }
-          }
-          const newId = `${turn_id}-chunk-${Date.now()}`
-          return {
-            ...m,
-            isStreaming: true,
+        // Fast path: find the target message by index to avoid mapping the whole array.
+        const idx = s.messages.findIndex(
+          (m) => m.turn_id === turn_id && m.role === 'assistant'
+        )
+
+        if (idx === -1) {
+          // No assistant message yet — create one with the first text chunk.
+          const newMsg = {
+            id: turn_id + '-assistant',
+            turn_id,
+            role: 'assistant' as const,
             contentBlocks: [
-              ...blocks,
-              { type: 'text' as const, id: newId, text, isStreaming: true },
+              { type: 'text' as const, id: `${turn_id}-chunk-${Date.now()}`, text, isStreaming: true },
             ],
+            isStreaming: true,
+            createdAt: Date.now(),
           }
-        })
-        return { messages }
+          return { messages: [...s.messages, newMsg] }
+        }
+
+        const msg = s.messages[idx]
+        const blocks = msg.contentBlocks
+        const last = blocks[blocks.length - 1]
+
+        let newBlocks: typeof blocks
+        if (last && last.type === 'text' && last.isStreaming) {
+          // Append to existing streaming text block — slice is O(n blocks), not O(n messages).
+          newBlocks = blocks.slice()
+          newBlocks[newBlocks.length - 1] = {
+            ...last,
+            text: mergeStreamingText(last.text, text),
+          }
+        } else {
+          newBlocks = [
+            ...blocks,
+            { type: 'text' as const, id: `${turn_id}-chunk-${Date.now()}`, text, isStreaming: true },
+          ]
+        }
+
+        const newMessages = s.messages.slice()
+        newMessages[idx] = { ...msg, isStreaming: true, contentBlocks: newBlocks }
+        return { messages: newMessages }
       }),
 
     finalizeMessage: (turn_id, full_text) =>
@@ -304,24 +325,50 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
         let messages = s.messages.map((m) => {
           if (m.turn_id !== turn_id || m.role !== 'assistant') return m
 
-          const nonTextBlocks = m.contentBlocks.map((b) => {
+          // First pass: finalize all blocks in place (preserve order)
+          const finalized = m.contentBlocks.map((b) => {
             if (b.type === 'tool_use' && !b.done) {
               return { ...b, done: true, isError: true, output: 'Aborted' }
             }
-            if (b.type === 'thinking') {
+            if (b.type === 'thinking' || b.type === 'text') {
               return { ...b, isStreaming: false }
             }
             return b
-          }).filter((b) => b.type !== 'text')
+          })
 
-          const blocks = full_text
-            ? [
-                ...nonTextBlocks,
-                { type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false },
-              ]
-            : nonTextBlocks
+          // If full_text is provided, consolidate all text blocks into one
+          // (placed at the position of the last text block) to fix any
+          // streaming overlap/duplication. Order of non-text blocks preserved.
+          let finalBlocks: typeof finalized
+          if (full_text) {
+            const lastTextIdx = finalized.reduce((last, b, i) => b.type === 'text' ? i : last, -1)
+            if (lastTextIdx === -1) {
+              // No text blocks yet — append one at the end
+              finalBlocks = [...finalized, { type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false }]
+            } else {
+              // Replace all text blocks with one consolidated block at the last text position
+              let inserted = false
+              finalBlocks = finalized.reduce<typeof finalized>((acc, b, i) => {
+                if (b.type === 'text') {
+                  if (i === lastTextIdx) {
+                    acc.push({ type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false })
+                    inserted = true
+                  }
+                  // skip earlier text blocks (they're consolidated)
+                } else {
+                  acc.push(b)
+                }
+                return acc
+              }, [])
+              if (!inserted) {
+                finalBlocks = [...finalBlocks, { type: 'text' as const, id: `${turn_id}-final`, text: full_text, isStreaming: false }]
+              }
+            }
+          } else {
+            finalBlocks = finalized
+          }
 
-          return { ...m, contentBlocks: blocks, isStreaming: false }
+          return { ...m, contentBlocks: finalBlocks, isStreaming: false }
         })
 
         const hasAssistant = messages.some(
@@ -375,23 +422,29 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
       })),
 
     updateToolSubItems: (turn_id, toolCallId, subItems) =>
-      set((s) => ({
-        messages: s.messages.map((m) => {
-          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-          const contentBlocks = m.contentBlocks.map((b) => {
-            if (b.type === 'tool_use' && b.toolCallId === toolCallId && !b.done) {
-              const toolCallCount = subItems.filter((si) => si.type === 'toolCall').length
-              return {
-                ...b,
-                subItems,
-                subItemCount: toolCallCount > 0 ? Math.max(b.subItemCount ?? 0, toolCallCount) : b.subItemCount,
-              }
-            }
-            return b
-          })
-          return { ...m, contentBlocks }
-        }),
-      })),
+      set((s) => {
+        const idx = s.messages.findIndex(
+          (m) => m.turn_id === turn_id && m.role === 'assistant'
+        )
+        if (idx === -1) return {}
+        const msg = s.messages[idx]
+        const blockIdx = msg.contentBlocks.findIndex(
+          (b) => b.type === 'tool_use' && b.toolCallId === toolCallId && !b.done
+        )
+        if (blockIdx === -1) return {}
+        const block = msg.contentBlocks[blockIdx] as Extract<ContentBlock, { type: 'tool_use' }>
+        const toolCallCount = subItems.filter((si) => si.type === 'toolCall').length
+        const newBlock = {
+          ...block,
+          subItems,
+          subItemCount: toolCallCount > 0 ? Math.max(block.subItemCount ?? 0, toolCallCount) : block.subItemCount,
+        }
+        const newBlocks = msg.contentBlocks.slice()
+        newBlocks[blockIdx] = newBlock
+        const newMessages = s.messages.slice()
+        newMessages[idx] = { ...msg, contentBlocks: newBlocks }
+        return { messages: newMessages }
+      }),
 
     markAllToolsErrored: (turn_id) =>
       set((s) => ({
@@ -426,26 +479,25 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
       }),
 
     appendThinkingChunk: (turn_id, text) =>
-      set((s) => ({
-        messages: s.messages.map((m) => {
-          if (m.turn_id !== turn_id || m.role !== 'assistant') return m
-          const blocks = m.contentBlocks
-          const idx = [...blocks].reverse().findIndex(
-            (b) => b.type === 'thinking' && b.isStreaming
-          )
-          if (idx === -1) return m
-          const realIdx = blocks.length - 1 - idx
-          const block = blocks[realIdx] as Extract<ContentBlock, { type: 'thinking' }>
-          return {
-            ...m,
-            contentBlocks: [
-              ...blocks.slice(0, realIdx),
-              { ...block, text: mergeStreamingText(block.text, text) },
-              ...blocks.slice(realIdx + 1),
-            ],
-          }
-        }),
-      })),
+      set((s) => {
+        const idx = s.messages.findIndex(
+          (m) => m.turn_id === turn_id && m.role === 'assistant'
+        )
+        if (idx === -1) return {}
+        const msg = s.messages[idx]
+        const blocks = msg.contentBlocks
+        const thinkingIdx = [...blocks].reverse().findIndex(
+          (b) => b.type === 'thinking' && b.isStreaming
+        )
+        if (thinkingIdx === -1) return {}
+        const realIdx = blocks.length - 1 - thinkingIdx
+        const block = blocks[realIdx] as Extract<ContentBlock, { type: 'thinking' }>
+        const newBlocks = blocks.slice()
+        newBlocks[realIdx] = { ...block, text: mergeStreamingText(block.text, text) }
+        const newMessages = s.messages.slice()
+        newMessages[idx] = { ...msg, contentBlocks: newBlocks }
+        return { messages: newMessages }
+      }),
 
     finalizeThinking: (turn_id, text) =>
       set((s) => ({
@@ -673,6 +725,7 @@ export function createPaneChatStore(paneId: string): PaneChatStore {
     bumpSessionEpoch: () => set((s) => ({ sessionEpoch: s.sessionEpoch + 1 })),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
     setThinkingLevel: (level) => set({ thinkingLevel: level }),
+    setAvailableThinkingLevels: (levels) => set({ availableThinkingLevels: levels }),
     setAutoModeState: (autoModeState) => set({ autoModeState }),
 
     // ---- Phase 2: dirty state actions ----

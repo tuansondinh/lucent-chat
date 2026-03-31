@@ -19,8 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
-  Volume2,
-  VolumeX,
+
 } from 'lucide-react'
 import { getPaneStore } from '../store/pane-store'
 import { getFileTreeStore } from '../store/file-tree-store'
@@ -75,8 +74,6 @@ interface Props {
   autoCompactionEnabled?: boolean
   /** When generation transitions from true → false, reload sessions to pick up auto-named sessions. */
   isGenerating?: boolean
-  voiceAudioEnabled: boolean
-  onVoiceAudioEnabledChange: (enabled: boolean) => void
   onOpenModelPicker?: () => void
   onOpenSettings?: () => void
   onExplorerFileOpen?: () => void
@@ -100,8 +97,6 @@ export function Sidebar({
   isCompacting = false,
   autoCompactionEnabled = true,
   isGenerating = false,
-  voiceAudioEnabled,
-  onVoiceAudioEnabledChange,
   onOpenModelPicker,
   onOpenSettings,
   onExplorerFileOpen,
@@ -313,19 +308,6 @@ export function Sidebar({
           )}
 
           <button
-            onClick={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
-            title={voiceAudioEnabled ? 'Turn speech audio off' : 'Turn speech audio on'}
-            className={cn(
-              'flex items-center justify-center w-7 h-7 rounded-lg transition-colors',
-              voiceAudioEnabled
-                ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                : 'text-text-tertiary hover:text-accent hover:bg-accent/10 active:bg-accent/20',
-            )}
-          >
-            {voiceAudioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-          </button>
-
-          <button
             onClick={onOpenSettings}
             title="Settings (⌘,)"
             className={cn(btn.icon, 'w-7 h-7')}
@@ -339,7 +321,7 @@ export function Sidebar({
 
   return (
     <>
-      <div className={`flex flex-col h-full w-full min-w-0 ${chrome.bar} overflow-hidden`}>
+      <div className={`flex flex-col h-full w-full min-w-0 ${chrome.bar} overflow-hidden border-r border-border`}>
         {/* Header actions */}
         <div className="px-3 py-2 flex-shrink-0 flex items-center gap-2">
           <button
@@ -513,19 +495,6 @@ export function Sidebar({
               {isCompacting ? 'Compacting context...' : 'Auto-compact on'}
             </div>
           )}
-
-          <button
-            onClick={() => onVoiceAudioEnabledChange(!voiceAudioEnabled)}
-            title={voiceAudioEnabled ? 'Turn speech audio off' : 'Turn speech audio on'}
-            className={cn(
-              'flex items-center justify-center w-7 h-7 rounded-lg border transition-colors flex-shrink-0',
-              voiceAudioEnabled
-                ? 'border-accent/40 bg-accent/15 text-accent hover:bg-accent/25'
-                : 'border-border text-text-tertiary hover:text-accent hover:bg-accent/10 hover:border-accent/40 active:bg-accent/20',
-            )}
-          >
-            {voiceAudioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
 
           <button
             onClick={onOpenSettings}

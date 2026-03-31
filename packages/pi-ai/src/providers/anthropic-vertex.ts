@@ -101,12 +101,12 @@ export const streamSimpleAnthropicVertex: StreamFunction<"anthropic-vertex", Sim
 	}
 
 	const base = buildBaseOptions(model, options, apiKey);
-	if (!options?.reasoning) {
+	if (!options?.reasoning || options.reasoning === "off") {
 		return streamAnthropicVertex(model, context, { ...base, thinkingEnabled: false } satisfies AnthropicOptions);
 	}
 
 	if (supportsAdaptiveThinking(model.id)) {
-		const effort = mapThinkingLevelToEffort(options.reasoning, model.id);
+		const effort = options.reasoning === "auto" ? undefined : mapThinkingLevelToEffort(options.reasoning, model.id);
 		return streamAnthropicVertex(model, context, {
 			...base,
 			thinkingEnabled: true,

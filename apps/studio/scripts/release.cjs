@@ -15,9 +15,8 @@
  */
 
 const { execSync } = require('child_process')
-const { existsSync, readFileSync, rmSync, writeFileSync } = require('fs')
-const { join, basename } = require('path')
-const crypto = require('crypto')
+const { existsSync, readFileSync, rmSync } = require('fs')
+const { join } = require('path')
 
 const STUDIO_DIR  = join(__dirname, '..')
 const RELEASE_DIR = join(STUDIO_DIR, 'release')
@@ -32,6 +31,7 @@ const version = pkg.version
 const appName = 'Lucent Code'
 const appPath = join(RELEASE_DIR, 'mac-arm64', `${appName}.app`)
 const zipPath = join(RELEASE_DIR, `${appName}-${version}-arm64-mac.zip`)
+const yamlPath = join(RELEASE_DIR, 'latest-mac.yml')
 
 function run(cmd, opts = {}) {
   console.log(`\n$ ${cmd}`)
@@ -41,8 +41,7 @@ function run(cmd, opts = {}) {
 // ─── Step 1: Build ────────────────────────────────────────────────────────────
 console.log(`\n[release] Building ${appName} v${version} (arm64)...`)
 run('npm run build')
-run(WITHOUT_AUDIO ? 'npm run bundle-audio-service:none' : 'npm run bundle-audio-service')
-run('npm run bundle-runtime')
+run(WITHOUT_AUDIO ? 'npm run bundle:all:no-audio' : 'npm run bundle:all')
 rmSync(appPath, { recursive: true, force: true })
 const builderEnv = NOTARIZE
   ? 'CSC_IDENTITY_AUTO_DISCOVERY=true'
@@ -62,30 +61,14 @@ if (NOTARIZE) {
   console.log('\n[release] Unsigned build requested; signing and notarization skipped.')
 }
 
-// ─── Step 4: ZIP artifact ─────────────────────────────────────────────────────
+// ─── Step 4: Verify outputs ──────────────────────────────────────────────────
 if (!existsSync(zipPath)) {
   console.error(`[release] ERROR: ZIP not found at ${zipPath}`)
   process.exit(1)
 }
 console.log(`\n[release] ZIP: ${zipPath}`)
 
-// ─── Step 4b: Generate latest-mac.yml for electron-updater ──────────────────
-const zipName = basename(zipPath)
-const zipBytes = require('fs').statSync(zipPath).size
-const zipHash  = crypto.createHash('sha512').update(readFileSync(zipPath)).digest('base64')
-const yamlPath = join(RELEASE_DIR, 'latest-mac.yml')
-const yamlContent = [
-  `version: ${version}`,
-  `files:`,
-  `  - url: ${zipName}`,
-  `    sha512: ${zipHash}`,
-  `    size: ${zipBytes}`,
-  `path: ${zipName}`,
-  `sha512: ${zipHash}`,
-  `releaseDate: '${new Date().toISOString()}'`,
-].join('\n') + '\n'
-writeFileSync(yamlPath, yamlContent)
-console.log(`[release] Generated latest-mac.yml`)
+// electron-builder auto-generates latest-mac.yml when publish is configured
 
 // ─── Step 5: GitHub Release ───────────────────────────────────────────────────
 if (DRY_RUN) {
@@ -118,9 +101,11 @@ const installNotes = NOTARIZE
 
 This build is unsigned and not notarized.${WITHOUT_AUDIO ? '\n\nVoice features are not included in this build.' : ''}`
 
-run(`gh release create v${version} "${zipPath}" "${yamlPath}" \
-  --repo ${REPO} \
-  --title "${appName} v${version}" \
-  --notes ${JSON.stringify(installNotes)}`)
+// Build release command, include YAML if electron-builder generated it
+const releaseCmd = existsSync(yamlPath)
+  ? `gh release create v${version} "${zipPath}" "${yamlPath}" --repo ${REPO} --title "${appName} v${version}" --notes ${JSON.stringify(installNotes)}`
+  : `gh release create v${version} "${zipPath}" --repo ${REPO} --title "${appName} v${version}" --notes ${JSON.stringify(installNotes)}`
+
+run(releaseCmd)
 
 console.log(`\n[release] Done! https://github.com/${REPO}/releases/tag/v${version}`)

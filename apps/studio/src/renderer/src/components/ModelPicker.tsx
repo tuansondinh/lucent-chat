@@ -169,6 +169,16 @@ export function ModelPicker({ open, onOpenChange, paneId, isMobile = false }: Pr
       if (actualModel) {
         getPaneStore(targetPaneId).getState().setModel(actualModel)
       }
+      if (Array.isArray(state.availableThinkingLevels)) {
+        getPaneStore(targetPaneId).getState().setAvailableThinkingLevels(
+          state.availableThinkingLevels as Array<'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>
+        )
+      }
+      if (typeof state.thinkingLevel === 'string') {
+        getPaneStore(targetPaneId).getState().setThinkingLevel(
+          state.thinkingLevel as 'off' | 'auto' | 'low' | 'medium' | 'high'
+        )
+      }
       if (actualModel && actualModel !== requestedModel) {
         toast.error(`Model switch did not apply. Active model is ${formatModelDisplay(actualModel, { includeProvider: true })}.`)
         return

@@ -222,7 +222,7 @@ export const streamSimpleBedrock: StreamFunction<"bedrock-converse-stream", Simp
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream => {
 	const base = buildBaseOptions(model, options, undefined);
-	if (!options?.reasoning) {
+	if (!options?.reasoning || options.reasoning === "off") {
 		return streamBedrock(model, context, { ...base, reasoning: undefined } satisfies BedrockOptions);
 	}
 
@@ -688,10 +688,14 @@ function buildAdditionalModelRequestFields(
 		const result: Record<string, any> = supportsAdaptiveThinking(model.id)
 			? {
 					thinking: { type: "adaptive" },
-					output_config: { effort: mapThinkingLevelToEffort(options.reasoning, model.id) },
+					...(options.reasoning !== "auto" && {
+						output_config: { effort: mapThinkingLevelToEffort(options.reasoning, model.id) },
+					}),
 				}
 			: (() => {
 					const defaultBudgets: Record<ThinkingLevel, number> = {
+						off: 0,
+						auto: 8192,
 						minimal: 1024,
 						low: 2048,
 						medium: 8192,
@@ -699,8 +703,10 @@ function buildAdditionalModelRequestFields(
 						xhigh: 16384, // Claude doesn't support xhigh, clamp to high
 					};
 
-					// Custom budgets override defaults (xhigh not in ThinkingBudgets, use high)
-					const level = options.reasoning === "xhigh" ? "high" : options.reasoning;
+					// Custom budgets override defaults (xhigh/auto not in ThinkingBudgets, use high/medium)
+					const level = options.reasoning === "xhigh" || options.reasoning === "auto"
+						? "medium"
+						: options.reasoning as Exclude<ThinkingLevel, "off" | "auto" | "xhigh">;
 					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];
 
 					return {
