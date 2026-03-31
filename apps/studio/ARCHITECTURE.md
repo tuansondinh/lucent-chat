@@ -17,6 +17,7 @@
 - [Multi-Pane System](#multi-pane-system)
 - [State Management](#state-management)
 - [IPC Communication](#ipc-communication)
+- [State Ownership & Simplification Plan](#state-ownership--simplification-plan)
 
 ---
 
@@ -554,6 +555,178 @@ interface BridgeAPI {
 
 ---
 
+## State Ownership & Simplification Plan
+
+The current process boundaries are sound, but the app has accumulated complexity from **state crossing layers without a single clear owner**. The `autoCompactThreshold` path is the canonical example: one UI control currently touches renderer form state, app settings persistence, per-pane live runtime sync, startup bootstrap, and agent/session-side state.
+
+### Architectural Rule
+
+A setting should have:
+
+1. **one owner**
+2. **one persisted home**
+3. **one transport path to the runtime**
+
+If a setting needs both a persisted default and a live runtime value, the persisted value should be owned in one place and the live value should be a derived replication of that source of truth.
+
+### State Ownership Model
+
+| State | Owner | Persisted where | Replicated to |
+| --- | --- | --- | --- |
+| App preferences (`theme`, `fontSize`, `defaultModel`, `rtkEnabled`, global `autoCompactThreshold`) | Main process | `~/.lucent/settings.json` | Renderer + live panes/agents |
+| Per-pane permission mode (`danger-full-access` / `accept-on-edit` / `auto`) | PaneManager | In-memory + app settings sync | Agent process env var `GSD_STUDIO_PERMISSION_MODE` |
+| Pane UI state (`activePaneId`, layout, local dialog state) | Renderer | In-memory only unless explicitly restored | None |
+| Session transcript and session metadata | Agent / SessionService | Session files | Renderer |
+| Runtime agent config (`thinkingLevel`, effective compaction threshold, permission mode) | Main process computes, agent caches in memory | Not session-persisted unless truly session-scoped | Agent process |
+| Derived runtime signals (`isCompacting`, `contextUsage`, tool progress) | Agent / Orchestrator | Usually ephemeral | Renderer |
+
+### Scope Boundaries
+
+To keep the system understandable, every new setting should be classified before implementation:
+
+- **App-global setting**: one value for the whole app, persisted in `SettingsService`
+- **Pane/runtime setting**: must affect a running pane immediately, but is still derived from an app-global or pane-local owner
+- **Session setting**: belongs to the conversation/session itself and should reload with that session
+
+Avoid letting the same field behave as both a global preference and a session-owned setting unless that distinction is explicit.
+
+### Control Plane vs Data Plane
+
+A useful mental model is to separate:
+
+- **Control plane**: settings, pane lifecycle, permissions, runtime config, startup/bootstrap
+- **Data plane**: prompts, streaming assistant chunks, tool updates, transcripts, context usage events
+
+`autoCompactThreshold` belongs to the **control plane**. It should not need to travel through session persistence unless it is intentionally redesigned as session-specific state.
+
+### Simplification Target for Runtime Settings
+
+For runtime-affecting settings, prefer this flow:
+
+```text
+Renderer Settings UI
+  └─ bridge.setSettings(partial)
+      └─ main SettingsService.save(partial)
+          └─ build effective RuntimeConfig
+              └─ PaneManager syncs RuntimeConfig to all live panes
+                  └─ Agent stores RuntimeConfig in memory
+                      └─ runtime logic reads effective config
+```
+
+This avoids separate code paths for:
+
+- settings persistence
+- live pane fan-out from the renderer
+- startup environment bootstrap as a primary config channel
+- session-level persistence of values that are really global runtime preferences
+
+### Recommended RuntimeConfig Shape
+
+As the app grows, field-specific mutation RPCs become hard to reason about. Prefer a single runtime configuration object over a growing set of one-off setters.
+
+```typescript
+type RuntimeConfig = {
+  thinkingLevel: 'off' | 'auto' | 'low' | 'medium' | 'high'
+  autoCompactThreshold: number
+  permissionMode: 'danger-full-access' | 'accept-on-edit' | 'auto'
+  rtkEnabled?: boolean  // RTK (Rust Token Killer) token optimization
+}
+```
+
+The main process should derive this from persisted settings and push it to each live pane. The agent should treat it as runtime input, not as session-owned state.
+
+### Compaction Threshold Refactor Direction
+
+Current complexity comes from mixing multiple responsibilities for one value. The intended simplification direction is:
+
+1. **Keep `autoCompactThreshold` app-global by default**
+   - owned by `SettingsService`
+   - persisted in `~/.lucent/settings.json`
+2. **Main process computes effective runtime config**
+   - one function builds the config from settings
+3. **PaneManager pushes config to all active panes**
+   - renderer should not manually fan out per-pane threshold updates
+4. **Agent stores compaction threshold in memory**
+   - avoid persisting it into session settings unless per-session overrides are explicitly supported
+5. **Compaction logic reads one runtime source**
+   - ideally make `shouldCompact()` pure or feed it the threshold directly from a single runtime config store
+
+### Refactor Phases
+
+#### Phase 1 — Centralize live sync in main
+
+- Add a `buildRuntimeConfig(settings)` helper in the main process
+- Add `PaneManager.syncRuntimeConfigToAllPanes(config)`
+- Have `cmd:set-settings` trigger runtime sync for affected settings
+- Remove renderer-side fan-out for compaction threshold updates
+
+#### Phase 2 — Unify agent runtime config
+
+- Replace field-specific runtime setters where practical with a single `applyRuntimeConfig(config)` or partial equivalent
+- Store runtime config in one agent-side in-memory location
+- Make compaction decisions read from that single runtime config source
+
+#### Phase 3 — Reduce bootstrap duplication
+
+- Treat environment variables as bootstrap fallback only
+- On pane startup, send a runtime config snapshot after the agent is ready
+- Avoid maintaining separate “startup path” and “live update path” for the same setting unless necessary
+
+#### Phase 4 — Keep docs aligned with ownership boundaries
+
+When adding new settings or behaviors, document:
+
+- who owns the value
+- where it is persisted
+- how it reaches live runtimes
+- whether it is app-global, pane-scoped, or session-scoped
+
+This prevents accidental re-introduction of multi-owner state.
+
+---
+
+## RTK Integration & Token Optimization
+
+### RTK (Rust Token Killer)
+
+RTK is a token-optimized CLI proxy that rewrites bash commands to save 60-90% tokens on API calls. Integration happens at the agent level through a `BashSpawnHook`.
+
+**Installation:**
+```bash
+brew install rtk
+```
+
+**Settings:**
+- Toggled in Studio: Settings → **Token Optimization** → "RTK (Rust Token Killer)"
+- Stored in app settings: `~/.lucent/settings.json` (`rtkEnabled: boolean`)
+- Synced to all live panes via `RuntimeConfig.rtkEnabled`
+
+**Visual Indicator:**
+When RTK rewrites a command, an ⚡ **RTK badge** appears on tool call headers showing the token-optimized rewrite.
+
+### Per-Pane Permission Modes
+
+Each pane maintains an independent permission mode controlling tool access autonomy:
+
+| Mode | Behavior |
+|------|----------|
+| `danger-full-access` | Tools execute immediately without prompts |
+| `accept-on-edit` | CLI tools require manual confirmation before execution |
+| `auto` | Permission engine (classifier) auto-approves based on safety rules |
+
+**UI Control:**
+- Toggled via pane header or command palette
+- Per-pane setting (other panes unaffected)
+- Persisted in app settings, synced to each pane's agent process via env var `GSD_STUDIO_PERMISSION_MODE`
+
+**Interaction with Auto Mode:**
+When `auto` is selected, the classifier evaluates tool requests against configured safety rules (Settings → **Auto Mode**). Each rule can:
+- Match by tool name (glob pattern)
+- Match by capability (read-only, write, execute, etc.)
+- Auto-approve or require confirmation
+
+---
+
 ## Thread Safety & Concurrency
 
 ### Agent Process Isolation
@@ -629,6 +802,44 @@ Settings (keytar)     →     System Keychain
 - **Authentication**: Requires a Bearer token (`remoteAccessToken`) for all API and WebSocket requests.
 - **CORS & Origin Control**: Limits access to Tailscale MagicDNS origins and localhost.
 - **Capability Scoping**: Remote access limits sensitive commands like terminal I/O and specific file writes to prevent escalation.
+
+---
+
+## Layer Review (March 2026)
+
+The forwarding chain for an Electron message is 8 hops deep. This was reviewed to determine whether the layering is justified or represents avoidable complexity.
+
+### Verdict: All layers are necessary
+
+The hops decompose into **3 unavoidable structural boundaries** and **2 clean internal separations**:
+
+| Hop | Layer | Why it exists |
+| --- | --- | --- |
+| Renderer → IPC | Electron process boundary | Required by Electron; renderer cannot call main-process code directly |
+| IPC → Orchestrator | Turn state machine | Manages turn lifecycle, safety timeouts, response locking |
+| Orchestrator → AgentBridge | RPC serialization | Typed interface over child process stdio |
+| AgentBridge → [stdio] → RPC Mode | Process isolation | Agent crashes don't take down the UI; independent lifecycle |
+| RPC Mode → AgentSession | Command dispatch | Translates JSON protocol to session lifecycle, history, tools |
+| AgentSession → Agent | Coding layer → generic core | AgentSession adds session persistence, tools, extensions; Agent manages generic state + queues |
+| Agent → AgentLoop | State/lifecycle → pure iteration | Agent owns state, abort, events; AgentLoop is a stateless streaming function |
+
+### Key separation decisions
+
+**`pi-agent-core` stays as a separate package**
+It is a protocol/contract package (agent loop, event types, tool contract) that is not coding-specific. Extensions resolve it as a distinct module. The `CustomAgentMessages` extensibility model is the intended seam for future non-coding agents. Merging it into `pi-coding-agent` would collapse the API boundary and force all extension/tooling consumers to depend on the full coding-agent surface.
+
+**`settings-contract.ts` stays separate from `settings-service.ts`**
+`settings-service.ts` owns disk persistence and migration. `settings-contract.ts` owns renderer boundary validation and redaction (pure functions). Keeping them separate allows testing validation logic without filesystem access (`settings-contract.test.ts`).
+
+**Classifier split is already correct**
+The rule engine, caching, rate limiting, and LLM classification logic live in `ClassifierService`. The ~80 LOC remaining in `ipc-handlers.ts` is host orchestration glue (bridge wiring, approval UI fallback, reading `LUCENT.md`) that belongs near the IPC event flow.
+
+**`pane-root-policy.ts` is wired in correctly**
+`resolveRemotePaneRoot` is called in `remote-bridge-dispatch.ts` for the web/PWA bridge, where it enforces that new pane roots must stay within the original `accessRoot` subtree. The local Electron IPC handler (`cmd:set-pane-root`) uses a different and correct security model — the `approvedPaneRoots` set populated by the system folder picker dialog. Both security models are appropriate to their contexts.
+
+### Only optional simplification
+
+The terminal IPC handlers (`cmd:terminal-create`, `cmd:terminal-input`, `cmd:terminal-resize`, `cmd:terminal-destroy`) are close to pure forwarding and could use a small declarative registration helper. This is a cosmetic noise reduction, not a correctness issue. All other IPC handlers combine enough business logic that explicit registration is the right choice for readability and traceability.
 
 ---
 

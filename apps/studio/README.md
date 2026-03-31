@@ -16,12 +16,14 @@ Lucent Code is a desktop AI chat application with voice input/output capabilitie
 
 ### Key Features
 
-- **Multi-pane chat** — Split into up to 4 independent chat panes (horizontal or vertical)
+- **Multi-pane chat** — Split into up to 4 independent chat panes (horizontal or vertical), each with its own agent process
+- **Per-pane permission modes** — Each pane can independently set tool access levels (full/confirm/auto)
 - **Voice input/output** — Real-time speech-to-text and text-to-speech via Python audio service
 - **File browsing** — Built-in file explorer and viewer with syntax highlighting
 - **Session management** — Create, rename, and delete chat sessions
 - **Model switching** — Support for multiple AI providers (Claude, OpenAI, local models)
 - **Integrated terminal** — On-demand terminal panel for command-line operations
+- **Token optimization (RTK)** — Automatic bash command rewriting for 60-90% token savings (optional, install separately)
 - **Subagent visibility** — Real-time tool call progress for subagents (bounded display with collapsible summary)
 - **Context controls** — Built-in `/clear` and `/compact` chat commands, plus context usage shown in the UI
 - **Command palette** — Quick access to all features via Cmd+K
@@ -167,6 +169,9 @@ npm run release:arm64
 # Also sign and notarize with Apple (~5 min extra, removes Gatekeeper warning)
 npm run release:arm64:notarize
 
+# Useful isolation path if voice/audio is blocking signing
+npm run release:arm64:no-audio:notarize
+
 # Dry run — build unsigned zip but skip GitHub upload
 npm run release:arm64:dry
 ```
@@ -186,11 +191,22 @@ npm run release:arm64:dry
 
 Edit `version` in `package.json`, then run `npm run release:arm64`.
 
-### Release Voice Learnings
+### Release Learnings
 
-- Detect the packaged voice bundle by checking `process.resourcesPath/audio-service`, not only `electron.app.isPackaged`.
-- Launch the bundled Python runtime in place. Copying `audio-service/` to `/tmp` adds failure modes and can break embedded-runtime assumptions.
-- Keep startup minimal: VAD + STT should be enough to reach `VOICE_SERVICE_READY`. Load TTS lazily so a Kokoro/espeak packaging problem does not take down voice input.
+- Keep the packaged app self-contained. The runtime now builds into `apps/studio/build/runtime-bundle` and is copied into the app from there, rather than packaging directly from a workspace package output.
+- Code signing fails on app-bundle symlinks that point outside the app. The original blocker was absolute/workspace symlinks inside `runtime/node_modules` and later inside `audio-service/.venv-release/bin/python`.
+- The audio sidecar must keep its Python launcher shims relative to the bundled `python-runtime`. Absolute links back into `~/.local/share/uv` or another host path will invalidate signing/notarization.
+- `npm run release:arm64:no-audio:notarize` is the fastest isolation path when you need to prove the main Electron app and agent runtime are signable before debugging audio packaging.
+- If `v<version>` already exists on GitHub, `gh release create` will fail after the build succeeds. In that case, upload the new assets instead of rebuilding:
+
+```bash
+gh release upload v1.0.1 \
+  "apps/studio/release/Lucent Code-1.0.1-arm64-mac.zip" \
+  "apps/studio/release/latest-mac.yml" \
+  --repo tuansondinh/lucent-code \
+  --clobber
+```
+
 - For a release-bundle sanity check, run the packaged sidecar directly and wait for `VOICE_SERVICE_READY`:
 
 ```bash
@@ -201,10 +217,10 @@ PYTHONPATH="$APP/.venv-release/lib/python3.12/site-packages" \
 
 ### Keep It Simple
 
-- Use `npm run pack:arm64` for the fastest local Apple Silicon smoke build. It now skips signing and notarization explicitly.
-- Treat STT/VAD as required and TTS as optional at startup. That keeps release failures narrower and much easier to debug.
+- Use `npm run pack:arm64` for the fastest local Apple Silicon smoke build. It skips notarization explicitly and is the quickest way to validate bundle layout.
 - Prefer resource-presence checks over Electron packaging flags for bundled sidecars.
-- If we want a larger simplification later, the best target is separating TTS into its own optional service or replacing the embedded Python layout with a single frozen binary.
+- Launch the bundled Python runtime in place. Copying `audio-service/` to `/tmp` adds failure modes and can break embedded-runtime assumptions.
+- If release speed becomes a recurring problem, the biggest remaining cost is deep-signing the Python sidecar payload.
 
 ---
 
@@ -272,6 +288,36 @@ ELECTRON_RENDERER_URL=http://localhost:5173
 # ELECTRON_RENDERER_URL=../renderer/index.html
 ```
 
+### Configuration & Settings
+
+Settings are persisted in `~/.lucent/settings.json`:
+
+```json
+{
+  "rtkEnabled": false,
+  "permissionMode": "accept-on-edit",
+  "autoCompactThreshold": 80,
+  "thinkingLevel": "auto"
+}
+```
+
+**RTK Token Optimization:**
+- Install: `brew install rtk`
+- Enable in Settings → **Token Optimization** → "RTK (Rust Token Killer)"
+- Rewrites bash commands to save 60-90% tokens (shown with ⚡ badge on tool calls)
+- Requires RTK binary on PATH
+
+**Per-Pane Permission Modes:**
+- Toggle via pane header or command palette for each pane
+- `danger-full-access` — Tools execute immediately
+- `accept-on-edit` — CLI tools require confirmation
+- `auto` — Classifier auto-approves based on safety rules
+
+**Config Directory Migration:**
+- On first run, settings are automatically migrated from `~/.gsd/` → `~/.lucent/`
+- Agent config moves from `~/.gsd/agent/` → `~/.lucent/agent/`
+- No manual action required
+
 ### Voice Service Development
 
 The Python voice service runs as a separate process. To develop it:
@@ -328,6 +374,28 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed system architecture, compo
 
 - Ensure you're in a git repository
 - Check file service permissions in Developer Tools
+
+### RTK not rewriting commands
+
+1. **Verify RTK is installed:**
+   ```bash
+   which rtk
+   rtk --version
+   ```
+
+2. **Enable token optimization:**
+   - Open Settings (`Cmd+,`) → **Token Optimization** → toggle "RTK (Rust Token Killer)"
+
+3. **Check bash interceptor is enabled:**
+   - In agent settings, ensure `bashInterceptor.enabled` is true (default)
+
+### Tools not executing in a pane
+
+- Check the pane's permission mode (shown in pane header):
+  - `danger-full-access` — should execute immediately, check agent logs
+  - `accept-on-edit` — confirm when prompted
+  - `auto` — review auto-mode rules in Settings → **Auto Mode**
+- Toggle permission mode via pane header or Cmd+K command palette
 
 ---
 
