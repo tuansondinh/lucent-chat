@@ -314,9 +314,13 @@ export {
 	type PermissionMode,
 	getPermissionMode,
 	registerStdioApprovalHandler,
+	registerStdioClassifierHandler,
 	resolveApprovalResponse,
+	resolveClassifierResponse,
 	requestFileChangeApproval,
 	setFileChangeApprovalHandler,
+	setSubagentApprovalRouter,
+	setSubagentClassifierRouter,
 } from "./core/tool-approval.js";
 // UI components for extensions
 export {

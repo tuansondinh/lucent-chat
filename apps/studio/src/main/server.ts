@@ -187,7 +187,7 @@ async function main(): Promise<void> {
   const agentEnv: Record<string, string> = {}
   if (settings.tavilyApiKey) agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   // Pass permission mode so the agent registers the stdio approval handler
-  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
+  agentEnv.LUCENT_CODE_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
   processManager.on('agent-restarting', () => setTimeout(attachAgentBridge, 200))

@@ -21,6 +21,22 @@ type ClassifierHandler = (request: ClassifierRequest) => Promise<boolean>;
 let fileChangeApprovalHandler: FileChangeApprovalHandler | null = null;
 let classifierHandler: ClassifierHandler | null = null;
 
+/**
+ * Router for subagent approval/classifier responses.
+ * When set, `resolveApprovalResponse` and `resolveClassifierResponse` check this
+ * first — if the router handles the id (returns true), local resolution is skipped.
+ */
+let subagentApprovalRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
+let subagentClassifierRouter: ((proxyId: string, approved: boolean) => boolean) | null = null;
+
+export function setSubagentApprovalRouter(router: ((proxyId: string, approved: boolean) => boolean) | null): void {
+	subagentApprovalRouter = router;
+}
+
+export function setSubagentClassifierRouter(router: ((proxyId: string, approved: boolean) => boolean) | null): void {
+	subagentClassifierRouter = router;
+}
+
 /** Pending approval requests awaiting a response from the host (keyed by id). */
 const pendingApprovals = new Map<string, { resolve: (approved: boolean) => void }>();
 
@@ -31,7 +47,7 @@ let approvalIdCounter = 0;
 let classifierIdCounter = 0;
 
 export function getPermissionMode(): PermissionMode {
-	const mode = process.env.GSD_STUDIO_PERMISSION_MODE;
+	const mode = process.env.LUCENT_CODE_PERMISSION_MODE;
 	if (mode === "accept-on-edit") return "accept-on-edit";
 	if (mode === "auto") return "auto";
 	return "danger-full-access";
@@ -104,6 +120,7 @@ export function registerStdioClassifierHandler(): void {
  * Resolves the matching pending approval promise.
  */
 export function resolveApprovalResponse(id: string, approved: boolean): void {
+	if (subagentApprovalRouter && subagentApprovalRouter(id, approved)) return;
 	const pending = pendingApprovals.get(id);
 	if (pending) {
 		pendingApprovals.delete(id);
@@ -116,6 +133,7 @@ export function resolveApprovalResponse(id: string, approved: boolean): void {
  * Resolves the matching pending classifier promise.
  */
 export function resolveClassifierResponse(id: string, approved: boolean): void {
+	if (subagentClassifierRouter && subagentClassifierRouter(id, approved)) return;
 	const pending = pendingClassifications.get(id);
 	if (pending) {
 		pendingClassifications.delete(id);

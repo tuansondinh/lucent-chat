@@ -574,7 +574,7 @@ If a setting needs both a persisted default and a live runtime value, the persis
 | State | Owner | Persisted where | Replicated to |
 | --- | --- | --- | --- |
 | App preferences (`theme`, `fontSize`, `defaultModel`, `rtkEnabled`, global `autoCompactThreshold`) | Main process | `~/.lucent/settings.json` | Renderer + live panes/agents |
-| Per-pane permission mode (`danger-full-access` / `accept-on-edit` / `auto`) | PaneManager | In-memory + app settings sync | Agent process env var `GSD_STUDIO_PERMISSION_MODE` |
+| Per-pane permission mode (`danger-full-access` / `accept-on-edit` / `auto`) | PaneManager | In-memory + app settings sync | Agent process env var `LUCENT_CODE_PERMISSION_MODE` |
 | Pane UI state (`activePaneId`, layout, local dialog state) | Renderer | In-memory only unless explicitly restored | None |
 | Session transcript and session metadata | Agent / SessionService | Session files | Renderer |
 | Runtime agent config (`thinkingLevel`, effective compaction threshold, permission mode) | Main process computes, agent caches in memory | Not session-persisted unless truly session-scoped | Agent process |
@@ -717,7 +717,7 @@ Each pane maintains an independent permission mode controlling tool access auton
 **UI Control:**
 - Toggled via pane header or command palette
 - Per-pane setting (other panes unaffected)
-- Persisted in app settings, synced to each pane's agent process via env var `GSD_STUDIO_PERMISSION_MODE`
+- Persisted in app settings, synced to each pane's agent process via env var `LUCENT_CODE_PERMISSION_MODE`
 
 **Interaction with Auto Mode:**
 When `auto` is selected, the classifier evaluates tool requests against configured safety rules (Settings → **Auto Mode**). Each rule can:

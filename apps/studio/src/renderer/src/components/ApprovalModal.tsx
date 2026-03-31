@@ -1,7 +1,7 @@
 /**
  * ApprovalModal — shows a file change approval request from the agent.
  *
- * Displayed when GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit' and the agent
+ * Displayed when LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit' and the agent
  * attempts to edit or write a file.  The user can Allow or Deny the change.
  * The decision is sent back to the main process via IPC.
  *

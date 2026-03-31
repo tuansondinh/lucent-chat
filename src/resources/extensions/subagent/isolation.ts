@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { promisify } from "node:util";
+import { getPermissionMode, requestFileChangeApproval } from "@gsd/pi-coding-agent";
 
 const execFile = promisify(execFileCb);
 
@@ -431,6 +432,40 @@ export async function createIsolation(
 // Patch merge
 // ============================================================================
 
+/**
+ * Parse a unified diff and return the action + file path for each affected file.
+ * Handles added (b/file), deleted (/dev/null target), and modified files.
+ */
+function parsePatchOperations(patch: string): Array<{ action: "write" | "edit" | "delete"; filePath: string }> {
+	const ops: Array<{ action: "write" | "edit" | "delete"; filePath: string }> = [];
+	const lines = patch.split("\n");
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]!;
+		if (!line.startsWith("diff --git ")) continue;
+		// Look ahead for --- and +++ lines
+		let srcFile = "";
+		let dstFile = "";
+		for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+			const l = lines[j]!;
+			if (l.startsWith("--- ")) srcFile = l.slice(4).replace(/^a\//, "");
+			else if (l.startsWith("+++ ")) { dstFile = l.slice(4).replace(/^b\//, ""); break; }
+		}
+		if (!dstFile && !srcFile) continue;
+		let action: "write" | "edit" | "delete";
+		if (dstFile === "/dev/null") {
+			action = "delete";
+			ops.push({ action, filePath: srcFile });
+		} else if (srcFile === "/dev/null") {
+			action = "write";
+			ops.push({ action, filePath: dstFile });
+		} else {
+			action = "edit";
+			ops.push({ action, filePath: dstFile });
+		}
+	}
+	return ops;
+}
+
 export async function mergeDeltaPatches(
 	repoRoot: string,
 	patches: DeltaPatch[],
@@ -467,6 +502,18 @@ export async function mergeDeltaPatches(
 				failedPatches,
 				error: `Patch conflict: ${err instanceof Error ? err.message : String(err)}`,
 			};
+		}
+
+		// In supervised mode, request approval for each affected file before applying
+		if (getPermissionMode() === "accept-on-edit") {
+			const fileOps = parsePatchOperations(combined);
+			for (const { action, filePath } of fileOps) {
+				await requestFileChangeApproval({
+					action,
+					path: filePath,
+					message: `Subagent patch: ${action} ${filePath}`,
+				});
+			}
 		}
 
 		// Apply for real

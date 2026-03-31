@@ -37,7 +37,7 @@ function withDelayedApproval(approved: boolean, delay: number, fn: () => Promise
 
 // Ensure we always run in accept-on-edit for these tests
 // (by injecting a custom handler the approval function path is exercised
-//  regardless of the environment GSD_STUDIO_PERMISSION_MODE value)
+//  regardless of the environment LUCENT_CODE_PERMISSION_MODE value)
 
 // ============================================================================
 // write tool — denied
@@ -54,8 +54,8 @@ test('write tool: does NOT write file when approval is denied', async () => {
   })
 
   // Force accept-on-edit mode by patching env (tool-approval reads process.env)
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   try {
     await withApprovalDecision(false, async () => {
@@ -69,9 +69,9 @@ test('write tool: does NOT write file when approval is denied', async () => {
     })
   } finally {
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -96,8 +96,8 @@ test('write tool: writes file when approval is granted', async () => {
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   try {
     await withApprovalDecision(true, async () => {
@@ -107,9 +107,9 @@ test('write tool: writes file when approval is granted', async () => {
     })
   } finally {
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -133,8 +133,8 @@ test('edit tool: does NOT write file when approval is denied', async () => {
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   try {
     await withApprovalDecision(false, async () => {
@@ -148,9 +148,9 @@ test('edit tool: does NOT write file when approval is denied', async () => {
     })
   } finally {
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -173,8 +173,8 @@ test('edit tool: writes updated content when approval is granted', async () => {
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   try {
     await withApprovalDecision(true, async () => {
@@ -188,9 +188,9 @@ test('edit tool: writes updated content when approval is granted', async () => {
     })
   } finally {
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -213,8 +213,8 @@ test('write tool: bypass approval in danger-full-access mode', async () => {
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  delete process.env.GSD_STUDIO_PERMISSION_MODE   // defaults to danger-full-access
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  delete process.env.LUCENT_CODE_PERMISSION_MODE   // defaults to danger-full-access
 
   // Even with a denial handler installed, danger-full-access bypasses it
   setFileChangeApprovalHandler(async (_req) => false)
@@ -224,7 +224,7 @@ test('write tool: bypass approval in danger-full-access mode', async () => {
   } finally {
     setFileChangeApprovalHandler(null)
     if (original !== undefined) {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -245,8 +245,8 @@ test('write tool: approval request contains correct action and path', async () =
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   setFileChangeApprovalHandler(async (req) => {
     requests.push(req)
@@ -258,9 +258,9 @@ test('write tool: approval request contains correct action and path', async () =
   } finally {
     setFileChangeApprovalHandler(null)
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 
@@ -281,8 +281,8 @@ test('edit tool: approval request contains correct action and path', async () =>
     },
   })
 
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
-  process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
+  process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
 
   setFileChangeApprovalHandler(async (req) => {
     requests.push(req)
@@ -298,9 +298,9 @@ test('edit tool: approval request contains correct action and path', async () =>
   } finally {
     setFileChangeApprovalHandler(null)
     if (original === undefined) {
-      delete process.env.GSD_STUDIO_PERMISSION_MODE
+      delete process.env.LUCENT_CODE_PERMISSION_MODE
     } else {
-      process.env.GSD_STUDIO_PERMISSION_MODE = original
+      process.env.LUCENT_CODE_PERMISSION_MODE = original
     }
   }
 

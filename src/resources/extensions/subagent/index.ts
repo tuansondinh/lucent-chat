@@ -20,7 +20,7 @@ import * as path from "node:path";
 import type { AgentToolResult } from "@gsd/pi-agent-core";
 import type { Message } from "@gsd/pi-ai";
 import { StringEnum } from "@gsd/pi-ai";
-import { type ExtensionAPI, getMarkdownTheme } from "@gsd/pi-coding-agent";
+import { type ExtensionAPI, getMarkdownTheme, setSubagentApprovalRouter, setSubagentClassifierRouter } from "@gsd/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@gsd/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { formatTokenCount } from "../shared/mod.js";
@@ -43,6 +43,18 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
 const liveSubagentProcesses = new Set<ChildProcess>();
+
+/**
+ * Proxy counter for generating unique IDs for subagent approval/classifier requests
+ * forwarded to the parent process.
+ */
+let subagentProxyCounter = 0;
+
+/**
+ * Map of proxied approval/classifier request IDs to their originating process and original ID.
+ * Used to route responses back to the correct subagent.
+ */
+const pendingSubagentRequests = new Map<string, { proc: ChildProcess; originalId: string; type: "approval_request" | "classifier_request" }>();
 
 async function stopLiveSubagents(): Promise<void> {
 	const active = Array.from(liveSubagentProcesses);
@@ -278,12 +290,22 @@ function processSubagentEventLine(
 	line: string,
 	currentResult: SingleResult,
 	emitUpdate: () => void,
+	proc?: ChildProcess,
 ): void {
 	if (!line.trim()) return;
 	let event: any;
 	try {
 		event = JSON.parse(line);
 	} catch {
+		return;
+	}
+
+	// Intercept approval/classifier requests from the subagent and proxy them to the
+	// parent process (Studio or parent agent), rewriting the ID to avoid collisions.
+	if (proc && (event.type === "approval_request" || event.type === "classifier_request") && event.id) {
+		const proxyId = `sub_${++subagentProxyCounter}_${event.id}`;
+		pendingSubagentRequests.set(proxyId, { proc, originalId: event.id, type: event.type });
+		process.stdout.write(JSON.stringify({ ...event, id: proxyId }) + "\n");
 		return;
 	}
 
@@ -393,7 +415,7 @@ async function runSingleAgent(
 			const proc = spawn(
 				process.execPath,
 				[process.env.GSD_BIN_PATH!, ...extensionArgs, ...args],
-				{ cwd: cwd ?? defaultCwd, shell: false, stdio: ["ignore", "pipe", "pipe"] },
+				{ cwd: cwd ?? defaultCwd, shell: false, stdio: ["pipe", "pipe", "pipe"] },
 			);
 			liveSubagentProcesses.add(proc);
 			let buffer = "";
@@ -402,7 +424,7 @@ async function runSingleAgent(
 				buffer += data.toString();
 				const lines = buffer.split("\n");
 				buffer = lines.pop() || "";
-				for (const line of lines) processSubagentEventLine(line, currentResult, emitUpdate);
+				for (const line of lines) processSubagentEventLine(line, currentResult, emitUpdate, proc);
 			});
 
 			proc.stderr.on("data", (data) => {
@@ -411,7 +433,11 @@ async function runSingleAgent(
 
 			proc.on("close", (code) => {
 				liveSubagentProcesses.delete(proc);
-				if (buffer.trim()) processSubagentEventLine(buffer, currentResult, emitUpdate);
+				// Clean up any pending requests for this process
+				for (const [proxyId, entry] of pendingSubagentRequests) {
+					if (entry.proc === proc) pendingSubagentRequests.delete(proxyId);
+				}
+				if (buffer.trim()) processSubagentEventLine(buffer, currentResult, emitUpdate, proc);
 				resolve(code ?? 0);
 			});
 
@@ -619,6 +645,28 @@ export default function (pi: ExtensionAPI) {
 		await stopLiveSubagents();
 	});
 
+	// Register subagent approval/classifier routers so that approval responses arriving
+	// on the parent's stdin are forwarded to the correct child process.
+	setSubagentApprovalRouter((proxyId: string, approved: boolean) => {
+		const entry = pendingSubagentRequests.get(proxyId);
+		if (!entry) return false;
+		pendingSubagentRequests.delete(proxyId);
+		if (entry.proc.stdin && !entry.proc.stdin.destroyed) {
+			entry.proc.stdin.write(JSON.stringify({ type: "approval_response", id: entry.originalId, approved }) + "\n");
+		}
+		return true;
+	});
+
+	setSubagentClassifierRouter((proxyId: string, approved: boolean) => {
+		const entry = pendingSubagentRequests.get(proxyId);
+		if (!entry) return false;
+		pendingSubagentRequests.delete(proxyId);
+		if (entry.proc.stdin && !entry.proc.stdin.destroyed) {
+			entry.proc.stdin.write(JSON.stringify({ type: "classifier_response", id: entry.originalId, approved }) + "\n");
+		}
+		return true;
+	});
+
 	// /subagent command - list available agents
 	pi.registerCommand("subagent", {
 		description: "List available subagents",
@@ -644,11 +692,12 @@ export default function (pi: ExtensionAPI) {
 			"Modes: single ({ agent, task }), parallel ({ tasks: [{agent, task},...] }), chain ({ chain: [{agent, task},...] } with {previous} placeholder).",
 			"Agents are defined as .md files in ~/.gsd/agent/agents/ (user) or .gsd/agents/ (project).",
 			"Use the /subagent command to list available agents and their descriptions.",
-			"Use chain mode to pipeline: scout finds context, planner designs, worker implements.",
+			"Use chain mode to pipeline: scout finds context for medium-to-large explorations, planner designs, worker implements.",
 		].join(" "),
 		promptGuidelines: [
 			"Use subagent to delegate self-contained tasks that benefit from an isolated context window.",
-			"Use scout agent first when you need codebase context before implementing.",
+			"Use scout agent for medium to large code explorations — when understanding unfamiliar code, tracing dependencies across multiple files, or gathering context before implementing.",
+			"Skip scout for simple or small lookups you can resolve directly.",
 			"Use chain mode for scout→planner→worker or worker→reviewer→worker pipelines.",
 			"Use parallel mode when tasks are independent and don't need each other's output.",
 			"Always check available agents with /subagent before choosing one.",

@@ -85,6 +85,7 @@ import {
 	MUTATING_TOOLS,
 	READ_ONLY_TOOLS,
 	requestClassifierDecision,
+	requestFileChangeApproval,
 } from "./tool-approval.js";
 
 // ============================================================================
@@ -511,9 +512,16 @@ export class AgentSession {
 			// Wait for all queued agent events to settle before emitting to extensions
 			await this._agentEventQueue;
 
-			// Handle Auto mode classifier check
+			// Handle permission mode checks before tool execution
 			const mode = getPermissionMode();
-			if (mode === "auto") {
+			if (mode === "accept-on-edit" && toolCall.name === "bash") {
+				// bash is a mutating tool but bypasses write/edit approval — block it here
+				await requestFileChangeApproval({
+					action: "edit",
+					path: "(bash command)",
+					message: String((args as any)?.command ?? toolCall.name),
+				});
+			} else if (mode === "auto") {
 				if (READ_ONLY_TOOLS.has(toolCall.name)) {
 					return undefined;
 				}

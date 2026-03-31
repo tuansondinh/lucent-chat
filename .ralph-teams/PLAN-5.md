@@ -13,14 +13,14 @@ Status: draft
      - Main side: intercept `approval_request` in `AgentBridge.handleLine()`, show a renderer-side modal (not native dialog — Playwright must be able to interact with it), and write the response back to stdin.
    - Add the renderer-side approval modal component: shows action, file path, and diff preview; has Allow/Deny buttons; emits the decision back to main via IPC.
    - Add preload IPC for the approval flow: `onApprovalRequest` event (main → renderer) and `cmd:approval-respond` command (renderer → main).
-   - Pass `GSD_STUDIO_PERMISSION_MODE` into agent `extraEnv` at all spawn sites: `index.ts` (pane-0), `pane-manager.ts` (new panes), `server.ts` (headless mode).
+   - Pass `LUCENT_CODE_PERMISSION_MODE` into agent `extraEnv` at all spawn sites: `index.ts` (pane-0), `pane-manager.ts` (new panes), `server.ts` (headless mode).
    - Ensure the existing `requestFileChangeApproval` calls in `edit.ts` and `write.ts` work end-to-end: no-op in `danger-full-access`, blocks-until-approved in `accept-on-edit`.
    - Files: `packages/pi-coding-agent/src/core/tool-approval.ts`, `src/headless-ui.ts`, `apps/studio/src/main/agent-bridge.ts`, `apps/studio/src/main/ipc-handlers.ts`, `apps/studio/src/main/process-manager.ts`, `apps/studio/src/main/index.ts`, `apps/studio/src/main/pane-manager.ts`, `apps/studio/src/main/server.ts`, `apps/studio/src/preload/index.ts`, new renderer component for the approval modal.
 2. [x] Phase 2: Persisted settings, pane propagation, and shortcut toggle — complexity: standard
    - Add `permissionMode: 'danger-full-access' | 'accept-on-edit'` to `AppSettings` in `settings-service.ts` (default: `danger-full-access`).
    - Add validation for `permissionMode` in `settings-contract.ts:validateSettingsPatch`.
    - Expose `permissionMode` through `sanitizeSettingsForRenderer` and the `RendererSettings` type in `preload/index.ts`.
-   - On settings change: inject the new `GSD_STUDIO_PERMISSION_MODE` value into each pane's `extraEnv` and call `paneManager.restartPaneAgent()`. Before restarting, abort any in-progress turn and log a warning. After restart, re-read the active session file so session continuity is preserved (existing `attachBridge` → `getState` → `setActiveSessionId` flow).
+   - On settings change: inject the new `LUCENT_CODE_PERMISSION_MODE` value into each pane's `extraEnv` and call `paneManager.restartPaneAgent()`. Before restarting, abort any in-progress turn and log a warning. After restart, re-read the active session file so session continuity is preserved (existing `attachBridge` → `getState` → `setActiveSessionId` flow).
    - Add a `Cmd+Shift+E` keyboard shortcut to toggle permission mode (avoids `Shift+Tab` conflict with accessibility/form navigation). Register in Electron's accelerator system and forward to renderer.
    - Surface the current permission mode in the StatusBar component (e.g. shield icon with label). Clicking it also toggles.
    - Ensure remote/web bridge panes receive the updated env on next spawn.
@@ -59,7 +59,7 @@ Scenarios:
   4. Chose renderer-side modal over native dialog for Playwright testability.
   5. Listed all affected files per phase.
   6. Removed redundant voice-parity verification scenario (voice/text share the same tool execution path).
-  7. Added `GSD_STUDIO_PERMISSION_MODE` env injection to all agent spawn sites.
+  7. Added `LUCENT_CODE_PERMISSION_MODE` env injection to all agent spawn sites.
 
 ---
 
@@ -111,4 +111,4 @@ Three new test files were added:
 - `apps/studio/test/approval-rpc.test.ts` (8 tests) — approval request parsing, allow/deny response writing, non-approval event passthrough, headless-ui forwarding, and mock approval handler behavior.
 - `apps/studio/test/tool-approval-integration.test.ts` (7 tests) — real `createWriteTool`/`createEditTool` with mock file ops: denied writes leave files untouched, approved writes succeed, `danger-full-access` bypasses approval, and request fields are correct.
 
-All acceptance criteria are met. The implementation is well-structured with clean separation: `tool-approval.ts` handles the agent-side approval logic, `AgentBridge` intercepts and relays requests, the preload/IPC layer bridges to the renderer, and the `ApprovalModal` component provides the user-facing decision UI. The `GSD_STUDIO_PERMISSION_MODE` env is correctly injected at all three spawn sites (index.ts, pane-manager.ts, server.ts).
+All acceptance criteria are met. The implementation is well-structured with clean separation: `tool-approval.ts` handles the agent-side approval logic, `AgentBridge` intercepts and relays requests, the preload/IPC layer bridges to the renderer, and the `ApprovalModal` component provides the user-facing decision UI. The `LUCENT_CODE_PERMISSION_MODE` env is correctly injected at all three spawn sites (index.ts, pane-manager.ts, server.ts).

@@ -118,7 +118,7 @@ export class PaneManager {
       agentEnv.TAVILY_API_KEY = settings.tavilyApiKey as string
     }
     // Pass permission mode so the agent registers the stdio approval handler
-    agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
+    agentEnv.LUCENT_CODE_PERMISSION_MODE = (settings as any).permissionMode ?? DEFAULT_PERMISSION_MODE
     agentEnv.GSD_STUDIO_THINKING_LEVEL = settings.thinkingLevel ?? 'medium'
     if (typeof settings.autoCompactThreshold === 'number') {
       agentEnv.GSD_STUDIO_COMPACT_THRESHOLD = String(settings.autoCompactThreshold)
@@ -317,7 +317,7 @@ export class PaneManager {
     } catch {
       // Fallback: if the RPC call fails (e.g. agent not ready), restart the process
       try { await pane.orchestrator.abortCurrentTurn() } catch { /* ignore */ }
-      await this.restartPaneAgentWithEnv(id, { GSD_STUDIO_PERMISSION_MODE: next })
+      await this.restartPaneAgentWithEnv(id, { LUCENT_CODE_PERMISSION_MODE: next })
       try {
         const state = await pane.agentBridge.getState()
         if (state.sessionFile) pane.sessionService.setActiveSessionId(state.sessionFile as string)

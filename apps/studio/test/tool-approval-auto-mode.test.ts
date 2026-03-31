@@ -15,16 +15,16 @@ import {
 
 function restorePermissionMode(original: string | undefined): void {
   if (original === undefined) {
-    delete process.env.GSD_STUDIO_PERMISSION_MODE
+    delete process.env.LUCENT_CODE_PERMISSION_MODE
     return
   }
-  process.env.GSD_STUDIO_PERMISSION_MODE = original
+  process.env.LUCENT_CODE_PERMISSION_MODE = original
 }
 
 test('tool approval: getPermissionMode recognizes auto mode', () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
     assert.equal(getPermissionMode(), 'auto')
   } finally {
     restorePermissionMode(original)
@@ -32,9 +32,9 @@ test('tool approval: getPermissionMode recognizes auto mode', () => {
 })
 
 test('tool approval: getPermissionMode defaults to danger-full-access', () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    delete process.env.GSD_STUDIO_PERMISSION_MODE
+    delete process.env.LUCENT_CODE_PERMISSION_MODE
     assert.equal(getPermissionMode(), 'danger-full-access')
   } finally {
     restorePermissionMode(original)
@@ -42,9 +42,9 @@ test('tool approval: getPermissionMode defaults to danger-full-access', () => {
 })
 
 test('tool approval: getPermissionMode recognizes accept-on-edit mode', () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
     assert.equal(getPermissionMode(), 'accept-on-edit')
   } finally {
     restorePermissionMode(original)
@@ -67,9 +67,9 @@ test('tool approval: read-only and mutating tool sets expose expected tools', ()
 })
 
 test('tool approval: classifier gate is a no-op outside auto mode', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'danger-full-access'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'danger-full-access'
     const result = await requestClassifierDecision({ toolName: 'bash', toolCallId: 'tc1', args: { command: 'rm -rf /' } })
     assert.equal(result, true)
   } finally {
@@ -79,9 +79,9 @@ test('tool approval: classifier gate is a no-op outside auto mode', async () => 
 })
 
 test('tool approval: auto mode denies when no classifier handler is installed', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
     setClassifierHandler(null)
     const result = await requestClassifierDecision({ toolName: 'bash', toolCallId: 'tc2', args: { command: 'ls' } })
     assert.equal(result, false)
@@ -92,10 +92,10 @@ test('tool approval: auto mode denies when no classifier handler is installed', 
 })
 
 test('tool approval: auto mode forwards tool name and args to the classifier handler', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   const received: Array<{ toolName: string; args: unknown }> = []
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
     setClassifierHandler(async (req) => {
       received.push({ toolName: req.toolName, args: req.args })
       return true
@@ -114,9 +114,9 @@ test('tool approval: auto mode forwards tool name and args to the classifier han
 })
 
 test('tool approval: concurrent auto-mode classifier requests resolve independently', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
 
     const pending = new Map<string, (approved: boolean) => void>()
     setClassifierHandler(async (req) => new Promise<boolean>((resolve) => pending.set(req.toolCallId, resolve)))
@@ -139,7 +139,7 @@ test('tool approval: concurrent auto-mode classifier requests resolve independen
 })
 
 test('tool approval: file change approvals are only consulted in accept-on-edit mode', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   let handlerCalls = 0
 
   try {
@@ -148,13 +148,13 @@ test('tool approval: file change approvals are only consulted in accept-on-edit 
       return true
     })
 
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
     await requestFileChangeApproval({ action: 'write', path: '/tmp/test.txt', message: 'Writing test' })
 
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'danger-full-access'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'danger-full-access'
     await requestFileChangeApproval({ action: 'edit', path: '/tmp/test.txt', message: 'Editing test' })
 
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'accept-on-edit'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'accept-on-edit'
     await requestFileChangeApproval({ action: 'write', path: '/tmp/test.txt', message: 'Writing test' })
 
     assert.equal(handlerCalls, 1)
@@ -165,12 +165,12 @@ test('tool approval: file change approvals are only consulted in accept-on-edit 
 })
 
 test('tool approval: stdio classifier responses resolve pending requests by id', async () => {
-  const original = process.env.GSD_STUDIO_PERMISSION_MODE
+  const original = process.env.LUCENT_CODE_PERMISSION_MODE
   const originalWrite = process.stdout.write.bind(process.stdout)
   const writtenChunks: string[] = []
 
   try {
-    process.env.GSD_STUDIO_PERMISSION_MODE = 'auto'
+    process.env.LUCENT_CODE_PERMISSION_MODE = 'auto'
     ;(process.stdout.write as unknown as (chunk: string | Uint8Array) => boolean) = (
       chunk: string | Uint8Array,
     ) => {

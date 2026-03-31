@@ -8,6 +8,13 @@
 
 import type { AssistantMessage, ImageContent } from "@gsd/pi-ai";
 import type { AgentSession } from "../core/agent-session.js";
+import {
+	getPermissionMode,
+	registerStdioApprovalHandler,
+	registerStdioClassifierHandler,
+	resolveApprovalResponse,
+	resolveClassifierResponse,
+} from "../core/tool-approval.js";
 import { createDefaultCommandContextActions } from "./shared/command-context-actions.js";
 
 /**
@@ -36,6 +43,35 @@ export async function runPrintMode(session: AgentSession, options: PrintModeOpti
 			console.log(JSON.stringify(header));
 		}
 	}
+	// Register approval/classifier handlers when running in supervised (Studio) mode.
+	// Subagents run as child processes in print mode; they need these handlers so that
+	// approval requests are forwarded to the Studio host via stdout/stdin.
+	const permMode = getPermissionMode();
+	if (permMode === "accept-on-edit") registerStdioApprovalHandler();
+	if (permMode === "auto") registerStdioClassifierHandler();
+
+	// Set up a stdin line reader to receive approval/classifier responses forwarded
+	// from the parent process (Studio or parent subagent).
+	if (permMode === "accept-on-edit" || permMode === "auto") {
+		let stdinBuf = "";
+		process.stdin.on("data", (chunk: Buffer) => {
+			stdinBuf += chunk.toString("utf8");
+			let idx: number;
+			while ((idx = stdinBuf.indexOf("\n")) !== -1) {
+				const line = stdinBuf.slice(0, idx).trim();
+				stdinBuf = stdinBuf.slice(idx + 1);
+				if (!line) continue;
+				try {
+					const msg = JSON.parse(line);
+					if (msg.type === "approval_response") resolveApprovalResponse(msg.id, msg.approved);
+					else if (msg.type === "classifier_response") resolveClassifierResponse(msg.id, msg.approved);
+				} catch {
+					/* ignore non-JSON lines */
+				}
+			}
+		});
+	}
+
 	// Set up extensions for print mode (no UI)
 	await session.bindExtensions({
 		commandContextActions: createDefaultCommandContextActions(session),

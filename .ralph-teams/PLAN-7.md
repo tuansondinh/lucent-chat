@@ -9,7 +9,7 @@ Status: draft
 
 1. [x] Phase 1: Types, RPC Protocol, and Settings — complexity: standard
    - Extend `PermissionMode` type to include `'auto'` in `tool-approval.ts`
-   - Update `getPermissionMode()` to recognize `'auto'` from `GSD_STUDIO_PERMISSION_MODE` env var
+   - Update `getPermissionMode()` to recognize `'auto'` from `LUCENT_CODE_PERMISSION_MODE` env var
    - Add `classifier_request` stdout event type and `classifier_response` stdin type to `rpc-types.ts`
    - Add `handleInputLine()` clause in `rpc-mode.ts` for `classifier_response` → calls `resolveClassifierResponse()`
    - Add `registerStdioClassifierHandler()` and `resolveClassifierResponse()` to `tool-approval.ts` (mirrors approval pattern)

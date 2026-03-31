@@ -20,6 +20,7 @@ import { createRemoteBridgeDispatcher } from './remote-bridge-dispatch.js'
 import { WebBridgeServer } from './web-bridge-server.js'
 import { TailscaleService } from './tailscale-service.js'
 import { UpdateService } from './update-service.js'
+import { SerenaService } from './serena-service.js'
 import type { AppSettings } from './settings-service.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -36,6 +37,7 @@ let processManager: ProcessManager | null = null
 let terminalManager: TerminalManager | null = null
 let paneManager: PaneManager | null = null
 let voiceService: VoiceService | null = null
+let serenaService: SerenaService | null = null
 let fileWatchService: FileWatchService | null = null
 let webBridgeServer: WebBridgeServer | null = null
 let tailscaleService: TailscaleService | null = null
@@ -222,6 +224,7 @@ app.whenReady().then(async () => {
 
   // 3. Process Manager
   processManager = new ProcessManager()
+  serenaService = new SerenaService(processManager, settingsService, broadcast)
 
   // 3a. Voice Service — project root is 3 levels up from studio/dist/main at runtime
   voiceService = new VoiceService(() => join(__dirname, '..', '..', '..'))
@@ -297,7 +300,7 @@ app.whenReady().then(async () => {
     agentEnv.TAVILY_API_KEY = settings.tavilyApiKey
   }
   // Pass permission mode so the agent can register the stdio approval handler
-  agentEnv.GSD_STUDIO_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
+  agentEnv.LUCENT_CODE_PERMISSION_MODE = (settings as any).permissionMode ?? 'accept-on-edit'
   agentEnv.GSD_STUDIO_THINKING_LEVEL = settings.thinkingLevel ?? 'medium'
   processManager.spawnAgent(initialProjectRoot, agentEnv)
   attachAgentBridge()
@@ -372,6 +375,7 @@ app.whenReady().then(async () => {
     () => mainWindow,
     classifierService,
     broadcast,
+    serenaService!,
   )
 
   // 11. Auto-updater — check for updates 10s after launch (production only)
