@@ -33,7 +33,8 @@ export type AppAction =
 	| "newSession"
 	| "tree"
 	| "fork"
-	| "resume";
+	| "resume"
+	| "cyclePermissionMode";
 
 /**
  * All configurable actions.
@@ -55,7 +56,7 @@ const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	clear: "ctrl+c",
 	exit: "ctrl+d",
 	suspend: "ctrl+z",
-	cycleThinkingLevel: "shift+tab",
+	cycleThinkingLevel: [],
 	cycleModelForward: "ctrl+p",
 	cycleModelBackward: "shift+ctrl+p",
 	selectModel: "ctrl+l",
@@ -70,6 +71,7 @@ const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	tree: [],
 	fork: [],
 	resume: [],
+	cyclePermissionMode: "shift+tab",
 };
 
 /**
@@ -101,6 +103,7 @@ const APP_ACTIONS: AppAction[] = [
 	"tree",
 	"fork",
 	"resume",
+	"cyclePermissionMode",
 ];
 
 function isAppAction(action: string): action is AppAction {

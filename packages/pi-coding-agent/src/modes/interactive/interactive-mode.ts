@@ -55,6 +55,7 @@ import type {
 import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.js";
 import { type AppAction, KeybindingsManager } from "../../core/keybindings.js";
 import { createCompactionSummaryMessage } from "../../core/messages.js";
+import { getPermissionMode, setPermissionMode, type PermissionMode } from "../../core/tool-approval.js";
 import { resolveModelScope } from "../../core/model-resolver.js";
 import type { ResourceDiagnostic } from "../../core/resource-loader.js";
 import { type SessionContext, SessionManager } from "../../core/session-manager.js";
@@ -422,6 +423,7 @@ export class InteractiveMode {
 				hint("suspend", "to suspend"),
 				keyHint("deleteToLineEnd", "to delete to end"),
 				hint("cycleThinkingLevel", "to cycle thinking level"),
+				hint("cyclePermissionMode", "to cycle permission mode"),
 				rawKeyHint(`${appKey(kb, "cycleModelForward")}/${appKey(kb, "cycleModelBackward")}`, "to cycle models"),
 				hint("selectModel", "to select model"),
 				hint("expandTools", "to expand tools"),
@@ -1909,6 +1911,7 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("resume", () => this.showSessionSelector());
+		this.defaultEditor.onAction("cyclePermissionMode", () => this.cyclePermissionMode());
 
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
