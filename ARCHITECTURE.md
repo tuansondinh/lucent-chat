@@ -180,7 +180,7 @@ See also: [`docs/runtime-tools.md`](docs/runtime-tools.md) for how the runtime e
 
 **`modes/`** — execution modes:
 - `interactive/` — full TUI interactive session
-- `print-mode.ts` — single-shot `-p` mode
+- `print-mode.ts` — single-shot `-p` mode; when running as a subagent in Studio, registers stdio approval/classifier handlers if `LUCENT_CODE_PERMISSION_MODE` is `accept-on-edit` or `auto`
 - `rpc/` — JSON-RPC mode for programmatic use; `get_state` now includes structured `contextUsage`, and the runtime accepts compaction requests from the Electron UI
 
 **`resources/`** — bundled skills, extensions, agent resources
@@ -333,21 +333,64 @@ The Electron UI consumes structured context usage from RPC state and exposes exp
 
 ---
 
-### Security Classifier Flow (Electron)
+### Permission Approval Flows (Electron)
 
-When the agent attempts to execute a tool (e.g., `bash` or file mutations) and the user has configured "Auto" approval mode:
+The runtime uses permission modes to control tool execution with approval gates. Subagents running as child processes forward approval/classifier requests upstream to the Studio host, with responses routed back to child stdin.
+
+#### Environment Variable
+
+- **`LUCENT_CODE_PERMISSION_MODE`** — controls permission behavior:
+  - `"danger-full-access"` — no approvals (default)
+  - `"accept-on-edit"` — gate bash and file mutations on approval requests
+  - `"auto"` — gate tool execution on LLM classifier evaluation
+
+#### Approval Request Forwarding (Subagents)
+
+When a subagent (child process) needs approval or classification:
+
+```
+Subagent (child process)
+      │  requestFileChangeApproval(request)
+      │  or classifier request
+      ▼
+registerStdioApprovalHandler (in print-mode.ts)
+      │  formats { type: 'approval_request', id, action, path, message }
+      │  writes to stdout (parent sees this)
+      │  awaits { type: 'approval_response', id, approved } on stdin
+      ▼
+Parent Process (Studio or parent subagent)
+      │  routes proxied ID to correct child via stdin
+      │  receives original approval request from child's stdout
+      │  shows UI, gets user decision, forwards response
+      ▼
+Subagent stdin
+      │  receives { type: 'approval_response', id, approved }
+      │  resolveApprovalResponse(id, approved) resumes tool execution
+```
+
+Key implementation:
+- `tool-approval.ts` — `setSubagentApprovalRouter()` and `setSubagentClassifierRouter()` route responses to correct child
+- `print-mode.ts` — registers stdio handlers when `LUCENT_CODE_PERMISSION_MODE` is `accept-on-edit` or `auto`
+- `subagent/index.ts` — manages proxied request IDs to map parent responses back to child streams
+
+#### File Change Approval (Supervised Mode)
+
+In `accept-on-edit` mode, the following operations gate on approval:
+
+- **`bash` tool** — in `agent-session.ts`, bash invocation calls `requestFileChangeApproval` before execution
+- **`edit` tool** — in `edit.ts`, file modifications call `requestFileChangeApproval` with diff preview
+- **`write` tool** — calls `requestFileChangeApproval` for new file creation
+- **Subagent merge** — in `mergeDeltaPatches()`, parses unified diff and calls `requestFileChangeApproval` per file before `git apply`
+
+#### Security Classifier Flow (Auto Mode)
+
+When the agent attempts to execute a tool and user has configured "Auto" approval mode:
 
 ```
 Runtime subprocess (RPC mode)
       │  agent.invoke(toolName, args)
       ▼
-Main: agent-bridge.ts
-      │  intercepts tool invocation → emits 'classifier-request'
-      ▼
-Main: ipc-handlers.ts
-      │  handles classifier forwarding for pane
-      ▼
-Main: classifier-service.ts
+Main: classifier-service.ts (Electron)
       │  1. Evaluate static rules (extract subcommands for deny rules)
       │  2. If matched, approve/deny locally
       │  3. If no match, formulate system prompt with tool info
@@ -360,7 +403,43 @@ Runtime subprocess
       │  resumes or denies tool execution
 ```
 
-The classifier flow hardens the runtime by enforcing strict local static rules before falling back to the LLM agent for evaluation. For `bash` commands, the `ClassifierService` decomposes commands into subcommands (handling command chaining, subshells, interpreter wrappers, and path/env stripping). Deny rules evaluate against all extracted candidates to prevent evasion, while allow rules only match the full exact command. This provides significant bounds on agent capabilities and prevents unsafe execution like `rm -rf` nested inside a bash script.
+For `bash` commands, the `ClassifierService` decomposes commands into subcommands (handling command chaining, subshells, interpreter wrappers, and path/env stripping). Deny rules evaluate against all extracted candidates to prevent evasion, while allow rules only match the full exact command. This provides significant bounds on agent capabilities and prevents unsafe execution like `rm -rf` nested inside a bash script.
+
+#### Subagent Isolation Merge
+
+When subagents apply file patches via `mergeDeltaPatches()`:
+1. Parse unified diff to extract file operations (write/edit/delete/move)
+2. In `accept-on-edit` mode, call `requestFileChangeApproval()` per file before applying
+3. Responses flow back through stdout/stdin relay from parent
+4. Only proceed with `git apply` if all files are approved
+
+### Subagent Approval Forwarding (Details)
+
+Subagents run as isolated child processes in `--mode json` (print mode). When they need approval or classification:
+
+**Registration** (`print-mode.ts`):
+- On startup, check `getPermissionMode()`
+- If `accept-on-edit`: call `registerStdioApprovalHandler()` to set up stdout emit + stdin listen
+- If `auto`: call `registerStdioClassifierHandler()` to set up stdout emit + stdin listen
+
+**Request Flow** (`tool-approval.ts`):
+- Subagent calls `requestFileChangeApproval()` or classifier evaluation
+- Handler emits `{ type: 'approval_request' | 'classifier_request', id: 'apr_<counter>_<timestamp>', ... }` to stdout
+- Parent (`subagent/index.ts`) intercepts via stdout line reader
+- Parent generates proxy ID (`subagent_<counter>_<proxyId>`) and stores mapping: `{ originalId, proc, type }`
+- Parent forwards to Studio UI for decision
+
+**Response Flow**:
+- User decision comes back to parent from Studio IPC
+- Parent routes via `setSubagentApprovalRouter(router)` or `setSubagentClassifierRouter(router)`
+- Router writes `{ type: 'approval_response' | 'classifier_response', id: <originalId>, approved }` to child stdin
+- Child's stdin listener resolves pending promise, tool execution resumes
+
+**Files involved**:
+- `packages/pi-coding-agent/src/core/tool-approval.ts` — core approval/classifier infrastructure
+- `packages/pi-coding-agent/src/modes/print-mode.ts` — registration of stdio handlers
+- `src/resources/extensions/subagent/index.ts` — subagent spawning and request proxying
+- `apps/studio/src/main/agent-bridge.ts` — parent process approval forwarding
 
 ---
 
