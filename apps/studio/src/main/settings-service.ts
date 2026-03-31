@@ -84,6 +84,9 @@ export interface AppSettings {
 
   /** Whether RTK command rewriting is enabled for bash tool calls. Default: false. */
   rtkEnabled?: boolean
+
+  /** Per-agent model overrides for built-in subagents. Keys are agent names, values are model IDs. */
+  subagentModels?: Record<string, string>
 }
 
 // ============================================================================

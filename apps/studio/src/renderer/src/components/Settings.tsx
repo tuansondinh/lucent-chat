@@ -79,7 +79,7 @@ interface SettingsProps {
   isMobile?: boolean
 }
 
-type Tab = 'general' | 'updates' | 'apikeys' | 'models' | 'permissions' | 'shortcuts' | 'skills' | 'remote-access'
+type Tab = 'general' | 'updates' | 'apikeys' | 'models' | 'agents' | 'permissions' | 'shortcuts' | 'skills' | 'remote-access'
 
 interface Model {
   provider: string
@@ -127,6 +127,7 @@ const TABS: TabItem[] = [
   { id: 'updates',   label: 'Updates',   icon: <ScrollText className="w-3.5 h-3.5" /> },
   { id: 'apikeys',   label: 'API Keys',  icon: <Key          className="w-3.5 h-3.5" /> },
   { id: 'models',    label: 'Models',    icon: <Cpu          className="w-3.5 h-3.5" /> },
+  { id: 'agents',    label: 'Agents',    icon: <Zap          className="w-3.5 h-3.5" /> },
   { id: 'permissions', label: 'Auto Mode', icon: <ShieldCheck className="w-3.5 h-3.5" /> },
   { id: 'skills',        label: 'Skills',        icon: <Zap      className="w-3.5 h-3.5" /> },
   { id: 'shortcuts',     label: 'Shortcuts',     icon: <Keyboard className="w-3.5 h-3.5" /> },
@@ -215,6 +216,7 @@ export function Settings({
   const [localTextToSpeechMode, setLocalTextToSpeechMode] = useState(textToSpeechMode)
   const [localNotificationSoundEnabled, setLocalNotificationSoundEnabled] = useState(notificationSoundEnabled)
   const [localVoicePttShortcut, setLocalVoicePttShortcut] = useState<'space' | 'alt+space' | 'cmd+shift+space'>(voicePttShortcut)
+  const [subagentModels, setSubagentModels] = useState<Record<string, string>>({})
   const [loadingModels, setLoadingModels] = useState(false)
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([])
   const [skills, setSkills] = useState<Array<{ name: string; description: string; trigger: string; stepCount: number }>>([])
@@ -309,6 +311,11 @@ export function Settings({
         } else {
           setDefaultModel('')
         }
+        if (s.subagentModels && typeof s.subagentModels === 'object') {
+          setSubagentModels(s.subagentModels)
+        } else {
+          setSubagentModels({})
+        }
         if (s.thinkingLevel === 'off' || s.thinkingLevel === 'auto' || s.thinkingLevel === 'low' || s.thinkingLevel === 'medium' || s.thinkingLevel === 'high') {
           setLocalThinkingLevel(s.thinkingLevel)
         } else {
@@ -376,6 +383,19 @@ export function Settings({
     const [provider, ...rest] = value.split('/')
     const modelId = rest.join('/')
     bridge.setSettings({ defaultModel: { provider, modelId } }).catch(() => {})
+  }, [bridge])
+
+  const handleSubagentModelChange = useCallback((agentName: string, modelId: string) => {
+    setSubagentModels((prev) => {
+      const next = { ...prev }
+      if (modelId === '__default') {
+        delete next[agentName]
+      } else {
+        next[agentName] = modelId
+      }
+      bridge.setSettings({ subagentModels: next }).catch(() => {})
+      return next
+    })
   }, [bridge])
 
   const handleThinkingLevelChange = useCallback((value: 'off' | 'auto' | 'low' | 'medium' | 'high') => {
@@ -557,6 +577,13 @@ export function Settings({
                 thinkingLevel={localThinkingLevel}
                 onThinkingLevelChange={handleThinkingLevelChange}
                 showAdaptiveOption={showAdaptiveThinkingOption}
+              />
+            )}
+            {activeTab === 'agents' && (
+              <AgentsTab
+                models={models}
+                subagentModels={subagentModels}
+                onSubagentModelChange={handleSubagentModelChange}
               />
             )}
             {activeTab === 'permissions' && (
@@ -1599,6 +1626,64 @@ function ModelsTab({
             </SelectContent>
           </Select>
         </Field>
+      </Section>
+    </div>
+  )
+}
+
+// ============================================================================
+// AgentsTab
+// ============================================================================
+
+const BUILTIN_AGENT_UI = [
+  { name: 'scout', label: 'Scout', description: 'Fast codebase recon that returns compressed context for handoff to other agents', defaultModel: 'gemini-3-flash-preview' },
+  { name: 'researcher', label: 'Researcher', description: 'Web researcher that finds and synthesizes current information using Brave Search', defaultModel: 'Default' },
+  { name: 'worker', label: 'Worker', description: 'General-purpose subagent with full capabilities, isolated context', defaultModel: 'Default' },
+  { name: 'teams-builder', label: 'Teams Builder', description: 'Builder subagent. Implements a single phase or applies review fixes, verifies, then commits.', defaultModel: 'sonnet' },
+  { name: 'teams-reviewer', label: 'Teams Reviewer', description: 'Opus reviewer subagent. Reviews implementation against acceptance criteria.', defaultModel: 'opus' },
+] as const
+
+function AgentsTab({
+  models,
+  subagentModels,
+  onSubagentModelChange,
+}: {
+  models: Model[]
+  subagentModels: Record<string, string>
+  onSubagentModelChange: (agentName: string, modelId: string) => void
+}) {
+  return (
+    <div className="p-6 space-y-6">
+      <Section title="Built-in Agent Models">
+        <div className="space-y-4">
+          {BUILTIN_AGENT_UI.map((agent) => {
+            const currentValue = subagentModels[agent.name] ?? '__default'
+            return (
+              <div key={agent.name} className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-text-primary">{agent.label}</div>
+                  <div className="text-xs text-text-secondary mt-0.5 truncate">{agent.description}</div>
+                </div>
+                <Select
+                  value={currentValue}
+                  onValueChange={(value) => onSubagentModelChange(agent.name, value)}
+                >
+                  <SelectTrigger className="w-72 flex-shrink-0 text-xs">
+                    <SelectValue placeholder={`Default (${agent.defaultModel})`} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64 overflow-y-auto">
+                    <SelectItem value="__default">Default ({agent.defaultModel})</SelectItem>
+                    {models.map((m) => (
+                      <SelectItem key={`${m.provider}/${m.id}`} value={`${m.provider}/${m.id}`}>
+                        {m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )
+          })}
+        </div>
       </Section>
     </div>
   )

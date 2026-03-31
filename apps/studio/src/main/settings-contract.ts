@@ -242,6 +242,18 @@ export function validateSettingsPatch(partial: Record<string, unknown>): Partial
     validated.rtkEnabled = partial.rtkEnabled
   }
 
+  if ('subagentModels' in partial) {
+    const value = partial.subagentModels
+    if (
+      value !== undefined &&
+      (typeof value !== 'object' || value === null || Array.isArray(value) ||
+        Object.values(value as object).some((v) => typeof v !== 'string'))
+    ) {
+      throw new Error('Invalid subagentModels setting')
+    }
+    validated.subagentModels = value as AppSettings['subagentModels']
+  }
+
   const unknownKeys = Object.keys(partial).filter((key) => !(key in validated))
   if (unknownKeys.length > 0) {
     throw new Error(`Unknown settings key: ${unknownKeys[0]}`)
