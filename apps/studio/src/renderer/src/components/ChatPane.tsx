@@ -5,8 +5,8 @@
  * submit/abort handlers, session state, and the full chat column UI.
  */
 
-import { memo, useEffect, useRef, useCallback, useState, type ReactNode } from 'react'
-import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck, X } from 'lucide-react'
+import { memo, useEffect, useRef, useCallback, useState, useMemo, type ReactNode } from 'react'
+import { ChevronDown, Cpu, Folder, GitBranch, Loader2, Shield, ShieldAlert, ShieldCheck, Terminal as TerminalIcon, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { ChatMessage } from './ChatMessage'
 import { ChatInput, type ChatInputHandle } from './ChatInput'
@@ -212,9 +212,11 @@ function PaneFooter({
     return () => observer.disconnect()
   }, [])
 
-  const showThinkingLabel = footerWidth > 940
-  const showModeLabel = footerWidth > 880
-  const branchBadgeMaxWidth = footerWidth > 1100 ? 'max-w-[160px]' : 'max-w-[120px]'
+  const showThinkingLabel = footerWidth > 700
+  const showModeLabel = footerWidth > 640
+  const showContextUsage = footerWidth > 600
+  const branchBadgeMaxWidth = footerWidth > 900 ? 'max-w-[140px]' : 'max-w-[100px]'
+  const projectRootMaxWidth = footerWidth > 800 ? 'max-w-[200px]' : 'max-w-[120px]'
   const thinkingBadgeLabel = thinkingLevel === 'medium' ? 'med' : thinkingLevel
 
   const shortRoot = projectRoot
@@ -223,7 +225,7 @@ function PaneFooter({
   const contextUsageLabel = contextUsagePct !== null
     ? `Context usage: ${Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%`
     : null
-  const thinkingTooltip = `Thinking level: ${thinkingLevel} — click or press Shift+T to cycle`
+  const thinkingTooltip = `Thinking level: ${thinkingLevel} — click or press Cmd+T to cycle`
   const permissionTooltip =
     permissionMode === 'auto'
       ? 'Permission mode: Auto Mode — classifier filters tool calls. Press Shift+Tab to cycle.'
@@ -262,8 +264,8 @@ function PaneFooter({
   }, [paneId, bridge])
 
   return (
-    <div ref={footerRef} className={`flex items-center justify-between gap-3 px-3 py-1 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none`}>
-      <div className="flex min-w-0 items-center gap-3">
+    <div ref={footerRef} className={`flex items-center justify-between gap-2 px-3 h-7 border-t border-border ${chrome.bar} ${chrome.text} flex-shrink-0 select-none overflow-hidden`}>
+      <div className="flex min-w-0 items-center gap-2">
         {/* Current git branch */}
         <FooterTooltip content={branchLoading ? 'Loading current git branch…' : gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}>
           <div
@@ -271,12 +273,12 @@ function PaneFooter({
             title={branchLoading ? 'Loading current git branch…' : gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}
           >
             {branchLoading ? (
-              <Loader2 className="size-3 flex-shrink-0 animate-spin" />
+              <Loader2 className="size-2.5 flex-shrink-0 animate-spin" />
             ) : (
-              <GitBranch className="size-3 flex-shrink-0" />
+              <GitBranch className="size-2.5 flex-shrink-0" />
             )}
             <div
-              className={`${branchBadgeMaxWidth} truncate rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] text-text-primary`}
+              className={`${branchBadgeMaxWidth} truncate rounded-md border border-white/10 bg-white/10 px-1.5 py-0.5 text-[10px] text-text-primary`}
               title={gitBranch ? `Current git branch: ${gitBranch}` : 'No git branch detected'}
             >
               {gitBranch ?? 'No branch'}
@@ -291,18 +293,18 @@ function PaneFooter({
             className="flex min-w-0 items-center gap-1 opacity-70 transition-opacity hover:opacity-100 cursor-pointer"
             title={projectRoot ? `Project root: ${projectRoot} — click to change` : 'Choose project root'}
           >
-            <Folder className="size-3 flex-shrink-0" />
-            <span className="truncate max-w-[200px]">{shortRoot}</span>
+            <Folder className="size-2.5 flex-shrink-0" />
+            <span className={`truncate text-[10px] ${projectRootMaxWidth}`}>{shortRoot}</span>
           </button>
         </FooterTooltip>
       </div>
 
       {/* Right side: context usage + permission mode indicator + model picker */}
       <div className="flex items-center gap-1">
-        {contextUsagePct !== null && (
+        {contextUsagePct !== null && showContextUsage && (
           <FooterTooltip content={contextUsageLabel ?? 'Context usage unavailable'}>
             <div
-              className="rounded-full px-2 py-0.5 text-[10px] font-mono text-text-primary opacity-80"
+              className="rounded-full px-1.5 py-0.5 text-[10px] font-mono text-text-primary opacity-80 whitespace-nowrap"
               title={contextUsageLabel ?? 'Context usage unavailable'}
             >
               ctx {Math.max(0, Math.min(999, Math.round(contextUsagePct)))}%
@@ -313,10 +315,10 @@ function PaneFooter({
         <FooterTooltip content={thinkingTooltip}>
           <button
             onClick={onToggleThinkingLevel}
-            className="flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100 opacity-80 cursor-pointer"
+            className="flex items-center gap-1 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-text-primary/85 transition-opacity hover:opacity-100 opacity-80 cursor-pointer"
             title={thinkingTooltip}
           >
-            <Cpu className="h-3 w-3 flex-shrink-0 text-accent" />
+            <Cpu className="h-2.5 w-2.5 flex-shrink-0 text-accent" />
             <span className="uppercase tracking-[0.08em]">
               {showThinkingLabel ? `thinking ${thinkingBadgeLabel}` : thinkingBadgeLabel}
             </span>
@@ -328,15 +330,15 @@ function PaneFooter({
           <button
             onClick={() => bridge.togglePanePermissionMode?.(paneId).catch(() => {})}
             title={permissionTooltip}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+            className="flex items-center gap-1 px-1 py-0.5 rounded opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
             data-permission-mode={permissionMode}
           >
             {permissionMode === 'auto' ? (
-              <ShieldCheck className="h-3 w-3 text-yellow-400 flex-shrink-0" />
+              <ShieldCheck className="h-2.5 w-2.5 text-yellow-400 flex-shrink-0" />
             ) : permissionMode === 'accept-on-edit' ? (
-              <ShieldAlert className="h-3 w-3 text-green-500 flex-shrink-0" />
+              <ShieldAlert className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />
             ) : (
-              <Shield className="h-3 w-3 text-red-400 flex-shrink-0" />
+              <Shield className="h-2.5 w-2.5 text-red-400 flex-shrink-0" />
             )}
             {showModeLabel && (
               <span
@@ -368,9 +370,9 @@ function PaneFooter({
                 onSwitchToTerminal()
               }}
               title="Terminal mode — switch this pane to terminal"
-              className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
+              className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
             >
-              <span className="font-medium">Term</span>
+              <TerminalIcon className="h-2.5 w-2.5 flex-shrink-0" />
             </button>
           </FooterTooltip>
         )}
@@ -384,11 +386,11 @@ function PaneFooter({
               onOpenModelPicker()
             }}
             title={modelTooltip}
-            className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
+            className="flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] text-text-primary opacity-70 transition-all hover:opacity-100 hover:text-accent-gray hover:bg-accent-gray/10"
           >
             <Cpu className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="font-mono">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
-            <ChevronDown className="h-2.5 w-2.5 flex-shrink-0 opacity-60" />
+            <span className="font-mono truncate max-w-[80px]">{formatModelDisplay(currentModel, { fallback: 'Select model' })}</span>
+            <ChevronDown className="h-2 w-2 flex-shrink-0 opacity-60" />
           </button>
         </FooterTooltip>
       </div>
@@ -430,6 +432,8 @@ interface ChatPaneProps {
 
 const SPACE_HOLD_TO_TALK_DELAY_MS = 220
 const BRANCH_POLL_INTERVAL_MS = 3_000
+/** Inactive panes poll much less frequently to reduce background RPC load. */
+const BRANCH_POLL_INTERVAL_INACTIVE_MS = 15_000
 
 const keyboardShortcuts = [
   { key: <><Kbd>⌘</Kbd><Kbd>K</Kbd></>, label: 'Command palette' },
@@ -438,7 +442,7 @@ const keyboardShortcuts = [
   { key: <><Kbd>⌘</Kbd><Kbd>E</Kbd></>, label: 'File explorer' },
   { key: <><Kbd>⌘</Kbd><Kbd>⇧</Kbd><Kbd>F</Kbd></>, label: 'File viewer' },
   { key: <><Kbd>⌘</Kbd><Kbd>B</Kbd></>, label: 'Toggle sidebar' },
-  { key: <><Kbd>⇧</Kbd><Kbd>T</Kbd></>, label: 'Cycle thinking level' },
+  { key: <><Kbd>⌘</Kbd><Kbd>T</Kbd></>, label: 'Cycle thinking level' },
   { key: <><Kbd>⌘</Kbd><Kbd>D</Kbd></>, label: 'Split pane' },
   { key: <><Kbd>⌘</Kbd><Kbd>⌥</Kbd><Kbd>←</Kbd><Kbd>↑</Kbd><Kbd>↓</Kbd><Kbd>→</Kbd></>, label: 'Navigate panes' },
   { key: <><Kbd>⇧</Kbd><Kbd>⇥</Kbd></>, label: 'Toggle permission mode' },
@@ -468,14 +472,25 @@ export function ChatPane({
 }: ChatPaneProps) {
   const capabilities = getCapabilities()
   const store = getPaneStore(paneId)
+
+  // ── Granular selectors — each subscribes only to the slice it needs.
+  // This prevents the entire ChatPane from re-rendering on every streaming
+  // chunk; only the components that consume `messages` / `isGenerating` etc.
+  // will re-render when those specific values change.
+  const messages        = store((s) => s.messages)
+  const agentHealth     = store((s) => s.agentHealth)
+  const isGenerating    = store((s) => s.isGenerating)
+  const isCompacting    = store((s) => s.isCompacting)
+  const sessionEpoch    = store((s) => s.sessionEpoch)
+  const currentSessionPath = store((s) => s.currentSessionPath)
+  const projectRoot     = store((s) => s.projectRoot)
+  const contextUsagePct = store((s) => s.contextUsagePct)
+  const autoModeState   = store((s) => s.autoModeState)
+  const permissionMode  = store((s) => s.permissionMode)
+
+  // Actions never change identity — grab them once via getState() so that
+  // neither the render path nor useCallback deps need to list them.
   const {
-    messages,
-    agentHealth,
-    isGenerating,
-    pendingMessageCount,
-    isCompacting,
-    autoCompactionEnabled,
-    sessionEpoch,
     appendChunk,
     finalizeMessage,
     addUserMessage,
@@ -494,11 +509,7 @@ export function ChatPane({
     loadHistory,
     setSessionPath,
     setSessionName,
-    currentModel,
-    currentSessionPath,
-    projectRoot,
-    contextUsagePct,
-  } = store()
+  } = useMemo(() => store.getState(), [store]) // store reference is stable — actions are stable too
 
   const bridge = getBridge()
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -516,6 +527,9 @@ export function ChatPane({
   const voiceAudioEnabledRef = useRef(voiceAudioEnabled)
   const onRequestAttentionRef = useRef(onRequestAttention)
   const playNotificationSoundRef = useRef<(() => void) | null>(null)
+  const pendingTextChunksRef = useRef<Map<string, string>>(new Map())
+  const pendingThinkingChunksRef = useRef<Map<string, string>>(new Map())
+  const chunkFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { play: playNotificationSound } = useNotificationSound(notificationSoundEnabled)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [queuedPrompt, setQueuedPrompt] = useState<{ label: string; text: string; imageDataUrl?: string } | null>(null)
@@ -525,8 +539,6 @@ export function ChatPane({
   const [availableSkills, setAvailableSkills] = useState<Array<{ trigger: string; name: string; description: string }>>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequest | null>(null)
   const [pendingUiSelect, setPendingUiSelect] = useState<UiSelectRequest | null>(null)
-  const autoModeState = store((s) => s.autoModeState)
-  const permissionMode = store((s) => s.permissionMode)
 
   // Keep textToSpeechModeRef in sync so the stale bridge-listener closure reads the current value
   useEffect(() => { isActiveRef.current = isActive }, [isActive])
@@ -535,6 +547,45 @@ export function ChatPane({
   useEffect(() => { onRequestAttentionRef.current = onRequestAttention }, [onRequestAttention])
   // Keep playNotificationSoundRef in sync
   useEffect(() => { playNotificationSoundRef.current = playNotificationSound }, [playNotificationSound])
+
+  const flushBufferedStreamingState = useCallback(() => {
+    if (chunkFlushTimerRef.current) {
+      clearTimeout(chunkFlushTimerRef.current)
+      chunkFlushTimerRef.current = null
+    }
+
+    const pendingTextChunks = pendingTextChunksRef.current
+    if (pendingTextChunks.size > 0) {
+      for (const [turnId, text] of pendingTextChunks.entries()) {
+        store.getState().appendChunk(turnId, text)
+      }
+      pendingTextChunks.clear()
+    }
+
+    const pendingThinkingChunks = pendingThinkingChunksRef.current
+    if (pendingThinkingChunks.size > 0) {
+      for (const [turnId, text] of pendingThinkingChunks.entries()) {
+        store.getState().appendThinkingChunk(turnId, text)
+      }
+      pendingThinkingChunks.clear()
+    }
+  }, [store])
+
+  const scheduleBufferedStreamingFlush = useCallback(() => {
+    if (chunkFlushTimerRef.current) return
+    chunkFlushTimerRef.current = setTimeout(() => {
+      flushBufferedStreamingState()
+    }, 33)
+  }, [flushBufferedStreamingState])
+
+  useEffect(() => () => {
+    if (chunkFlushTimerRef.current) {
+      clearTimeout(chunkFlushTimerRef.current)
+      chunkFlushTimerRef.current = null
+    }
+    pendingTextChunksRef.current.clear()
+    pendingThinkingChunksRef.current.clear()
+  }, [])
 
   // Helper to map bridge response to store shape
   const applyAutoModeState = useCallback((bridgeState: { paused: boolean; consecutive: number; total: number }) => {
@@ -759,7 +810,9 @@ export function ChatPane({
     const unsubs = [
       bridge.onAgentChunk(({ paneId: pid, turn_id, text }) => {
         if (pid !== paneId || isStale()) return
-        store.getState().appendChunk(turn_id, text)
+        const pending = pendingTextChunksRef.current
+        pending.set(turn_id, (pending.get(turn_id) ?? '') + text)
+        scheduleBufferedStreamingFlush()
         // Forward chunk to TTS when voice is active OR when TTS-only mode is on
         const voiceState = useVoiceStore.getState()
         const ttsActive =
@@ -769,6 +822,7 @@ export function ChatPane({
       }),
       bridge.onAgentDone(({ paneId: pid, turn_id, full_text }) => {
         if (pid !== paneId || isStale()) return
+        flushBufferedStreamingState()
         store.getState().finalizeMessage(turn_id, full_text)
         const paneIsActive = isActiveRef.current
         // Play notification chime when the agent finishes (unless TTS is taking over audio)
@@ -807,18 +861,23 @@ export function ChatPane({
       }),
       bridge.onThinkingChunk(({ paneId: pid, turn_id, text }) => {
         if (pid !== paneId || isStale()) return
-        store.getState().appendThinkingChunk(turn_id, text)
+        const pending = pendingThinkingChunksRef.current
+        pending.set(turn_id, (pending.get(turn_id) ?? '') + text)
+        scheduleBufferedStreamingFlush()
       }),
       bridge.onThinkingEnd(({ paneId: pid, turn_id, text }) => {
         if (pid !== paneId || isStale()) return
+        flushBufferedStreamingState()
         store.getState().finalizeThinking(turn_id, text)
       }),
       bridge.onTextBlockStart(({ paneId: pid, turn_id }) => {
         if (pid !== paneId || isStale()) return
+        flushBufferedStreamingState()
         store.getState().startTextBlock(turn_id)
       }),
       bridge.onTextBlockEnd(({ paneId: pid, turn_id }) => {
         if (pid !== paneId || isStale()) return
+        flushBufferedStreamingState()
         store.getState().finalizeTextBlock(turn_id)
       }),
       bridge.onHealth(({ paneId: pid, states }) => {
@@ -846,6 +905,15 @@ export function ChatPane({
             // Sync session name so the sidebar can reflect auto-naming after the first prompt
             if (typeof sessionState.sessionName === 'string' && sessionState.sessionName) {
               store.getState().setSessionName(sessionState.sessionName)
+            }
+            // Sync thinking levels in case model changed during the turn
+            if (Array.isArray(sessionState.availableThinkingLevels)) {
+              store.getState().setAvailableThinkingLevels(
+                sessionState.availableThinkingLevels as Array<'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>
+              )
+            }
+            if (typeof sessionState.thinkingLevel === 'string') {
+              store.getState().setThinkingLevel(sessionState.thinkingLevel as 'off' | 'auto' | 'low' | 'medium' | 'high')
             }
           })
           .catch(() => {})
@@ -931,6 +999,17 @@ export function ChatPane({
         store.getState().setPendingMessageCount(typeof state.pendingMessageCount === 'number' ? state.pendingMessageCount : 0)
         store.getState().setCompactionState(state.isCompacting === true, state.autoCompactionEnabled !== false)
 
+        // Sync thinking level and available levels from runtime
+        if (typeof state.thinkingLevel === 'string') {
+          const lvl = state.thinkingLevel as 'off' | 'auto' | 'low' | 'medium' | 'high'
+          store.getState().setThinkingLevel(lvl)
+        }
+        if (Array.isArray(state.availableThinkingLevels)) {
+          store.getState().setAvailableThinkingLevels(
+            state.availableThinkingLevels as Array<'off' | 'auto' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'>
+          )
+        }
+
         // Restore history only for an empty pane store. This avoids clobbering
         // live transient UI state (for example active thinking blocks) when a
         // pane remounts after layout changes such as closing a sibling pane.
@@ -950,7 +1029,7 @@ export function ChatPane({
     return () => {
       unsubs.forEach((u) => u())
     }
-  }, [paneId, sessionEpoch]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paneId, sessionEpoch, flushBufferedStreamingState, scheduleBufferedStreamingFlush]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false
@@ -982,9 +1061,10 @@ export function ChatPane({
     }
 
     void syncPaneStateMeta()
+    const pollMs = isActive ? BRANCH_POLL_INTERVAL_MS : BRANCH_POLL_INTERVAL_INACTIVE_MS
     const intervalId = setInterval(() => {
       void syncPaneStateMeta()
-    }, BRANCH_POLL_INTERVAL_MS)
+    }, pollMs)
 
     const handleWindowFocus = () => {
       void syncPaneStateMeta()
@@ -996,7 +1076,7 @@ export function ChatPane({
       clearInterval(intervalId)
       window.removeEventListener('focus', handleWindowFocus)
     }
-  }, [bridge, paneId, store, computeContextUsagePct])
+  }, [bridge, paneId, store, computeContextUsagePct, isActive])
 
   const isReplyAudioPlaying = voiceOwnedByThisPane && voiceStore.ttsPlaying
   const isAssistantBusy = isGenerating || isReplyAudioPlaying || isCompacting
@@ -1024,14 +1104,16 @@ export function ChatPane({
       toast.error('Cannot compact while generating')
       return
     }
+    store.getState().setCompactionState(true, store.getState().autoCompactionEnabled)
     try {
       await bridge.compact(paneId, customInstructions || undefined)
-      toast.success('Compacting context…')
+      store.getState().setCompactionState(false, store.getState().autoCompactionEnabled)
     } catch (err: unknown) {
+      store.getState().setCompactionState(false, store.getState().autoCompactionEnabled)
       const msg = err instanceof Error ? err.message : 'Failed to compact context'
       toast.error(msg)
     }
-  }, [bridge, paneId, isAssistantBusy])
+  }, [bridge, paneId, isAssistantBusy, store])
 
   const handleSubmit = useCallback(async (text: string, imageDataUrl?: string, force = false) => {
     const displayText = text || '[image]'
@@ -1125,10 +1207,13 @@ export function ChatPane({
   }, [])
 
   const handleCycleThinkingLevel = useCallback(() => {
-    const current = getPaneStore(paneId).getState().thinkingLevel
-    const next: 'low' | 'medium' | 'high' =
-      current === 'low' ? 'medium' : current === 'medium' ? 'high' : 'low'
-    getPaneStore(paneId).getState().setThinkingLevel(next)
+    const s = getPaneStore(paneId).getState()
+    const available = s.availableThinkingLevels.filter(
+      (l) => l !== 'minimal' && l !== 'xhigh'
+    ) as Array<'off' | 'auto' | 'low' | 'medium' | 'high'>
+    const idx = available.indexOf(s.thinkingLevel)
+    const next = available[(idx + 1) % available.length]
+    s.setThinkingLevel(next)
     bridge.setThinkingLevel(paneId, next).catch(() => {})
   }, [paneId, bridge])
 
@@ -1291,6 +1376,28 @@ export function ChatPane({
     e.dataTransfer.effectAllowed = 'move'
   }, [paneId])
 
+  const handlePaneClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isActive) {
+      onFocus()
+      return
+    }
+
+    const selection = window.getSelection()?.toString() ?? ''
+    if (selection.trim().length > 0) {
+      return
+    }
+
+    const target = e.target as HTMLElement | null
+    if (
+      target?.closest('[data-chat-message="true"]')
+      || target?.closest('button, a, input, textarea, select, [role="button"], [contenteditable="true"]')
+    ) {
+      return
+    }
+
+    inputRef.current?.focus()
+  }, [isActive, onFocus])
+
   return (
     <>
       <div
@@ -1299,18 +1406,11 @@ export function ChatPane({
           'flex flex-1 flex-col h-full min-w-0 w-full overflow-hidden transition-all duration-200',
           isMobile ? 'w-full' : '',
           !isActive ? 'opacity-60 hover:opacity-80' : '',
-          isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : '',
+          !isActive && hasUnreadResponse ? 'outline outline-2 outline-orange-400/80' : (isActive && !isOnlyPane ? 'outline outline-1 outline-accent/30' : ''),
           isPaneDragging ? 'outline outline-2 outline-accent/60' : '',
           isPaneDropTarget ? 'outline outline-2 outline-blue-400/70' : '',
         ].join(' ')}
-        onClick={() => {
-          if (!isActive) {
-            onFocus()
-          } else {
-            // Pane is already active, focus the text input
-            inputRef.current?.focus()
-          }
-        }}
+        onClick={handlePaneClick}
         onDragOver={handlePaneDragOver}
         onDragLeave={handlePaneDragLeave}
         onDrop={handlePaneDrop}
@@ -1344,7 +1444,6 @@ export function ChatPane({
         <div
           className={[
             'flex flex-1 min-h-0 flex-col overflow-hidden',
-            !isActive && hasUnreadResponse ? 'border border-orange-500/40 rounded-md' : '',
           ].join(' ')}
         >
         <main
@@ -1500,6 +1599,7 @@ export function ChatPane({
             onSubmit={(t, img) => void handleSubmit(t, img)}
             onAbort={handleAbort}
             isGenerating={isGenerating}
+            isCompacting={isCompacting}
             canQueueMessage={canQueueMessage}
             hasQueuedMessage={Boolean(queuedPrompt)}
             queuedMessageLabel={queuedMessageLabel}

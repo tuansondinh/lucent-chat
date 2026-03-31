@@ -21,6 +21,7 @@ interface Props {
   onSubmit: (text: string, imageDataUrl?: string) => void
   onAbort: () => void
   isGenerating: boolean
+  isCompacting?: boolean
   canQueueMessage?: boolean
   hasQueuedMessage?: boolean
   queuedMessageLabel?: string | null
@@ -56,6 +57,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   onSubmit,
   onAbort,
   isGenerating,
+  isCompacting = false,
   canQueueMessage = false,
   hasQueuedMessage = false,
   queuedMessageLabel = null,
@@ -128,7 +130,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const el = textareaRef.current
     if (!el) return
     el.style.height = '1px'
-    el.style.height = Math.min(el.scrollHeight, 100) + 'px'
+    el.style.height = Math.max(32, Math.min(el.scrollHeight, 100)) + 'px'
   }, [value])
 
   // Built-in slash commands always available regardless of installed skills
@@ -272,7 +274,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const handleSubmit = () => {
     const text = value.trim()
     if ((!text && !pastedImage) || disabled) return
-    if (isGenerating && !canQueueMessage) return
+    if ((isGenerating || isCompacting) && !canQueueMessage) return
     const imageToSend = pastedImage ?? undefined
     setValue('')
     setPastedImage(null)
@@ -284,7 +286,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }
 
   const queueLocked = hasQueuedMessage
-  const canSubmit = Boolean(value.trim() || pastedImage) && !disabled && (!isGenerating || canQueueMessage)
+  const isBusy = isGenerating || isCompacting
+  const canSubmit = Boolean(value.trim() || pastedImage) && !disabled && (!isBusy || canQueueMessage)
   const isVoiceStarting = voiceSidecarState === 'starting'
 
   // Mic button appearance depends on voice state.
@@ -292,7 +295,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const micButtonClass = (() => {
     const sizeClass = isMobile
       ? 'mobile-voice-btn'
-      : 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-xl'
+      : 'flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-lg'
     if (!voiceAvailable) {
       return `${sizeClass} bg-bg-tertiary border border-border text-text-tertiary opacity-40 cursor-not-allowed`
     }
@@ -318,7 +321,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   return (
     <div
       className={cn(
-        'relative border-t px-2 py-1.5 flex flex-col gap-1.5 transition-colors',
+        'relative border-t px-1.5 py-0.5 flex flex-col gap-1 transition-colors',
         isDragging ? 'border-accent bg-accent/10' : 'border-border bg-bg-secondary',
       )}
       onDragOver={handleDragOver}
@@ -327,29 +330,29 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     >
       {/* Partial transcript preview — shown when voice is active and capturing */}
       {voiceActive && partialTranscript && (
-        <div className="px-1 text-xs text-text-tertiary italic truncate">
+        <div className="px-0.5 text-[10px] text-text-tertiary italic truncate">
           {partialTranscript}
         </div>
       )}
 
       {/* Voice startup hint — shown while the sidecar is booting */}
       {isVoiceStarting && !voiceActive && (
-        <div className="px-1 text-xs text-text-tertiary">
+        <div className="px-0.5 text-[10px] text-text-tertiary">
           Starting voice service...
         </div>
       )}
 
       {queuedMessageLabel && (
-        <div className="flex items-center gap-2 px-1 text-xs">
+        <div className="flex items-center gap-1.5 px-0.5 text-[10px]">
           <div className="min-w-0 flex-1 truncate text-accent">
             Queued next: {queuedMessageLabel}
-            <span className="opacity-50 ml-1.5 font-normal italic">(hit Esc to send queued message)</span>
+            <span className="opacity-50 ml-1 font-normal italic">(hit Esc to send queued message)</span>
           </div>
           <button
             type="button"
             onClick={onEditQueuedMessage}
             title="Edit queued message"
-            className={cn(btn.outline, 'px-1.5 py-0.5 text-xs')}
+            className={cn(btn.outline, 'px-1 py-0.5 text-[10px]')}
           >
             Edit
           </button>
@@ -357,7 +360,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             type="button"
             onClick={onClearQueuedMessage}
             title="Cancel queued message"
-            className={cn(btn.outline, 'px-1.5 py-0.5 text-xs')}
+            className={cn(btn.outline, 'px-1 py-0.5 text-[10px]')}
           >
             Clear
           </button>
@@ -373,40 +376,40 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               type="button"
               onClick={() => selectSkill(skill)}
               className={cn(
-                'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+                'flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[11px] transition-colors',
                 i === selectedSkillIndex
                   ? 'bg-accent/15 text-text-primary'
                   : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary',
               )}
             >
               {skill.kind === 'builtin' ? (
-                <Terminal className="h-3 w-3 flex-shrink-0 text-text-tertiary" />
+                <Terminal className="h-2.5 w-2.5 flex-shrink-0 text-text-tertiary" />
               ) : (
-                <Zap className="h-3 w-3 flex-shrink-0 text-accent" />
+                <Zap className="h-2.5 w-2.5 flex-shrink-0 text-accent" />
               )}
-              <span className="font-medium text-text-primary whitespace-nowrap">/{skill.trigger}</span>
-              <span className="text-xs text-text-tertiary truncate">{skill.description}</span>
+              <span className="font-medium text-text-primary whitespace-nowrap text-[11px]">/{skill.trigger}</span>
+              <span className="text-[11px] text-text-tertiary truncate">{skill.description}</span>
             </button>
           ))}
         </div>
       )}
 
-      <div className="flex items-end gap-2 w-full">
+      <div className="flex items-center gap-1.5 w-full">
         {/* Image preview thumbnail */}
         {pastedImage && (
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-1.5">
             <div className="relative inline-block">
               <img
                 src={pastedImage}
                 alt="Pasted image preview"
-                className="h-14 w-auto max-w-[108px] rounded-lg border border-border object-cover"
+                className="h-12 w-auto max-w-[96px] rounded-lg border border-border object-cover"
               />
               <button
                 onClick={() => setPastedImage(null)}
                 title="Remove image"
-                className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-bg-tertiary border border-border text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
               >
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                <svg width="7" height="7" viewBox="0 0 8 8" fill="none">
                   <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </button>
@@ -424,8 +427,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             disabled
               ? 'Waiting for agent...'
               : hasQueuedMessage
-                ? 'One queued message already waiting...'
-                : isGenerating
+              ? 'One queued message already waiting...'
+                : isBusy
                   ? 'Type a follow-up and press Enter to queue it...'
                   : 'Ask anything...'
           }
@@ -433,8 +436,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           readOnly={queueLocked}
           rows={1}
           className={[
-            'flex-1 resize-none bg-transparent text-xs text-text-primary placeholder-text-tertiary',
-            'outline-none leading-4 min-h-[28px] max-h-[100px] py-1.5',
+            'flex-1 resize-none bg-transparent text-[13px] text-text-primary placeholder-text-tertiary',
+            'outline-none leading-5 min-h-[30px] max-h-[100px] py-1',
             'disabled:opacity-50 disabled:cursor-not-allowed',
             queueLocked ? 'opacity-60 cursor-default select-none' : '',
             isMobile ? 'mobile-chat-input' : '',
@@ -475,7 +478,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         >
           {isVoiceStarting ? (
             <svg
-              className={isMobile ? 'h-5 w-5 animate-spin' : 'h-4 w-4 animate-spin'}
+              className={isMobile ? 'h-5 w-5 animate-spin' : 'h-3.5 w-3.5 animate-spin'}
               viewBox="0 0 16 16"
               fill="none"
               aria-hidden="true"
@@ -484,11 +487,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               <path d="M8 2.5A5.5 5.5 0 0 1 13.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           ) : isTtsPlaying ? (
-            <Volume2 className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+            <Volume2 className={isMobile ? 'w-5 h-5' : 'w-3.5 h-3.5'} />
           ) : voiceActive ? (
-            <Mic className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+            <Mic className={isMobile ? 'w-5 h-5' : 'w-3.5 h-3.5'} />
           ) : (
-            <MicOff className={isMobile ? 'w-5 h-5' : 'w-4 h-4'} />
+            <MicOff className={isMobile ? 'w-5 h-5' : 'w-3.5 h-3.5'} />
           )}
         </button>
 
@@ -496,9 +499,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <button
             onClick={onAbort}
             title="Stop generation"
-            className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-7 w-7')}
+            className={cn(btn.danger, 'flex-shrink-0 flex items-center justify-center h-6 w-6')}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+            <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor">
               <rect x="2" y="2" width="8" height="8" rx="1" />
             </svg>
           </button>
@@ -512,16 +515,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               ? hasQueuedMessage
                 ? 'One queued follow-up already pending'
                 : 'Queue follow-up message'
+              : isCompacting
+                ? hasQueuedMessage
+                  ? 'One queued follow-up already pending'
+                  : 'Queue follow-up message'
               : 'Send message'
           }
           className={cn(
-            'flex-shrink-0 flex items-center justify-center h-7 w-7',
+            'flex-shrink-0 flex items-center justify-center h-6 w-6',
             canSubmit
               ? btn.primary
               : 'rounded-lg bg-bg-tertiary border border-border text-text-tertiary cursor-not-allowed opacity-50',
           )}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor">
             <path
               d="M6 1L11 6L6 11M1 6H11"
               stroke="currentColor"

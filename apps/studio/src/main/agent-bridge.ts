@@ -16,6 +16,8 @@ export interface AgentState {
   model?: { provider: string; id: string }
   permissionMode?: 'danger-full-access' | 'accept-on-edit' | 'auto'
   thinkingLevel: string
+  /** Thinking levels available for the current model — drives cycle and picker. */
+  availableThinkingLevels?: string[]
   isStreaming: boolean
   isCompacting: boolean
   autoCompactionEnabled?: boolean
@@ -212,7 +214,10 @@ export class AgentBridge extends EventEmitter {
 
   /** Trigger context compaction. */
   async compact(customInstructions?: string): Promise<void> {
-    await this.send({ type: 'compact', ...(customInstructions ? { customInstructions } : {}) })
+    await this.send(
+      { type: 'compact', ...(customInstructions ? { customInstructions } : {}) },
+      { timeoutMs: 5 * 60_000 },
+    )
   }
 
   /** List available models. */
@@ -227,8 +232,13 @@ export class AgentBridge extends EventEmitter {
   }
 
   /** Change the runtime thinking/reasoning level on the live agent without restarting. */
-  async setThinkingLevel(level: 'low' | 'medium' | 'high'): Promise<void> {
+  async setThinkingLevel(level: 'off' | 'auto' | 'low' | 'medium' | 'high'): Promise<void> {
     await this.send({ type: 'set_thinking_level', level })
+  }
+
+  /** Change the auto-compaction threshold (% of context window) on the live agent without restarting. */
+  async setCompactionThreshold(percent: number): Promise<void> {
+    await this.send({ type: 'set_compaction_threshold', percent })
   }
 
   // =========================================================================
@@ -322,7 +332,7 @@ export class AgentBridge extends EventEmitter {
     this.emit('classifier-responded', { id, approved })
   }
 
-  private send(command: Record<string, unknown>): Promise<any> {
+  private send(command: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<any> {
     if (!this.proc?.stdin) {
       return Promise.reject(new Error('AgentBridge: no agent process attached'))
     }
@@ -334,7 +344,7 @@ export class AgentBridge extends EventEmitter {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id)
         reject(new Error(`AgentBridge: timeout waiting for response to ${command.type as string}`))
-      }, 30_000)
+      }, options?.timeoutMs ?? 30_000)
 
       this.pendingRequests.set(id, {
         resolve: (resp) => {
