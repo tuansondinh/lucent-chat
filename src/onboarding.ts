@@ -104,7 +104,7 @@ async function loadClack(): Promise<ClackModule> {
   try {
     return await import('@clack/prompts')
   } catch {
-    throw new Error('[gsd] @clack/prompts not found — onboarding wizard requires this dependency')
+    throw new Error('[luck] @clack/prompts not found — onboarding wizard requires this dependency')
   }
 }
 
@@ -179,7 +179,7 @@ export async function runOnboarding(authStorage: AuthStorage): Promise<void> {
     ;[p, pc] = await Promise.all([loadClack(), loadPico()])
   } catch (err) {
     // If clack isn't available, fall back silently — don't block boot
-    process.stderr.write(`[gsd] Onboarding wizard unavailable: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.stderr.write(`[luck] Onboarding wizard unavailable: ${err instanceof Error ? err.message : String(err)}\n`)
     return
   }
 

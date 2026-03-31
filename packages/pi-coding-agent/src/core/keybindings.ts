@@ -34,7 +34,8 @@ export type AppAction =
 	| "tree"
 	| "fork"
 	| "resume"
-	| "cyclePermissionMode";
+	| "cyclePermissionMode"
+	| "commandPalette";
 
 /**
  * All configurable actions.
@@ -72,6 +73,7 @@ const DEFAULT_APP_KEYBINDINGS: Record<AppAction, KeyId | KeyId[]> = {
 	fork: [],
 	resume: [],
 	cyclePermissionMode: "shift+tab",
+	commandPalette: "ctrl+k",
 };
 
 /**
@@ -104,6 +106,7 @@ const APP_ACTIONS: AppAction[] = [
 	"fork",
 	"resume",
 	"cyclePermissionMode",
+	"commandPalette",
 ];
 
 function isAppAction(action: string): action is AppAction {

@@ -288,6 +288,7 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider();
 		this.footer = new FooterComponent(session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(session.autoCompactionEnabled);
+		this.footer.setPermissionMode(getPermissionMode());
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -2395,6 +2396,16 @@ export class InteractiveMode {
 			const level = this.session.thinkingLevel || "off";
 			this.editor.borderColor = theme.getThinkingBorderColor(level);
 		}
+		this.ui.requestRender();
+	}
+
+	private cyclePermissionMode(): void {
+		const modes: PermissionMode[] = ["danger-full-access", "accept-on-edit", "auto"];
+		const current = getPermissionMode();
+		const idx = modes.indexOf(current);
+		const next = modes[(idx + 1) % modes.length];
+		setPermissionMode(next);
+		this.footer.setPermissionMode(next);
 		this.ui.requestRender();
 	}
 

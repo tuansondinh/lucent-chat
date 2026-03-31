@@ -21,12 +21,12 @@ Add a `pi` manifest to `package.json`:
 
 <installing>
 ```bash
-gsd install npm:@foo/bar@1.0.0
-gsd install git:github.com/user/repo@v1
-gsd install ./local/path
+luck install npm:@foo/bar@1.0.0
+luck install git:github.com/user/repo@v1
+luck install ./local/path
 
 # Try without installing:
-gsd -e npm:@foo/bar
+luck -e npm:@foo/bar
 ```
 </installing>
 
