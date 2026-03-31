@@ -1,5 +1,5 @@
 <overview>
-Packaging extensions for distribution via npm, git, or local paths. Creating GSD/pi packages.
+Packaging extensions for distribution via npm, git, or local paths. Creating LUCK/pi packages.
 </overview>
 
 <package_manifest>
@@ -7,7 +7,7 @@ Add a `pi` manifest to `package.json`:
 
 ```json
 {
-  "name": "my-gsd-package",
+  "name": "my-luck-package",
   "keywords": ["pi-package"],
   "pi": {
     "extensions": ["./extensions"],
